@@ -125,6 +125,11 @@ pub fn validate(data: &[u8]) -> Result<ElfInfo, ElfError> {
         if p_filesz > p_memsz {
             return Err(ElfError::InvalidLoadSegment);
         }
+        // The complete memory image must have a representable half-open virtual range.
+        // Do not allow a malicious PT_LOAD to wrap when segments are mapped later.
+        if p_vaddr.checked_add(p_memsz).is_none() {
+            return Err(ElfError::InvalidLoadSegment);
+        }
 
         let file_start = usize::try_from(p_offset).map_err(|_| ElfError::InvalidLoadSegment)?;
         let file_len = usize::try_from(p_filesz).map_err(|_| ElfError::InvalidLoadSegment)?;
@@ -172,4 +177,155 @@ fn read_u64(data: &[u8], offset: usize) -> Result<u64, ElfError> {
     Ok(u64::from_le_bytes([
         bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
     ]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PAYLOAD_OFFSET: usize = ELF_HEADER_SIZE + PROGRAM_HEADER_SIZE;
+
+    fn valid_elf() -> Vec<u8> {
+        let mut data = vec![0u8; PAYLOAD_OFFSET + 4];
+        data[0..4].copy_from_slice(b"\x7fELF");
+        data[4] = ELFCLASS64;
+        data[5] = ELFDATA2LSB;
+        data[6] = EV_CURRENT;
+        data[16..18].copy_from_slice(&ET_EXEC.to_le_bytes());
+        data[18..20].copy_from_slice(&EM_X86_64.to_le_bytes());
+        data[20..24].copy_from_slice(&(EV_CURRENT as u32).to_le_bytes());
+        data[24..32].copy_from_slice(&0x1000u64.to_le_bytes());
+        data[32..40].copy_from_slice(&(ELF_HEADER_SIZE as u64).to_le_bytes());
+        data[52..54].copy_from_slice(&(ELF_HEADER_SIZE as u16).to_le_bytes());
+        data[54..56].copy_from_slice(&(PROGRAM_HEADER_SIZE as u16).to_le_bytes());
+        data[56..58].copy_from_slice(&1u16.to_le_bytes());
+
+        let ph = ELF_HEADER_SIZE;
+        data[ph..ph + 4].copy_from_slice(&PT_LOAD.to_le_bytes());
+        data[ph + 8..ph + 16].copy_from_slice(&(PAYLOAD_OFFSET as u64).to_le_bytes());
+        data[ph + 16..ph + 24].copy_from_slice(&0x1000u64.to_le_bytes());
+        data[ph + 32..ph + 40].copy_from_slice(&4u64.to_le_bytes());
+        data[ph + 40..ph + 48].copy_from_slice(&8u64.to_le_bytes());
+        data[ph + 48..ph + 56].copy_from_slice(&1u64.to_le_bytes());
+        data[PAYLOAD_OFFSET..].copy_from_slice(&[1, 2, 3, 4]);
+        data
+    }
+
+    #[test]
+    fn accepts_valid_elf64_with_bss() {
+        let info = validate(&valid_elf()).unwrap_or_else(|_| panic!("valid fixture rejected"));
+        assert_eq!(info.entry, 0x1000);
+        assert_eq!(info.program_headers, 1);
+        assert_eq!(info.load_segments, 1);
+    }
+
+    #[test]
+    fn rejects_truncated_elf_header() {
+        assert!(matches!(validate(&[0u8; 63]), Err(ElfError::Truncated)));
+    }
+
+    #[test]
+    fn rejects_bad_magic() {
+        let mut data = valid_elf();
+        data[0] = 0;
+        assert!(matches!(validate(&data), Err(ElfError::BadMagic)));
+    }
+
+    #[test]
+    fn rejects_wrong_class_and_endianness() {
+        let mut data = valid_elf();
+        data[4] = 1;
+        assert!(matches!(validate(&data), Err(ElfError::WrongClass)));
+        data[4] = ELFCLASS64;
+        data[5] = 2;
+        assert!(matches!(validate(&data), Err(ElfError::WrongEndian)));
+    }
+
+    #[test]
+    fn rejects_wrong_machine() {
+        let mut data = valid_elf();
+        data[18..20].copy_from_slice(&3u16.to_le_bytes());
+        assert!(matches!(validate(&data), Err(ElfError::WrongMachine)));
+    }
+
+    #[test]
+    fn rejects_wrong_program_header_size() {
+        let mut data = valid_elf();
+        data[54..56].copy_from_slice(&0u16.to_le_bytes());
+        assert!(matches!(
+            validate(&data),
+            Err(ElfError::BadProgramHeaderSize)
+        ));
+    }
+
+    #[test]
+    fn rejects_program_header_table_outside_file() {
+        let mut data = valid_elf();
+        let outside_table_offset = (data.len() - 55) as u64;
+        data[32..40].copy_from_slice(&outside_table_offset.to_le_bytes());
+        assert!(matches!(
+            validate(&data),
+            Err(ElfError::ProgramHeaderTableOutOfBounds)
+        ));
+    }
+
+    #[test]
+    fn rejects_program_header_table_offset_overflow() {
+        let mut data = valid_elf();
+        data[32..40].copy_from_slice(&u64::MAX.to_le_bytes());
+        assert!(matches!(
+            validate(&data),
+            Err(ElfError::ProgramHeaderTableOutOfBounds)
+        ));
+    }
+
+    #[test]
+    fn rejects_missing_load_segments() {
+        let mut data = valid_elf();
+        data[ELF_HEADER_SIZE..ELF_HEADER_SIZE + 4].copy_from_slice(&4u32.to_le_bytes());
+        assert!(matches!(validate(&data), Err(ElfError::NoLoadSegments)));
+    }
+
+    #[test]
+    fn rejects_file_image_larger_than_memory_image() {
+        let mut data = valid_elf();
+        data[ELF_HEADER_SIZE + 40..ELF_HEADER_SIZE + 48].copy_from_slice(&3u64.to_le_bytes());
+        assert!(matches!(validate(&data), Err(ElfError::InvalidLoadSegment)));
+    }
+
+    #[test]
+    fn rejects_segment_file_range_outside_image() {
+        let mut data = valid_elf();
+        data[ELF_HEADER_SIZE + 32..ELF_HEADER_SIZE + 40].copy_from_slice(&5u64.to_le_bytes());
+        assert!(matches!(validate(&data), Err(ElfError::InvalidLoadSegment)));
+    }
+
+    #[test]
+    fn rejects_segment_file_offset_overflow() {
+        let mut data = valid_elf();
+        data[ELF_HEADER_SIZE + 8..ELF_HEADER_SIZE + 16].copy_from_slice(&u64::MAX.to_le_bytes());
+        assert!(matches!(validate(&data), Err(ElfError::InvalidLoadSegment)));
+    }
+
+    #[test]
+    fn rejects_non_power_of_two_alignment() {
+        let mut data = valid_elf();
+        data[ELF_HEADER_SIZE + 48..ELF_HEADER_SIZE + 56].copy_from_slice(&3u64.to_le_bytes());
+        assert!(matches!(validate(&data), Err(ElfError::InvalidLoadSegment)));
+    }
+
+    #[test]
+    fn rejects_incongruent_file_and_memory_alignment() {
+        let mut data = valid_elf();
+        data[ELF_HEADER_SIZE + 48..ELF_HEADER_SIZE + 56].copy_from_slice(&4096u64.to_le_bytes());
+        assert!(matches!(validate(&data), Err(ElfError::InvalidLoadSegment)));
+    }
+
+    #[test]
+    fn rejects_wrapping_virtual_segment_range() {
+        let mut data = valid_elf();
+        data[ELF_HEADER_SIZE + 16..ELF_HEADER_SIZE + 24]
+            .copy_from_slice(&(u64::MAX - 3).to_le_bytes());
+        assert!(matches!(validate(&data), Err(ElfError::InvalidLoadSegment)));
+    }
 }

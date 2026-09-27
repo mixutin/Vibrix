@@ -2,6 +2,8 @@
 
 Vibrix CI builds the Rust UEFI loader and bare-metal kernel, checks formatting and lints, and boots the resulting EFI tree in headless QEMU.
 
+The CI job also compiles `boot/src/elf.rs` as a standalone host test harness and runs its parser regression tests. This uses only the official Rust toolchain and exercises malformed ELF metadata without requiring UEFI firmware. Host parser tests do not demonstrate kernel handoff.
+
 The QEMU smoke test captures Vibrix's QEMU-only debug port and requires the bootloader to prove that it:
 
 1. entered the Vibrix loader,
