@@ -44,14 +44,11 @@ pub enum EarlyFrameError {
 /// EfiLoaderData map backing must remain reserved for kernel lifetime.
 /// Never initialize this twice, enable IRQ allocation or share with APs.
 pub unsafe fn init_from_boot_info(info: &BootInfo) -> Result<(), EarlyFrameError> {
-    info.validate().map_err(|_| EarlyFrameError::InvalidBootMap)?;
+    info.validate()
+        .map_err(|_| EarlyFrameError::InvalidBootMap)?;
     let start = usize::try_from(info.memory_map).map_err(|_| EarlyFrameError::InvalidBootMap)?;
     let len = usize::try_from(info.memory_map_len).map_err(|_| EarlyFrameError::InvalidBootMap)?;
-    if start == 0
-        || len == 0
-        || len > MAX_MAP_BYTES
-        || start.checked_add(len).is_none()
-    {
+    if start == 0 || len == 0 || len > MAX_MAP_BYTES || start.checked_add(len).is_none() {
         return Err(EarlyFrameError::InvalidBootMap);
     }
     // SAFETY: the documented entry invariant covers the full loader-owned
