@@ -10,7 +10,8 @@ The QEMU smoke test captures Vibrix's QEMU-only debug port and requires the boot
 2. opened `/vibrix/kernel.elf`,
 3. validated ELF64 little-endian x86-64 metadata,
 4. parsed at least one valid `PT_LOAD` segment,
-5. accepted the kernel image.
+5. accepted the kernel image,
+6. located a linear UEFI GOP framebuffer with sane mode and size metadata.
 
 Run the same smoke test locally:
 

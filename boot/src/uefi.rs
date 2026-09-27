@@ -36,6 +36,14 @@ const SIMPLE_FILE_SYSTEM_PROTOCOL_GUID: Guid = Guid {
     data4: [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b],
 };
 
+// UEFI Specification 2.11, Graphics Output Protocol.
+const GRAPHICS_OUTPUT_PROTOCOL_GUID: Guid = Guid {
+    data1: 0x9042a9de,
+    data2: 0x23dc,
+    data3: 0x4a38,
+    data4: [0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a],
+};
+
 static KERNEL_PATH: &[u16] = &[
     '\\' as u16,
     'v' as u16,
@@ -90,6 +98,12 @@ type HandleProtocol = extern "efiapi" fn(
     interface: *mut *mut c_void,
 ) -> Status;
 
+type LocateProtocol = extern "efiapi" fn(
+    protocol: *const Guid,
+    registration: *mut c_void,
+    interface: *mut *mut c_void,
+) -> Status;
+
 #[repr(C)]
 pub struct BootServices {
     pub header: TableHeader,
@@ -111,6 +125,26 @@ pub struct BootServices {
     pub uninstall_protocol_interface: usize,
     pub handle_protocol: HandleProtocol,
     pub reserved: usize,
+    pub register_protocol_notify: usize,
+    pub locate_handle: usize,
+    pub locate_device_path: usize,
+    pub install_configuration_table: usize,
+    pub load_image: usize,
+    pub start_image: usize,
+    pub exit: usize,
+    pub unload_image: usize,
+    pub exit_boot_services: usize,
+    pub get_next_monotonic_count: usize,
+    pub stall: usize,
+    pub set_watchdog_timer: usize,
+    pub connect_controller: usize,
+    pub disconnect_controller: usize,
+    pub open_protocol: usize,
+    pub close_protocol: usize,
+    pub open_protocol_information: usize,
+    pub protocols_per_handle: usize,
+    pub locate_handle_buffer: usize,
+    pub locate_protocol: LocateProtocol,
 }
 
 #[repr(C)]
@@ -211,6 +245,106 @@ impl Console {
         }
         debug_write(text);
     }
+}
+
+#[repr(C)]
+struct GraphicsOutputProtocol {
+    query_mode: usize,
+    set_mode: usize,
+    blt: usize,
+    mode: *const GraphicsOutputProtocolMode,
+}
+
+#[repr(C)]
+struct GraphicsOutputProtocolMode {
+    max_mode: u32,
+    mode: u32,
+    info: *const GraphicsOutputModeInformation,
+    size_of_info: usize,
+    framebuffer_base: u64,
+    framebuffer_size: usize,
+}
+
+#[repr(C)]
+struct GraphicsOutputModeInformation {
+    version: u32,
+    horizontal_resolution: u32,
+    vertical_resolution: u32,
+    pixel_format: u32,
+    pixel_bitmask: [u32; 4],
+    pixels_per_scan_line: u32,
+}
+
+/// Physical GOP framebuffer details for the future BootInfo.
+pub struct Framebuffer {
+    pub base: u64,
+    pub size: u64,
+    pub width: u32,
+    pub height: u32,
+    pub stride: u32,
+    pub format: u32,
+}
+
+/// Read the current GOP mode without changing it.
+///
+/// # Safety
+/// The caller provides a live UEFI SystemTable, and the firmware must expose
+/// valid protocol/mode/info pointers through LocateProtocol. The framebuffer
+/// physical address must not be dereferenced without suitable mappings.
+pub unsafe fn discover_framebuffer(system_table: *mut SystemTable) -> Option<Framebuffer> {
+    if system_table.is_null() {
+        return None;
+    }
+    let services = unsafe { (*system_table).boot_services };
+    if services.is_null() {
+        return None;
+    }
+
+    let mut raw: *mut c_void = null_mut();
+    let status = unsafe {
+        ((*services).locate_protocol)(
+            &GRAPHICS_OUTPUT_PROTOCOL_GUID,
+            null_mut(),
+            &mut raw,
+        )
+    };
+    if status != EFI_SUCCESS || raw.is_null() {
+        return None;
+    }
+    let gop = unsafe { &*(raw as *const GraphicsOutputProtocol) };
+    if gop.mode.is_null() {
+        return None;
+    }
+    let mode = unsafe { &*gop.mode };
+    if mode.info.is_null() || mode.size_of_info < core::mem::size_of::<GraphicsOutputModeInformation>() {
+        return None;
+    }
+    let info = unsafe { &*mode.info };
+    // PixelBltOnly has no usable linear framebuffer; the other current formats
+    // use a 32-bit pixel element per the UEFI GOP specification.
+    if info.pixel_format >= 3
+        || info.horizontal_resolution == 0
+        || info.vertical_resolution == 0
+        || info.pixels_per_scan_line < info.horizontal_resolution
+        || mode.framebuffer_base == 0
+    {
+        return None;
+    }
+    let needed = u64::from(info.pixels_per_scan_line)
+        .checked_mul(u64::from(info.vertical_resolution))?
+        .checked_mul(4)?;
+    let size = u64::try_from(mode.framebuffer_size).ok()?;
+    if needed > size || mode.framebuffer_base.checked_add(size).is_none() {
+        return None;
+    }
+    Some(Framebuffer {
+        base: mode.framebuffer_base,
+        size,
+        width: info.horizontal_resolution,
+        height: info.vertical_resolution,
+        stride: info.pixels_per_scan_line,
+        format: info.pixel_format,
+    })
 }
 
 pub struct KernelFile {

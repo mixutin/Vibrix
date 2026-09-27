@@ -51,6 +51,21 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
 
     console.write("VIBRIX: PT_LOAD parsed\r\n");
     console.write("VIBRIX: kernel validated\r\n");
+
+    let Some(framebuffer) = (unsafe { uefi::discover_framebuffer(system_table) }) else {
+        console.write("VIBRIX: GOP framebuffer unavailable\r\n");
+        return EFI_LOAD_ERROR;
+    };
+    // This is discovery only: BootInfo population and kernel mapping follow later.
+    let _ = (
+        framebuffer.base,
+        framebuffer.size,
+        framebuffer.width,
+        framebuffer.height,
+        framebuffer.stride,
+        framebuffer.format,
+    );
+    console.write("VIBRIX: GOP framebuffer discovered\r\n");
     console.write("Next: allocate and map kernel segments.\r\n");
 
     loop {
