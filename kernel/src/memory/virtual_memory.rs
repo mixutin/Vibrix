@@ -362,10 +362,7 @@ mod tests {
             unsafe { vm.map_mmio_writable(2, 0xfec0_0000) },
             Ok(window::BASE + 2 * 4096)
         );
-        assert_eq!(
-            table[2],
-            0xfec0_0000 | PRESENT | WRITE | NX | PWT | PCD
-        );
+        assert_eq!(table[2], 0xfec0_0000 | PRESENT | WRITE | NX | PWT | PCD);
         assert_eq!(vm.translation(2), Ok(Some((0xfec0_0000, true))));
         assert_eq!(unsafe { vm.unmap(2) }, Ok(0xfec0_0000));
     }
