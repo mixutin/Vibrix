@@ -74,9 +74,9 @@ while time.monotonic() < deadline:
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
                 client.connect(monitor)
-                client.sendall(b"sendkey h\\n")
+                client.sendall(b"sendkey h\n")
                 time.sleep(0.3)
-                client.sendall(b"sendkey ret\\n")
+                client.sendall(b"sendkey ret\n")
                 break
         except OSError:
             pass
