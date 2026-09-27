@@ -393,9 +393,9 @@ fn parse_inode(data: &[u8], fs: &Superblock) -> Result<Inode, Error> {
         return Err(Error::Inode);
     }
     let mut extents = [Extent {
-            start: 0,
-            blocks: 0,
-        }; INODE_EXTENTS];
+        start: 0,
+        blocks: 0,
+    }; INODE_EXTENTS];
     for (index, extent) in extents.iter_mut().enumerate() {
         let at = 104 + index * 12;
         let flags = u16_at(raw, at + 10)?;
