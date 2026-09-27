@@ -54,6 +54,11 @@ jobs:
           "$RUNNER_TEMP/vibrix-gpt-tests"
           rustc --edition=2024 -D warnings tools/inspect-gpt.rs -o "$RUNNER_TEMP/vibrix-inspect-gpt"
 
+      - name: Test UEFI memory-map acquisition on host
+        run: |
+          rustc --edition=2024 --test boot/src/memory_map.rs -o "$RUNNER_TEMP/vibrix-memory-map-tests"
+          "$RUNNER_TEMP/vibrix-memory-map-tests"
+
       - name: Lint bootloader
         run: cargo clippy -p vibrix-boot --features qemu-debugcon --target x86_64-unknown-uefi -- -D warnings
 
@@ -61,6 +66,19 @@ jobs:
         run: |
           rustc --edition=2024 --test kernel/src/arch/x86_64/cpuid.rs -o "$RUNNER_TEMP/vibrix-cpuid-tests"
           "$RUNNER_TEMP/vibrix-cpuid-tests"
+
+      - name: Test production-linked GDT/TSS on host
+        run: |
+          rustfmt --check host-tests/gdt_layout.rs host-tests/gdt_tss.rs
+          rustc --edition=2024 --test host-tests/gdt_layout.rs -o "$RUNNER_TEMP/vibrix-gdt-layout-tests"
+          "$RUNNER_TEMP/vibrix-gdt-layout-tests"
+          rustc --edition=2024 --test host-tests/gdt_tss.rs -o "$RUNNER_TEMP/vibrix-gdt-tss-tests"
+          "$RUNNER_TEMP/vibrix-gdt-tss-tests"
+
+      - name: Test production serial console logic on host
+        run: |
+          rustc --edition=2024 --test kernel/src/arch/x86_64/serial.rs -o "$RUNNER_TEMP/vibrix-serial-tests"
+          "$RUNNER_TEMP/vibrix-serial-tests"
 
       - name: Lint kernel
         run: cargo clippy -p vibrix-kernel --target x86_64-unknown-none -- -D warnings

@@ -14,7 +14,6 @@
 //! primitives in the console; all higher-level code goes through them.
 
 use core::arch::asm;
-use core::cell::UnsafeCell;
 use core::fmt;
 
 /// COM1 port base address.
@@ -182,24 +181,22 @@ impl fmt::Write for SerialWriter<'_> {
     }
 }
 
-/// `Sync` wrapper so the UART can live in a `static`.
+/// Immutable wrapper for the early COM1 debug console.
 ///
-/// # Safety
-/// The kernel is single-threaded at this stage (no interrupts, no APs), so
-/// concurrent access to the UART cannot occur. This must be replaced with a
-/// proper lock before interrupts are enabled.
-pub(crate) struct SerialConsole(UnsafeCell<SerialPort>);
-
-unsafe impl Sync for SerialConsole {}
+/// `SerialPort` contains only the immutable I/O-port base, so this type is
+/// naturally `Sync` without `UnsafeCell` or a manual unsafe implementation.
+/// Sharing it is Rust-memory safe, but hardware writes are not serialized:
+/// early boot relies on a single CPU with interrupts disabled for coherent
+/// output. Add explicit synchronization before interrupts or APs can print.
+pub(crate) struct SerialConsole(SerialPort);
 
 impl SerialConsole {
     const fn new(port: u16) -> Self {
-        SerialConsole(UnsafeCell::new(SerialPort::new(port)))
+        Self(SerialPort::new(port))
     }
 
     fn port(&self) -> &SerialPort {
-        // SAFETY: single-threaded; see struct-level safety note.
-        unsafe { &*self.0.get() }
+        &self.0
     }
 
     /// Initialize the UART.
