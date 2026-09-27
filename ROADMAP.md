@@ -37,7 +37,7 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [ ] Allocate/copy kernel segments and zero BSS
 - [ ] Establish initial kernel mappings
 - [ ] Discover GOP framebuffer
-- [ ] Discover ACPI RSDP
+- [x] Discover ACPI RSDP
 - [ ] Capture final UEFI memory map
 - [ ] Populate BootInfo
 - [ ] ExitBootServices
