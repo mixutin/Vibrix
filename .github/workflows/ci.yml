@@ -180,6 +180,12 @@ jobs:
           rustc --edition=2024 --test kernel/src/arch/x86_64/serial.rs -o "$RUNNER_TEMP/vibrix-serial-tests"
           "$RUNNER_TEMP/vibrix-serial-tests"
 
+      - name: Test native QEMU PS2 scan-code decoder on host
+        run: |
+          rustfmt --edition 2024 --check kernel/src/arch/x86_64/ps2.rs
+          rustc --edition=2024 --test kernel/src/arch/x86_64/ps2.rs -o "$RUNNER_TEMP/vibrix-ps2-tests"
+          "$RUNNER_TEMP/vibrix-ps2-tests"
+
       - name: Test legacy self-contained host fixtures (not production-linked)
         run: |
           set -euo pipefail
@@ -216,6 +222,12 @@ jobs:
         run: |
           bash tools/test-qemu.sh
           grep -Eq 'Vibrix PCI segment0: [1-9][0-9]* devices, [1-9][0-9]* assigned BARs, [1-9][0-9]* xHCI' build/qemu/serial.log
+
+      - name: QEMU real keyboard injection after ExitBootServices
+        env:
+          VIBRIX_SKIP_BUILD: "1"
+          VIBRIX_QEMU_KEYBOARD_PROBE: "1"
+        run: bash tools/test-qemu.sh
 
       - name: QEMU post-firmware kernel panic test
         run: |
