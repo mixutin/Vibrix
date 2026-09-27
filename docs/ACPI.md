@@ -47,3 +47,25 @@ Primary specifications: [ACPI 6.5, §5.2 tables](https://uefi.org/specs/ACPI/6.5
 and [PCI Firmware Specification](https://pcisig.com/specification-overview/pci-firmware),
 section 4, MCFG. No third-party OS implementation source was used; no
 community crate was needed for this bounded firmware metadata decoder.
+
+## Mapped real-table checkpoint (QEMU validation pending)
+
+The M4 integration branch now adds a bounded, one-table-at-a-time reader
+using BootInfo v3's reserved 2 MiB leaf window. The kernel checks every
+mapped page against its validated final UEFI memory map, accepting only
+WB-capable EfiACPIReclaimMemory/EfiACPIMemoryNVS, never runtime or
+conventional allocations. It reads the SDT header first, limits the full
+length to 1 MiB, then maps the complete table read-only and NX; it
+validates root entries and reads actual MCFG allocation descriptors.
+Every temporary leaf is unmapped even on error, and untrusted physical
+addresses never become direct identity pointers. The early mapper is
+boot-CPU/IRQs-off only, with no concurrent reclamation of ACPI pages.
+
+The QEMU smoke suite now demands a separate **kernel-origin** real-XSDT/
+MCFG success marker after the existing RSDP and virtual-mapping markers.
+This is still not ECAM MMIO access, MSI setup, hardware interrupt routing,
+full general ACPI namespace interpretation, or Target 001 confirmation.
+Do not check MCFG/ECAM or other driver checkboxes from table parsing alone.
+The earlier paragraph's limitation on physical table access describes the
+pre-integration state; update this section with exact-run evidence once CI
+passes, and leave real-table validation unclaimed if CI rejects it.
