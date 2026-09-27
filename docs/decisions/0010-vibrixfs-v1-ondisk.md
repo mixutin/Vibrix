@@ -46,7 +46,7 @@ fundamental rules:
    255 bytes. Dot and dot-dot are represented as ordinary directory records
    but are validated specially.
 7. Timestamps are signed Unix seconds plus unsigned nanoseconds. v1 records
-   creation, modification and metadata-change timestamps. Nanoseconds must be
+   access, modification and metadata-change timestamps. Nanoseconds must be
    less than 1,000,000,000.
 8. Permissions use the low 12 traditional Unix mode bits plus an explicit file
    type field; uid/gid are unsigned 32-bit values. Interpretation by the future
