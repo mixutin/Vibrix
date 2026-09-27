@@ -12,3 +12,6 @@ target/
 .DS_Store
 .idea/
 .vscode/
+
+# Raw hardware inventories may contain machine identifiers
+targets/raw/
