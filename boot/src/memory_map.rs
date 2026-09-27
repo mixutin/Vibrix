@@ -584,7 +584,12 @@ mod tests {
         // refresh must not change the published tuple or free pages.
         assert_eq!(unsafe { refresh(&mut map) }, Err(EFI_BUFFER_TOO_SMALL));
         assert_eq!(
-            (map.byte_len, map.map_key, map.descriptor_size, map.descriptor_version),
+            (
+                map.byte_len,
+                map.map_key,
+                map.descriptor_size,
+                map.descriptor_version
+            ),
             old
         );
         FW.with_borrow(|fw| {
