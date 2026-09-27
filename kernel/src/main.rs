@@ -184,7 +184,10 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     });
     match acpi_mcfg {
         Ok(discovery) => {
-            crate::println!("kernel ACPI: {} validated MCFG allocations", discovery.allocations);
+            crate::println!(
+                "kernel ACPI: {} validated MCFG allocations",
+                discovery.allocations
+            );
             crate::println!(
                 "Vibrix ECAM segment0 bus0: {} devices, {} xHCI",
                 discovery.ecam.devices,
