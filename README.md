@@ -1,113 +1,250 @@
-# Vibrix
+<div align="center">
 
-**An independent, Rust-native Unix-like operating system that lives on a USB drive.**
+# ◇ VIBRIX
 
-> How far can vibe coding go?
+### A Rust-native operating system that lives on your USB drive.
 
-Vibrix is an experiment in building an independent operating system through **AI-only engineering**, using original Vibrix architecture and appropriately licensed Rust crates where useful. It is **not a Linux distribution**, does not use the Linux or BSD kernels, and is designed as a Rust-native system from bootloader to userspace.
+**Independent kernel · persistent by design · built by AI agents**
 
-## AI-only engineering
+`x86_64` · `UEFI` · `Rust` · `no_std` · `QEMU/OVMF` · `0BSD`
 
-Vibrix is developed by AI coding agents.
+> **How far can vibe coding go?**  
+> Far enough to boot our own kernel. Now we're giving it a voice.
 
-- implementation is authored by AI agents
-- technical documentation is authored by AI agents
-- pull requests are opened and discussed by AI agents
-- code review may be performed by additional AI agents when available
-- test evidence is collected and reported by AI agents
-- architecture proposals and ADRs are authored/reviewed by AI agents
+[**Website**](https://mixutin.github.io/Vibrix/) · [Roadmap](ROADMAP.md) · [Architecture](docs/ARCHITECTURE.md) · [Dependencies](docs/DEPENDENCIES.md) · [Contributing](CONTRIBUTING.md) · [Agent board](https://github.com/mixutin/Vibrix/issues/46)
 
-The project owner may provide goals, constraints, priorities and authorization for repository actions, but Vibrix does not use a human-review requirement or a human-authored implementation workflow.
+[![Vibrix CI](https://github.com/mixutin/Vibrix/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mixutin/Vibrix/actions/workflows/ci.yml)
+[![Website](https://github.com/mixutin/Vibrix/actions/workflows/pages.yml/badge.svg?branch=main)](https://mixutin.github.io/Vibrix/)
+[![License: 0BSD](https://img.shields.io/badge/license-0BSD-b8ff5a.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-no__std-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
+[![Architecture](https://img.shields.io/badge/arch-x86__64-5865f2.svg)](docs/ARCHITECTURE.md)
+[![Boot](https://img.shields.io/badge/boot-UEFI-6f42c1.svg)](docs/ARCHITECTURE.md)
+[![Roadmap](https://img.shields.io/badge/roadmap-M4%20%E2%86%92%20M4.5-b8ff5a.svg)](ROADMAP.md)
 
-### Live agent coordination
+<table>
+<tr>
+<td align="center"><strong>Kernel</strong><br><code>Rust / no_std</code></td>
+<td align="center"><strong>Architecture</strong><br><code>x86-64 + UEFI</code></td>
+<td align="center"><strong>Dev target</strong><br><code>QEMU + OVMF</code></td>
+<td align="center"><strong>Next milestone</strong><br><code>vibrix&gt; console</code></td>
+<td align="center"><strong>License</strong><br><code>0BSD</code></td>
+</tr>
+</table>
 
-Agents coordinate active work through [AGENT_COORDINATION.md](AGENT_COORDINATION.md) and the live [Vibrix AI Agent Coordination Board](https://github.com/mixutin/Vibrix/issues/46). The board is available for concurrent agents; single-agent changes may be integrated after exact-head CI and documented validation without waiting for a second agent.
+</div>
+
+---
+
+## What is Vibrix?
+
+Vibrix is an experimental **independent Unix-like operating system** written in Rust. It is not a Linux distribution, does not use the Linux or BSD kernels, and is designed around one unusual constraint:
+
+> **The removable USB drive is the computer.**
+
+The bootloader, kernel, future userspace, packages, configuration and user data are intended to travel together on one persistent removable drive. Plug the same Vibrix drive into another compatible machine, boot it, and keep your environment.
+
+Vibrix is also an **AI-only engineering experiment**. AI coding agents implement, test, review and document the system while the project owner sets goals and direction. Progress only counts when the behavior is actually demonstrated.
+
+## Current boot path
+
+```mermaid
+flowchart LR
+    A["UEFI firmware"] --> B["Vibrix Rust loader"]
+    B --> C["kernel.elf"]
+    C --> D["BootInfo v3"]
+    D --> E["ExitBootServices"]
+    E --> F["Vibrix kernel"]
+    F --> G["Memory + exceptions"]
+    F --> H["ACPI + PCI"]
+    F -. next .-> I["Interactive console"]
+    I -. later .-> J["Userspace shell"]
+    J -. goal .-> K["Persistent USB OS"]
+```
+
+### Where we are
+
+| Area | State |
+| --- | --- |
+| UEFI → standalone kernel | ✅ QEMU verified |
+| Higher-half kernel + BootInfo | ✅ |
+| Serial + framebuffer output | ✅ |
+| GDT/TSS + IDT + fault diagnostics | ✅ |
+| Physical frames + early heap | ✅ |
+| Early map/protect/unmap window | ✅ |
+| ACPI XSDT/MCFG discovery | ✅ |
+| MCFG-selected read-only PCIe ECAM bus-zero probe | ✅ QEMU |
+| PCI enumeration + BAR parsing | ✅ |
+| Full VM + hardware IRQ routing | 🚧 |
+| **Interactive kernel console** | 🎯 **next visible milestone** |
+| Processes + Ring 3 + syscalls | ⏳ |
+| VFS + userspace shell | ⏳ |
+| Native USB persistence | ⏳ |
+
+The current kernel is real, but Vibrix is **not yet a usable persistent USB OS**. Hardware interrupts, a general virtual-memory manager, processes, userspace, native USB mass storage and the persistent filesystem remain under construction.
+
+<details>
+<summary><strong>▶ Open a preview of the future Vibrix console</strong></summary>
+
+> This is an interactive-style README mockup of the M4.5 target, **not current functionality**.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                         V I B R I X                          │
+│                portable · rust-native · yours               │
+└──────────────────────────────────────────────────────────────┘
+
+Vibrix kernel console
+Type 'help' for available commands.
+
+vibrix> help
+  help       show commands
+  clear      clear the console
+  info       show kernel/build information
+  mem        inspect memory state
+  pci        list discovered PCI devices
+  acpi       show discovered ACPI information
+  uptime     show monotonic uptime
+  reboot     reboot the machine
+
+vibrix> pci
+00:00.0  host bridge
+00:01.0  display controller
+00:02.0  xHCI controller
+
+vibrix> _
+```
+
+</details>
+
+## M4.5 — give the kernel a voice
+
+Before the full Ring-3 userspace shell, Vibrix is targeting a deliberately small **interactive kernel console**. It gives us something useful to boot and operate while the process/syscall/VFS stack is built underneath it.
+
+The milestone is complete only when QEMU boots to a `vibrix>` prompt, accepts real keyboard input and executes real diagnostic commands. See the exact checklist in [ROADMAP.md](ROADMAP.md).
+
+## Rust-native, not reinvent-everything-native
+
+Vibrix owns its architecture. **It does not require every building block to be written from scratch.**
+
+Community Rust crates are welcome when they make Vibrix safer, faster to develop or easier to maintain. Agents may use:
+
+- crates.io dependencies
+- Git-based Rust crates
+- appropriately licensed vendored Rust crates
+- normal development infrastructure such as QEMU, OVMF, GDB and Git
+
+Dependencies are reviewed for license, provenance, maintenance, security, unsafe code, transitive dependencies, feature flags and target compatibility. Bare-metal components must still work under their actual `no_std` / UEFI environment.
+
+What we **do not** do is quietly turn Vibrix into another OS: no Linux/BSD kernel underneath it, no copied Linux/BSD/GNU implementation code, no hidden host runtime, and no pretending a crate proves a roadmap feature works.
+
+Read the full [dependency policy](docs/DEPENDENCIES.md) and [independence policy](docs/INDEPENDENCE.md).
+
+## Architecture
+
+```text
+                         ┌───────────────────────────┐
+                         │       Rust userspace      │
+                         │ init · shell · utilities  │
+                         └─────────────┬─────────────┘
+                                      │ Vibrix ABI
+                         ┌─────────────▼─────────────┐
+                         │       Vibrix kernel       │
+                         │ proc · VFS · net · memory│
+                         └──────┬─────────────┬──────┘
+                                │             │
+                    ┌───────────▼───┐     ┌───▼────────────┐
+                    │ Rust drivers  │     │ Vibrix FS      │
+                    │ USB · NIC ... │     │ persistent root│
+                    └───────────┬───┘     └───┬────────────┘
+                                └──────┬──────┘
+                                       │
+                         ┌─────────────▼─────────────┐
+                         │   removable USB system    │
+                         └───────────────────────────┘
+```
+
+### Planned tree
+
+```text
+boot/       Rust UEFI loader
+kernel/     Rust kernel
+sys/        native userspace/system interfaces
+user/       init, shell and core utilities
+drivers/    device drivers
+fs/         filesystem + tooling
+image/      USB image/provisioning tooling
+tools/      development utilities
+docs/       architecture, ADRs and specifications
+```
 
 ## USB-only by design
 
-Vibrix is not a disposable live environment and it is not an installer for an internal disk.
+Vibrix is not an internal-disk installer or disposable live image.
 
-The USB device is the computer's **persistent Vibrix system disk**:
+- system and root filesystem live on removable storage
+- applications, accounts and configuration persist there
+- `/home` persists there
+- updates modify the removable Vibrix installation
+- hardware is rediscovered each boot
+- internal NVMe/SATA may later be exposed as **optional data devices**, never Vibrix system/root targets
+- provisioning must fail safe rather than accidentally selecting an internal disk
 
-- the OS lives on USB storage
-- the root filesystem lives on USB storage
-- installed applications stay on the USB
-- user accounts and configuration stay on the USB
-- user home data stays on the USB
-- updates modify the USB installation
-- the same Vibrix drive is intended to move between compatible machines
+## Engineering rules
 
-Internal NVMe/SATA drives may eventually be supported as optional data devices, but they are **not installation targets for Vibrix**.
+**Evidence over vibes.** Generated code is not a completed feature. A checkbox requires the behavior to be demonstrated on its stated target.
 
-## Rust all the way down
+**Rust all the way down.** Bootloader, kernel, drivers, system libraries, userspace, filesystem, networking and tooling are Rust-first. Tiny architecture-specific assembly is allowed where the hardware genuinely requires it.
 
-Rust is Vibrix's implementation language across the operating system:
+**Unsafe has a boundary.** MMIO, DMA, page tables, raw pointers, interrupts and context switching inevitably need unsafe operations; their invariants are documented and kept narrow.
 
-- UEFI loader
-- kernel
-- memory management and scheduler
-- drivers
-- filesystem and storage stack
-- networking stack
-- system libraries and syscall wrappers
-- init and service management
-- shell and core utilities
-- USB provisioning/image tooling
-- package tooling
-- first-party applications
+**QEMU first, hardware second.** QEMU evidence is valuable but never presented as physical-hardware evidence.
 
-Tiny architecture-specific assembly is permitted only where hardware interfaces make it unavoidable. It must remain isolated behind documented Rust interfaces.
+## AI-only engineering
 
-Vibrix does **not** intend to ship a traditional C libc as its native system interface. Its native userspace API and standard system libraries will be Rust-first. C/POSIX compatibility, if implemented later, will be a compatibility layer rather than the foundation of the OS.
+AI agents author implementation, technical documentation, pull requests, architecture proposals and test reports. Additional AI review is welcome when another agent is active, but a single agent may integrate a scoped change after exact-head validation under the project's maintainer policy.
 
-## Principles
+Concurrent work is coordinated through [AGENT_COORDINATION.md](AGENT_COORDINATION.md) and the [AI Agent Coordination Board](https://github.com/mixutin/Vibrix/issues/46).
 
-- Rust-native kernel and userspace
-- Independent operating-system architecture from boot to applications
-- Community Rust crates are permitted when reviewed for license, security and target compatibility
-- Specifications, hardware manuals and development tools are allowed
-- x86-64 and UEFI first
-- QEMU first, then removable-media bare-metal boot
-- USB storage is the only supported Vibrix system/root device
-- persistent state is a core requirement
-- hardware must be rediscovered on every boot
-- minimize unnecessary flash writes
-- Unix/POSIX-inspired semantics where useful
-- memory safety by default; unsafe code is isolated, justified and reviewed
-- document the role of AI throughout development
+## Road to a usable Vibrix
 
-## Current status
+```mermaid
+flowchart LR
+    M0["M0–M2<br/>Boot"] --> M3["M3<br/>Kernel foundations"]
+    M3 --> M4["M4<br/>Device discovery"]
+    M4 --> M45["M4.5<br/>Interactive console"]
+    M45 --> M5["M5<br/>Processes + syscalls"]
+    M5 --> M6["M6<br/>VFS + shell"]
+    M6 --> M7["M7<br/>USB platform"]
+    M7 --> M8["M8<br/>Vibrix FS"]
+    M8 --> M9["M9<br/>Persistent USB OS"]
+```
 
-Vibrix now boots its standalone higher-half Rust kernel in QEMU/OVMF: the loader stages kernel ELF segments, builds and activates page tables, constructs BootInfo v3, exits UEFI boot services and transfers to kernel entry. QEMU verifies native kernel COM1 output, uncached framebuffer writes, kernel panic output, live RSDP and real XSDT/MCFG parsing through bounded read-only ACPI mappings, and an early monotonic physical-frame allocator. A permanent single-CPU IDT handles synchronous x86-64 exceptions, with separate real-breakpoint and page-fault QEMU probes including CR2/error diagnostics. **Hardware IRQs remain disabled**; a fixed-capacity 64 KiB early kernel heap now supports aligned allocation and free/reuse, verified with actual QEMU RAM access. A bounded 2 MiB early mapping window supports map/protect/unmap/remap, with real QEMU protection-fault probes. There is no full virtual-memory manager, interrupt routing, scheduling or userspace yet. This is **not** a bootable persistent USB OS: native xHCI/mass storage, persistent filesystem, physical USB provisioning and Target 001 boot remain unverified.
+The console milestone is intentionally **not** a substitute for userspace. M5/M6 remain the point where PID 1, Ring 3, syscalls, VFS, TTY and the real Rust shell arrive.
 
-See ROADMAP.md, docs/ARCHITECTURE.md, and docs/USB_MODEL.md.
+## Try the development build
 
-## Planned source tree
+The project currently targets x86-64 UEFI with QEMU/OVMF. With the required Rust toolchain, QEMU and OVMF installed:
 
-    boot/       Rust Vibrix UEFI loader
-    kernel/     Rust Vibrix kernel
-    sys/        native Rust userspace/system interfaces
-    user/       Rust init, shell and core utilities
-    drivers/    Rust device drivers
-    fs/         Rust filesystem + tooling
-    image/      Rust USB image/provisioning tooling
-    tools/      development utilities
-    docs/       architecture and specifications
+```bash
+./tools/run-qemu.sh
+```
 
-## Independence rule
+For automated smoke testing:
 
-Vibrix may be developed using existing compilers, assemblers, emulators, debuggers, firmware and source-control tools. Those tools are not part of Vibrix.
+```bash
+./tools/test-qemu.sh
+```
 
-Code from Linux, BSD, GNU, third-party bootloaders, third-party libc implementations, BusyBox or other operating systems must not be copied into or shipped with Vibrix.
-
-Vibrix **allows community Rust crates** in the bootloader, kernel, drivers, system libraries, tooling and first-party userspace. Dependencies must be appropriately licensed and compatible with the actual build target (including `no_std` when required). See [dependency policy](docs/DEPENDENCIES.md) and [independence policy](docs/INDEPENDENCE.md).
-
-## Mascot
-
-Vibrix's mascot is a curious black-and-white fox carrying the Vibrix **V**. A name will be chosen separately.
+See [QEMU.md](docs/QEMU.md) and [CI.md](docs/CI.md) for the exact environment and validation model.
 
 ## License
 
-Vibrix is licensed under the **BSD Zero Clause License (0BSD)**.
+Vibrix is released under the **BSD Zero Clause License (0BSD)** — use, copy, modify and distribute it for any purpose subject to [LICENSE](LICENSE).
 
-You may use, copy, modify and/or distribute the software for any purpose, with or without fee, subject to the terms in [LICENSE](LICENSE). SPDX identifier: `0BSD`.
+<div align="center">
+
+### ◇ VIBRIX
+
+**Small enough to understand. Ambitious enough to become an OS.**
+
+</div>

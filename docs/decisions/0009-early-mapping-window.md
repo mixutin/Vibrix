@@ -80,3 +80,10 @@ Mapping a page does not convey ownership of PCI devices, safe register
 writes, bus mastering, DMA or interrupt routing. No new global alias to
 WB RAM is accepted. This early primitive retains the single CPU/IF=0
 restriction and depends on future general MMIO resource coordination.
+
+[PR #67 exact-head run 36346144132](https://github.com/mixutin/Vibrix/actions/runs/36346144132)
+observed actual MCFG-selected ECAM vendor/class reads under QEMU q35
+in seven configurations. The firmware described the PCIe aperture as
+reserved memory (type 0) with UC capability, and virtual xHCI increased
+bus-zero function-zero devices from 4 to 5, with one native xHCI
+class/prog-if match. No Target 001 or interrupt evidence is implied.
