@@ -1,0 +1,14 @@
+build/
+out/
+target/
+*.o
+*.a
+*.elf
+*.efi
+*.img
+*.iso
+*.map
+*.log
+.DS_Store
+.idea/
+.vscode/
