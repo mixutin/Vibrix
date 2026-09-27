@@ -8,7 +8,7 @@ The CI job also compiles `boot/src/elf.rs` as a standalone host test harness and
 
 The parser also rejects a kernel entry point that does not belong to a file-backed, executable `PT_LOAD` range. Host regression fixtures cover non-executable code, BSS-only entry points and out-of-range entry points. This rejects invalid jump targets on the now-implemented firmware-to-kernel handoff path; the separate QEMU gate proves the kernel actually ran.
 
-The QEMU smoke test captures both the loader/kernel QEMU debug port **and a separate native kernel COM1 serial log**. The graphics window can retain the firmware splash and earlier UEFI console lines while the standalone kernel logs only to debugcon/COM1; inspect `build/qemu/debugcon.log` and `build/qemu/serial.log` instead of inferring a hang from the framebuffer. It requires the loader and then standalone kernel to prove that they:
+The QEMU smoke test captures both the loader/kernel QEMU debug port **and a separate native kernel COM1 serial log**. The graphics window can retain the firmware splash and earlier UEFI console lines while the standalone kernel logs only to debugcon/COM1; inspect `build/qemu/interactive-debugcon.log` and `build/qemu/interactive-serial.log` for `./tools/run-qemu.sh`, or `build/qemu/debugcon.log` and `build/qemu/serial.log` for the headless `./tools/test-qemu.sh`. The graphical framebuffer is not yet a kernel text console. It requires the loader and then standalone kernel to prove that they:
 
 1. entered the Vibrix loader,
 2. opened `/vibrix/kernel.elf`,
