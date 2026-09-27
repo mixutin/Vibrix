@@ -191,7 +191,9 @@ impl RootEntries<'_> {
     }
 
     pub fn address(&self, index: usize) -> Result<u64, AcpiError> {
-        let offset = index.checked_mul(self.stride).ok_or(AcpiError::InvalidEntry)?;
+        let offset = index
+            .checked_mul(self.stride)
+            .ok_or(AcpiError::InvalidEntry)?;
         let address = if self.stride == 8 {
             u64_at(self.entries, offset)?
         } else {
@@ -233,7 +235,9 @@ impl McfgEntry {
             | (u64::from(device) << 15)
             | (u64::from(function) << 12)
             | u64::from(register);
-        self.ecam_base.checked_add(offset).ok_or(AcpiError::AddressOverflow)
+        self.ecam_base
+            .checked_add(offset)
+            .ok_or(AcpiError::AddressOverflow)
     }
 }
 
@@ -352,7 +356,11 @@ mod tests {
         assert_eq!(entries.address(1), Err(AcpiError::Truncated));
         let rsdt = table(b"RSDT", &0x2000u32.to_le_bytes());
         assert_eq!(
-            Sdt::parse(&rsdt).unwrap().root_entries().unwrap().address(0),
+            Sdt::parse(&rsdt)
+                .unwrap()
+                .root_entries()
+                .unwrap()
+                .address(0),
             Ok(0x2000)
         );
         let raw = table(b"XSDT", &[0; 3]);
@@ -370,10 +378,16 @@ mod tests {
         assert!(matches!(Sdt::parse(&corrupt), Err(AcpiError::Checksum)));
         let mut corrupt = raw.clone();
         corrupt[4..8].copy_from_slice(&35u32.to_le_bytes());
-        assert!(matches!(Sdt::parse(&corrupt), Err(AcpiError::InvalidLength)));
+        assert!(matches!(
+            Sdt::parse(&corrupt),
+            Err(AcpiError::InvalidLength)
+        ));
         let mut corrupt = raw.clone();
         corrupt[4..8].copy_from_slice(&((MAX_TABLE_LEN + 1) as u32).to_le_bytes());
-        assert!(matches!(Sdt::parse(&corrupt), Err(AcpiError::InvalidLength)));
+        assert!(matches!(
+            Sdt::parse(&corrupt),
+            Err(AcpiError::InvalidLength)
+        ));
         assert!(matches!(Sdt::parse(&raw[..38]), Err(AcpiError::Truncated)));
     }
 
