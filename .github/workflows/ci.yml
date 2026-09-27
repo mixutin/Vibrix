@@ -60,6 +60,12 @@ jobs:
           "$RUNNER_TEMP/vibrix-gpt-tests"
           rustc --edition=2024 -D warnings tools/inspect-gpt.rs -o "$RUNNER_TEMP/vibrix-inspect-gpt"
 
+      - name: Test shared BootInfo v2 ABI and validation on host
+        run: |
+          rustfmt --edition 2024 --check shared/bootinfo.rs
+          rustc --edition=2024 --test shared/bootinfo.rs -o "$RUNNER_TEMP/vibrix-bootinfo-tests"
+          "$RUNNER_TEMP/vibrix-bootinfo-tests"
+
       - name: Test UEFI memory-map acquisition on host
         run: |
           rustc --edition=2024 --test boot/src/memory_map.rs -o "$RUNNER_TEMP/vibrix-memory-map-tests"
