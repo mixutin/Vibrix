@@ -4,6 +4,7 @@
 mod arch;
 mod debugcon;
 mod framebuffer;
+mod memory;
 
 use core::panic::PanicInfo;
 
