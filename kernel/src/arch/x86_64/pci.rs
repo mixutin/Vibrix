@@ -272,8 +272,11 @@ unsafe fn read_legacy_dword(bdf: Bdf, offset: u8) -> u32 {
 /// Sole boot CPU, IF=0, ring zero and no concurrent CF8/CFC user. Do not
 /// use this mechanism for ACPI MCFG segments other than zero.
 #[cfg(not(test))]
-pub unsafe fn discover_legacy_segment_zero() -> Summary {
-    scan_segment_zero(|bdf, offset| unsafe { read_legacy_dword(bdf, offset) }, |_| {})
+pub unsafe fn discover_legacy_segment_zero(mut visit: impl FnMut(Device)) -> Summary {
+    scan_segment_zero(
+        |bdf, offset| unsafe { read_legacy_dword(bdf, offset) },
+        |device| visit(device),
+    )
 }
 
 #[cfg(test)]
