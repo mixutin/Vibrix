@@ -393,7 +393,8 @@ mod tests {
         assert_eq!(base, &tss as *const _ as u64);
         assert_eq!(limit, (size_of::<Tss>() - 1) as u32);
         assert_eq!(desc.access, 0x89);
-        assert_eq!(desc.reserved, 0);
+        let reserved = desc.reserved;
+        assert_eq!(reserved, 0);
         assert_eq!(Gdt::TSS_SELECTOR as usize, offset_of!(Gdt, tss_descriptor));
     }
 
