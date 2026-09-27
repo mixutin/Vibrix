@@ -33,7 +33,7 @@ duplicate partition GUIDs. The tool counts partitions and EFI System
 Partitions by GPT type GUID. The entry table is capped at 16 MiB and the
 tool makes **no disk-image writes**.
 
-Limitations: it does not repair either GPT, or validate partition
+For deliberately blank, never-overwriting development images, see [GPT image creation](GPT_IMAGE_CREATION.md). The writer is not a USB provisioner or a formatter.\n\nLimitations: it does not repair either GPT, or validate partition
 contents, filesystems, removable-device identity, USB topology or actual
 persistent-root boot. Reported GUIDs are diagnostic on-media locators,
 **not** proof that the image came from the booted USB, a valid root configuration,
