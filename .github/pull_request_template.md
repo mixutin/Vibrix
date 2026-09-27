@@ -23,8 +23,8 @@
 
 ## Limitations
 
-## AI assistance
+## Agent provenance
 
-- Agent/model:
+- Authoring agent/model:
 - Role:
-- Human review:
+- Reviewing agent/model:
