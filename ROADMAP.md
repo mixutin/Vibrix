@@ -95,13 +95,29 @@ double-fault IST/privilege stacks, ring-3 exceptions, timer routing
 and SMP handling are separate unchecked work. Target 001 is untested.
 
 ## M4 — Device discovery
-- [ ] ACPI parser
+- [x] ACPI parser
 - [ ] MCFG/ECAM
 - [x] PCI enumeration
 - [x] BAR parsing
 - [ ] MSI/MSI-X
 - [ ] Device/driver model
 - [ ] Driver binding
+
+**Verified M4 real ACPI SDT parsing (PR #64):** [Actions run
+36344773356](https://github.com/mixutin/Vibrix/actions/runs/36344773356)
+passed production ACPI/firmware-map host tests, formatting, both target
+Clippy/builds and seven post-firmware QEMU configurations. The real
+kernel mapped retained WB ACPI RAM as supervisor-read-only/NX in BootInfo
+v3's temporary mapping window, checked the full XSDT and child SDT
+checksums and parsed **one actual MCFG allocation** in QEMU q35.
+Independent kernel debugcon and COM1 confirmed it on normal, virtual
+xHCI, panic, breakpoint, page fault and VM protection/unmap probes.
+Each table is bounded to 1 MiB; at most 64 XSDT/RSDT entries are read
+in this early bootstrap. This is real, limited ACPI firmware table
+discovery, not AML interpretation or general ACPI namespace support.
+**MCFG/ECAM stays unchecked:** the discovered ECAM memory is only a
+physical number, not mapped PCI configuration MMIO or a driver.
+No MSI, APIC routing, SMP or Target 001 claims follow from this.
 
 **Verified M4 native PCI segment-zero scan (PR #59):** [Actions run
 36341931987](https://github.com/mixutin/Vibrix/actions/runs/36341931987)
