@@ -458,56 +458,82 @@ pub unsafe fn allocate_loader_pages(
         return Err(EFI_INVALID_PARAMETER);
     }
 
-    let services = unsafe { (*system_table).boot_services };
-    if services.is_null() {
-        return Err(EFI_LOAD_ERROR);
-    }
-
-    let mut physical_address = 0u64;
-    let status = unsafe {
-        ((*services).allocate_pages)(
-            ALLOCATE_ANY_PAGES,
-            EFI_LOADER_DATA,
-            pages,
-            &mut physical_address,
-        )
-    };
-    if status != EFI_SUCCESS {
-        return Err(status);
-    }
-    if physical_address == 0 {
-        unsafe {
-            ((*services).free_pages)(physical_address, pages);
-        }
-        return Err(EFI_LOAD_ERROR);
-    }
-
-    Ok(physical_address)
+    let (allocate, free) = unsafe { page_services(system_table)? };
+    unsafe { allocate_pages_with(allocate, free, pages) }
 }
 
-/// Release pages previously returned by `allocate_loader_pages`.
+/// Release owned pages. On failure ownership remains with the caller; do not
+/// continue a handoff or erase tracking as though the pages had been freed.
+/// Physical base zero is permitted here to clean up a policy-invalid allocation.
 ///
 /// # Safety
-///
-/// `system_table` must still expose live UEFI Boot Services. `physical_address` and
-/// `pages` must identify an allocation currently owned by the loader and must not have
-/// been freed already.
+/// Live firmware tables and an exact currently-owned allocation are required.
 pub unsafe fn free_loader_pages(
     system_table: *mut SystemTable,
     physical_address: u64,
     pages: usize,
-) {
+) -> Result<(), Status> {
     if system_table.is_null() || pages == 0 {
-        return;
+        return Err(EFI_INVALID_PARAMETER);
     }
+    let (_, free) = unsafe { page_services(system_table)? };
+    unsafe { free_pages_with(free, physical_address, pages) }
+}
 
+// Narrow production ABI injection for page-table rollback and host tests.
+// SAFETY: any non-null system table and services pointer must be live/readable.
+pub(crate) unsafe fn page_services(
+    system_table: *mut SystemTable,
+) -> Result<(AllocatePages, FreePages), Status> {
+    if system_table.is_null() {
+        return Err(EFI_INVALID_PARAMETER);
+    }
     let services = unsafe { (*system_table).boot_services };
     if services.is_null() {
-        return;
+        return Err(EFI_LOAD_ERROR);
     }
+    Ok(unsafe { ((*services).allocate_pages, (*services).free_pages) })
+}
 
-    unsafe {
-        ((*services).free_pages)(physical_address, pages);
+// SAFETY: callbacks obey UEFI ABI/allocation contracts and are still available.
+pub(crate) unsafe fn allocate_pages_with(
+    allocate: AllocatePages,
+    free: FreePages,
+    pages: usize,
+) -> Result<u64, Status> {
+    if pages == 0 {
+        return Err(EFI_INVALID_PARAMETER);
+    }
+    let mut physical_address = 0;
+    let status = allocate(
+        ALLOCATE_ANY_PAGES,
+        EFI_LOADER_DATA,
+        pages,
+        &mut physical_address,
+    );
+    if status != EFI_SUCCESS {
+        return Err(status);
+    }
+    if physical_address == 0 {
+        // Release failure takes precedence over the allocation-policy error.
+        unsafe { free_pages_with(free, physical_address, pages)? };
+        return Err(EFI_LOAD_ERROR);
+    }
+    Ok(physical_address)
+}
+
+// SAFETY: exact owned base/count and live callback required. Never rejects base 0.
+pub(crate) unsafe fn free_pages_with(
+    free: FreePages,
+    physical_address: u64,
+    pages: usize,
+) -> Result<(), Status> {
+    if pages == 0 {
+        return Err(EFI_INVALID_PARAMETER);
+    }
+    match free(physical_address, pages) {
+        EFI_SUCCESS => Ok(()),
+        status => Err(status),
     }
 }
 
