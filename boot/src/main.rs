@@ -112,7 +112,8 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     // A dedicated, loader-owned 64 KiB stack avoids depending on reclaimable
     // firmware stack pages after ExitBootServices.
     const STACK_PAGES: usize = 16;
-    let kernel_stack_base = match unsafe { uefi::allocate_loader_pages(system_table, STACK_PAGES) } {
+    let kernel_stack_base = match unsafe { uefi::allocate_loader_pages(system_table, STACK_PAGES) }
+    {
         Ok(physical) => physical,
         Err(status) => {
             console.write("VIBRIX: kernel stack allocation failed\r\n");
@@ -197,9 +198,9 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
             uncached: true,
         },
     ];
-    if let Err(error) = unsafe {
-        paging::map_identity_regions(system_table, &mut page_tables, &identity_regions)
-    } {
+    if let Err(error) =
+        unsafe { paging::map_identity_regions(system_table, &mut page_tables, &identity_regions) }
+    {
         console.write(error.message());
         return error.status();
     }
