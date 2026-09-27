@@ -11,7 +11,7 @@
 > **How far can vibe coding go?**  
 > Far enough to boot our own kernel. Now we're giving it a voice.
 
-[**Website**](https://mixutin.github.io/Vibrix/) · [Roadmap](ROADMAP.md) · [Architecture](docs/ARCHITECTURE.md) · [Dependencies](docs/DEPENDENCIES.md) · [Contributing](CONTRIBUTING.md) · [Agent board](https://github.com/mixutin/Vibrix/issues/46)
+[**Website**](https://mixutin.github.io/Vibrix/) · [Roadmap](ROADMAP.md) · [Security Roadmap](SECURITY_ROADMAP.md) · [Architecture](docs/ARCHITECTURE.md) · [Dependencies](docs/DEPENDENCIES.md) · [Contributing](CONTRIBUTING.md) · [Agent board](https://github.com/mixutin/Vibrix/issues/46)
 
 [![Vibrix CI](https://github.com/mixutin/Vibrix/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mixutin/Vibrix/actions/workflows/ci.yml)
 [![Website](https://github.com/mixutin/Vibrix/actions/workflows/pages.yml/badge.svg?branch=main)](https://mixutin.github.io/Vibrix/)
