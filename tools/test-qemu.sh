@@ -79,6 +79,9 @@ for expected in \
   "VIBRIX: kernel GDT/TSS loaded" \
   "VIBRIX: kernel serial initialized" \
   "VIBRIX: kernel IDT installed" \
+  "VIBRIX: kernel ACPI RSDP parsed" \
+  "VIBRIX: kernel frame allocator initialized" \
+  "VIBRIX: kernel conventional frames allocated" \
   "VIBRIX: kernel framebuffer wrote pixels"; do
   if ! grep -Fq "$expected" "$LOG"; then
     echo "[vibrix] missing smoke-test marker: $expected" >&2

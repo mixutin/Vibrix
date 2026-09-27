@@ -6,7 +6,7 @@ CI checks that every tracked `tools/*.sh` script retains Git executable mode `10
 
 The CI job also compiles `boot/src/elf.rs` as a standalone host test harness and runs its parser regression tests. This uses only the official Rust toolchain and exercises malformed ELF metadata without requiring UEFI firmware. Host parser tests do not demonstrate kernel handoff.
 
-The parser also rejects a kernel entry point that does not belong to a file-backed, executable `PT_LOAD` range. Host regression fixtures cover non-executable code, BSS-only entry points and out-of-range entry points. This prevents an invalid future kernel jump but does not yet implement the firmware-to-kernel handoff.
+The parser also rejects a kernel entry point that does not belong to a file-backed, executable `PT_LOAD` range. Host regression fixtures cover non-executable code, BSS-only entry points and out-of-range entry points. This rejects invalid jump targets on the now-implemented firmware-to-kernel handoff path; the separate QEMU gate proves the kernel actually ran.
 
 The QEMU smoke test captures both the loader/kernel QEMU debug port **and a separate native kernel COM1 serial log**. It requires the loader and then standalone kernel to prove that they:
 
@@ -42,18 +42,23 @@ The debug port is compiled only for QEMU builds. Bare-metal Vibrix builds do not
   `VIBRIX: kernel serial initialized`, and `VIBRIX: kernel framebuffer
   wrote pixels`. A distinct QEMU serial capture contains
   `Vibrix kernel started.`; loader debug output cannot satisfy that check.
+- **Post-firmware early frame allocator:** [CI run 36339966455](https://github.com/mixutin/Vibrix/actions/runs/36339966455)
+  required kernel-only `VIBRIX: kernel frame allocator initialized` and
+  `VIBRIX: kernel conventional frames allocated` markers during both normal
+  and panic-probe boots. They prove issuance of two distinct conventional
+  physical frame numbers; not mapping, zeroing, reuse, SMP or virtual memory.
 - **Kernel panic:** [CI run 36337648665](https://github.com/mixutin/Vibrix/actions/runs/36337648665)
   additionally booted a separately built `panic-probe` kernel, which
   reached post-firmware execution and printed the real panic handler's
   `VIBRIX: kernel panic` in debugcon and `kernel panic:` on COM1.
   The default kernel does not deliberately panic.
 
-- **Human-reproduced QEMU/OVMF:** [Mixutin's workstation report](https://github.com/mixutin/Vibrix/issues/14#issuecomment-5856279590) records a manual run of `./tools/test-qemu.sh` on `main` at `4a1eac2`, including `VIBRIX: kernel segments staged` and the smoke-test success line. Mixutin also ran `./tools/run-qemu.sh` and visually observed the loader sequence through the staging marker via QEMU VNC. This independently reproduces that **loader-stage QEMU milestone**, not a later handoff.
+- **Historical workstation QEMU/OVMF report:** the owner's now-unavailable comment on deleted issue #14 records a manual run of `./tools/test-qemu.sh` on `main` at `4a1eac2`, including `VIBRIX: kernel segments staged` and the smoke-test success line. Mixutin also ran `./tools/run-qemu.sh` and visually observed the loader sequence through the staging marker via QEMU VNC. This independently reproduces that **loader-stage QEMU milestone**, not a later handoff.
 - **Bare-metal Target 001:** requires a separate observed boot on the named physical machine. Neither GitHub Actions nor a workstation QEMU run is evidence of Target 001 operation; no such result is claimed here.
 
 Neither the owner reproduction of the earlier loader-only code nor these
 QEMU CI results establish a native USB/xHCI driver, persistent USB root,
 IDT/interrupts, processes, userspace shell, or Target 001 bare-metal boot.
-The older workstation report and its Issue #14 link are historical; issue
-#14 was subsequently deleted. Do not generalize QEMU success to physical
+The older workstation report is historical and its deleted Issue #14
+source is no longer retrievable. The active coordination board is [#46](https://github.com/mixutin/Vibrix/issues/46). Do not generalize QEMU success to physical
 hardware or unrelated milestones.

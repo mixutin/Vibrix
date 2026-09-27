@@ -110,6 +110,18 @@ jobs:
       - name: Lint bootloader
         run: cargo clippy -p vibrix-boot --features qemu-debugcon --target x86_64-unknown-uefi -- -D warnings
 
+      - name: Test production-linked ACPI tables and MCFG parser on host
+        run: |
+          rustfmt --edition 2024 --check kernel/src/arch/x86_64/acpi.rs
+          rustc --edition=2024 --test kernel/src/arch/x86_64/acpi.rs -o "$RUNNER_TEMP/vibrix-acpi-tests"
+          "$RUNNER_TEMP/vibrix-acpi-tests"
+
+      - name: Test production-linked early physical frame allocation on host
+        run: |
+          rustfmt --edition 2024 --check kernel/src/memory/frame_allocator.rs
+          rustc --edition=2024 --test kernel/src/memory/frame_allocator.rs -o "$RUNNER_TEMP/vibrix-frame-tests"
+          "$RUNNER_TEMP/vibrix-frame-tests"
+
       - name: Test CPUID discovery on host
         run: |
           rustc --edition=2024 --test kernel/src/arch/x86_64/cpuid.rs -o "$RUNNER_TEMP/vibrix-cpuid-tests"

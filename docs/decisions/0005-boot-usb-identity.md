@@ -16,9 +16,9 @@ port and PCI addresses also change when the drive moves to another machine.
 
 Today `boot/src/uefi.rs` opens the filesystem on the loaded image's
 `DeviceHandle` to read `kernel.elf`. It does not inspect the parent whole-disk
-block device or GPT, carry boot-disk identity to the kernel, exit boot
-services, or reacquire USB block access. `BootInfo` v1 has no boot-device
-identity. This proposal is a future contract, not a description of working
+block device or GPT, carry boot-disk identity to the kernel, or reacquire
+USB block access. The implemented `BootInfo` v2 has no boot-device identity;
+the QEMU kernel now executes after `ExitBootServices`. This proposal is a future contract, not a description of working
 storage code. It follows [ADR 0001](0001-bootinfo-address-spaces.md): firmware
 handles are not persistent kernel identities.
 
@@ -55,8 +55,8 @@ handles are not persistent kernel identities.
    to reject incompatible handoffs. It must not pass UEFI handles, Block I/O
    pointers, live device-path pointers, USB addresses or firmware-private
    types. The precise `BootInfo` extension and its version/size checks require
-   their own reviewed ABI change; this ADR does **not** change v1 or the
-   accepted-but-unimplemented v2 layout in [ADR 0004](0004-memory-descriptor-version.md).
+   their own reviewed ABI change; this ADR does **not** change the implemented v2 layout in
+   [ADR 0004](0004-memory-descriptor-version.md).
    An optional copied device path or USB descriptor/serial can aid diagnostics
    or discovery priority, but can never override an on-media mismatch.
 4. **Reacquire through native USB, read-only first.** After exit, initialize
@@ -116,9 +116,11 @@ interface. This document changes neither Rust ABI nor disk format today.
 
 ## Validation plan and evidence
 
-**Existing evidence:** current CI's QEMU smoke reaches kernel ELF validation
-and physical segment staging. It does not prove GPT boot provenance,
-`ExitBootServices`, native USB access or a persistent root. This ADR is a
+**Existing evidence:** current CI's QEMU smoke reaches the standalone kernel
+after a verified `ExitBootServices` handoff and proves a limited physical
+frame allocator. Offline GPT tooling creates and validates blank host image
+files. Neither demonstrates GPT **boot-device provenance**, native USB
+access, a persistent root, or QEMU boot from the new unformatted GPT image. This ADR is a
 design proposal, not an M7/M9 checkbox completion.
 
 For implementation, test the loader's source-partition-to-whole-disk
