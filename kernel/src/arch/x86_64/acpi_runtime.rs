@@ -228,10 +228,7 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
                 }
                 if &table.signature == b"APIC" {
                     let madt = table.madt_entries()?;
-                    let first = madt
-                        .ioapics()
-                        .next()
-                        .ok_or(ReadError::MissingApic)??;
+                    let first = madt.ioapics().next().ok_or(ReadError::MissingApic)??;
                     return Ok((
                         0usize,
                         None,
@@ -259,8 +256,7 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
         return Err(ReadError::MissingMcfg);
     }
     let entry: McfgEntry = selected_ecam.ok_or(ReadError::MissingEcam)?;
-    let (lapic_physical, ioapic_physical, ioapics) =
-        selected_apic.ok_or(ReadError::MissingApic)?;
+    let (lapic_physical, ioapic_physical, ioapics) = selected_apic.ok_or(ReadError::MissingApic)?;
     // SAFETY: one CPL0 boot CPU, no other PAT owner at this stage.
     if !unsafe { pat_index_three_is_uc() } {
         return Err(ReadError::PatNotUncached);
