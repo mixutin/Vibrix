@@ -9,18 +9,27 @@ The boot ABI is the contract between the Vibrix UEFI loader and the Vibrix kerne
 - no dependency on UEFI types after firmware services are released
 - architecture-specific details kept outside generic kernel code where practical
 
-## BootInfo v1
+## Shared Rust BootInfo v2 layout
 
-The initial structure carries:
+The original v1 design specified magic/version, framebuffer physical address
+and geometry/pixel format, ACPI RSDP physical address, and UEFI-derived
+memory-map address, byte length and descriptor size.
 
-- magic/version
-- framebuffer physical address and geometry
-- framebuffer pixel format
-- ACPI RSDP physical address
-- UEFI-derived physical memory map
-- memory descriptor size
+Both `boot/src/main.rs` and `kernel/src/main.rs` now compile the same
+`shared/bootinfo.rs` `#[repr(C)]` definition (88 bytes, alignment 8 on
+x86-64). The first 80 bytes retain v1 offsets. The v2 tail is a firmware
+`u32 memory_descriptor_version` at offset 80, followed by a zero
+`u32 _reserved_v2` at offset 84. `_reserved` at offset 12 is also zero.
 
-The kernel must treat all pointers as untrusted boot-time inputs until validated.
+The immutable `BOOTINFO_MAGIC = 0x4942_5849_5242_4956` encodes
+`VIBRIXBI` in little endian; `BOOTINFO_VERSION = 2` distinguishes the
+layout. The memory-map key remains loader-only. The same first-party source
+contains scalar validation and host regression tests for layout, unsupported
+ABI/firmware versions, descriptor stride/byte count and address overflow.
+No UEFI type appears in the stable ABI.
+
+The kernel must treat all physical addresses as untrusted integers until
+its page tables map them and it validates the corresponding backing.
 
 ## Accepted address-space semantics
 
@@ -30,8 +39,9 @@ a virtual pointer for the entry argument `*const BootInfo` under the
 active page tables. Loader-owned handoff buffers use `EfiLoaderData`;
 Vibrix must reserve those physical pages until consumed or copied.
 The ADR also defines map-key retry and descriptor-stride constraints.
-This **accepted design is not implemented handoff**; no Rust ABI layout
-change or successful post-`ExitBootServices` kernel entry is implied.
+This accepted address-space design is not yet an implemented
+post-`ExitBootServices` handoff. The shared ABI type is present, but the
+kernel's initial mappings and transfer remain separate work.
 
 ## Accepted descriptor-version migration
 
@@ -42,9 +52,14 @@ without reusing the existing reserved field or changing the physical
 address / byte-count / stride semantics from ADR 0001. UEFI's descriptor
 version and Vibrix's BootInfo version are independent numbers.
 
-**This is an accepted design, not an implemented ABI change.** The Rust
-`BootInfo` struct remains the v1 layout in this documentation PR;
-loader and kernel must migrate together in a separately validated PR.
+The Rust ABI type has now migrated together on loader and kernel to v2.
+The loader stages a validated v2 value into a loader-owned
+`EfiLoaderData` page allocated **before** the final `GetMemoryMap`;
+it copies the physical map-buffer address, byte count, returned stride and
+returned descriptor version from the **same** successful capture. The
+QEMU-specific `VIBRIX: BootInfo v2 staged` marker proves loader-side
+population only. It does not prove that page is mapped under the future
+kernel CR3, that `ExitBootServices` succeeded or that the kernel read it.
 
 ## Kernel image staging
 
@@ -53,10 +68,12 @@ physical backing policy for the higher-half kernel image. Physical backing
 addresses and linked virtual addresses are distinct concepts; later page-table
 code must preserve that distinction explicitly.
 
-The current staging step allocates loader-owned `EfiLoaderData` pages, zeroes
-the complete image span, copies validated file-backed `PT_LOAD` bytes and
-verifies BSS remains zero. It does not yet establish the higher-half mappings
-or transfer execution to the kernel.
+The current staging step allocates loader-owned `EfiLoaderData` pages,
+zeroes the complete image span, copies validated file-backed `PT_LOAD` bytes
+and verifies BSS remains zero. The loader separately constructs and
+software-verifies **inactive** higher-half page tables; it has not switched
+CR3, mapped the BootInfo handoff page under the new tables or transferred
+execution to the kernel.
 
 ## Handoff
 
