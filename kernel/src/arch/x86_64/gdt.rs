@@ -11,7 +11,7 @@
 
 #![allow(dead_code)]
 
-use core::arch::asm;
+use core::{arch::asm, cell::UnsafeCell};
 
 /// A single 8-byte GDT entry (segment descriptor).
 ///
@@ -80,9 +80,7 @@ impl GdtEntry {
     /// Access byte: 0xFA = present, ring 3, code, executable, readable
     /// Flags: 0xA0 = L=1 (64-bit), G=1 (4K granularity)
     pub const USER_CODE: Self = Self::new(
-        0,
-        0xFFFFF,
-        0xFA, // present | ring 3 | code | executable | readable
+        0, 0xFFFFF, 0xFA, // present | ring 3 | code | executable | readable
         0xA0, // L=1, G=1
         0,
     );
@@ -92,9 +90,7 @@ impl GdtEntry {
     /// Access byte: 0xF2 = present, ring 3, data, writable
     /// Flags: 0xC0 = D/B=1, G=1
     pub const USER_DATA: Self = Self::new(
-        0,
-        0xFFFFF,
-        0xF2, // present | ring 3 | data | writable
+        0, 0xFFFFF, 0xF2, // present | ring 3 | data | writable
         0xC0, // D/B=1, G=1
         0,
     );
@@ -161,7 +157,8 @@ pub struct Tss {
 }
 
 impl Tss {
-    /// Create a zeroed TSS.
+    /// Create a TSS with the I/O bitmap disabled. The zeroed stack slots must be
+    /// configured before any privilege-changing interrupt or user-mode entry.
     pub const fn new() -> Self {
         Self {
             reserved0: 0,
@@ -172,7 +169,8 @@ impl Tss {
             ist: [0; 7],
             reserved2: 0,
             reserved3: 0,
-            io_map_base: 0,
+            // Offset beyond the inclusive TSS limit: no I/O permission bitmap.
+            io_map_base: core::mem::size_of::<Self>() as u16,
         }
     }
 }
@@ -184,11 +182,17 @@ impl Tss {
 /// and the TSS descriptor.
 #[repr(C, align(8))]
 pub struct Gdt {
-    entries: [GdtEntry; 8],
+    entries: [GdtEntry; 5],
     tss_descriptor: TssDescriptor,
 }
 
 impl Gdt {
+    /// A placeholder for the permanent GDT storage; init() fills its TSS base.
+    const EMPTY: Self = Self {
+        entries: [GdtEntry::NULL; 5],
+        tss_descriptor: TssDescriptor::new(0, (core::mem::size_of::<Tss>() - 1) as u32),
+    };
+
     /// Create a new GDT with the standard Vibrix layout.
     ///
     /// Layout:
@@ -206,13 +210,10 @@ impl Gdt {
                 GdtEntry::KERNEL_DATA,
                 GdtEntry::USER_CODE,
                 GdtEntry::USER_DATA,
-                GdtEntry::NULL, // reserved for future use
-                GdtEntry::NULL, // reserved for future use
-                GdtEntry::NULL, // reserved for future use
             ],
             tss_descriptor: TssDescriptor::new(
                 tss as *const _ as u64,
-                core::mem::size_of::<Tss>() as u32,
+                (core::mem::size_of::<Tss>() - 1) as u32,
             ),
         }
     }
@@ -230,11 +231,11 @@ impl Gdt {
     /// Get the kernel data segment selector.
     pub const KERNEL_DATA_SELECTOR: u16 = 0x10;
     /// Get the user code segment selector.
-    pub const USER_CODE_SELECTOR: u16 = 0x18;
+    pub const USER_CODE_SELECTOR: u16 = 0x1b; // descriptor 0x18 | ring-3 RPL
     /// Get the user data segment selector.
-    pub const USER_DATA_SELECTOR: u16 = 0x20;
-    /// Get the TSS segment selector.
-    pub const TSS_SELECTOR: u16 = 0x28;
+    pub const USER_DATA_SELECTOR: u16 = 0x23; // descriptor 0x20 | ring-3 RPL
+    /// Get the TSS segment selector (the offset of the actual 16-byte descriptor).
+    pub const TSS_SELECTOR: u16 = core::mem::offset_of!(Self, tss_descriptor) as u16;
 }
 
 /// GDTR structure (loaded by LGDT).
@@ -248,10 +249,16 @@ pub struct GdtPointer {
 ///
 /// # Safety
 ///
-/// The GDT must be valid and remain loaded for the lifetime of the kernel.
-/// This function is typically called once during early kernel initialization.
-pub unsafe fn load_gdt(gdt: &Gdt) {
-    let ptr = gdt.pointer();
+/// `gdt` must point to permanently allocated, mapped, writable, valid GDT
+/// storage; descriptor loads may set Accessed bits and LTR sets the TSS busy
+/// bit in this memory. Do not keep an immutable Rust reference to the GDT
+/// across hardware descriptor accesses. Call only once on the boot CPU with
+/// interrupts disabled, before other CPUs and privilege transitions.
+pub unsafe fn load_gdt(gdt: *mut Gdt) {
+    let ptr = GdtPointer {
+        limit: (core::mem::size_of::<Gdt>() - 1) as u16,
+        base: gdt as u64,
+    };
 
     unsafe {
         // Load the GDT
@@ -279,7 +286,8 @@ pub unsafe fn load_gdt(gdt: &Gdt) {
             "2:",
             selector = in(reg) Gdt::KERNEL_CODE_SELECTOR as u64,
             addr = out(reg) _,
-            options(nostack)
+            // push/push/retfq uses the stack and restores RSP to its original value.
+            // Do NOT declare nostack; the output scratch register is overwritten.
         );
     }
 }
@@ -288,28 +296,53 @@ pub unsafe fn load_gdt(gdt: &Gdt) {
 ///
 /// # Safety
 ///
-/// The TSS must be valid and remain loaded for the lifetime of the kernel.
+/// The TSS and GDT must remain permanently mapped. LTR writes the TSS busy
+/// bit into the writable GDT descriptor; caller must have initialized the
+/// descriptor's base/limit and disabled interrupts/other CPUs before loading.
 pub unsafe fn load_tss() {
     unsafe {
         asm!("ltr ax", in("ax") Gdt::TSS_SELECTOR, options(nostack));
     }
 }
 
-/// Initialize the GDT and TSS.
-///
-/// This is the main entry point for GDT/TSS setup. It creates a TSS,
-/// builds the GDT, loads it, and loads the TR.
+/// Kernel-lifetime storage for the TSS and GDT, independent of init()'s stack.
+/// UnsafeCell is needed for one-time initialization; after LGDT/LTR these
+/// objects may not move or be mutated by uncoordinated software. The CPU may
+/// set descriptor Accessed/busy bits in GDT storage, so it stays writable.
+/// This is a single-CPU bootstrap contract.
+struct StaticTss(UnsafeCell<Tss>);
+struct StaticGdt(UnsafeCell<Gdt>);
+
+// SAFETY: init() is called once with interrupts disabled, before other CPUs or
+// privilege transitions; only the CPU's descriptor bit writes are allowed
+// after init, until a future explicitly synchronized update protocol exists.
+unsafe impl Sync for StaticTss {}
+// SAFETY: identical single-writer/one-time initialization invariant as StaticTss.
+unsafe impl Sync for StaticGdt {}
+
+static TSS: StaticTss = StaticTss(UnsafeCell::new(Tss::new()));
+static GDT: StaticGdt = StaticGdt(UnsafeCell::new(Gdt::EMPTY));
+
+/// Initialize the permanent GDT and TSS and load GDTR and TR.
 ///
 /// # Safety
-///
-/// Must be called exactly once during early kernel initialization,
-/// before any interrupts are enabled.
+/// Must be called exactly once on the boot CPU before interrupts, other CPUs,
+/// or ring-3 entry. GDT/TSS must stay mapped and writable at fixed addresses
+/// for the kernel lifetime. This function is *not* proof that future RSP0 or
+/// IST stacks have been configured for interrupts or ring-3 transitions.
+/// RSP0/IST are zero and MUST be initialized before any privilege transition
+/// or interrupt gate which selects an IST stack.
 pub unsafe fn init() {
-    let tss = Tss::new();
-    let gdt = Gdt::new(&tss);
+    let tss = TSS.0.get();
+    let gdt = GDT.0.get();
 
+    // SAFETY: one boot CPU initializes dedicated, static UnsafeCell backing.
+    // No references/interrupts to these objects exist before this point.
     unsafe {
-        load_gdt(&gdt);
+        core::ptr::write(tss, Tss::new());
+        core::ptr::write(gdt, Gdt::new(&*tss));
+        // Pass a raw pointer: LGDT/LTR may change GDT Accessed/busy bits.
+        load_gdt(gdt);
         load_tss();
     }
 }
@@ -317,58 +350,79 @@ pub unsafe fn init() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::mem::{align_of, offset_of, size_of};
 
     #[test]
-    fn test_gdt_entry_size() {
-        assert_eq!(core::mem::size_of::<GdtEntry>(), 8);
-    }
-
-    #[test]
-    fn test_tss_descriptor_size() {
-        assert_eq!(core::mem::size_of::<TssDescriptor>(), 16);
-    }
-
-    #[test]
-    fn test_tss_size() {
-        assert_eq!(core::mem::size_of::<Tss>(), 104);
-    }
-
-    #[test]
-    fn test_gdt_size() {
-        // 8 entries * 8 bytes + 16 bytes for TSS descriptor = 80 bytes
-        assert_eq!(core::mem::size_of::<Gdt>(), 80);
-    }
-
-    #[test]
-    fn test_gdt_pointer_size() {
-        assert_eq!(core::mem::size_of::<GdtPointer>(), 10);
-    }
-
-    #[test]
-    fn test_selectors() {
+    fn production_gdt_layout_and_selector() {
+        assert_eq!(size_of::<GdtEntry>(), 8);
+        assert_eq!(size_of::<TssDescriptor>(), 16);
+        assert_eq!(size_of::<Gdt>(), 56);
+        assert_eq!(align_of::<Gdt>(), 8);
+        assert_eq!(offset_of!(Gdt, tss_descriptor), 0x28);
+        assert_eq!(Gdt::TSS_SELECTOR, 0x28);
         assert_eq!(Gdt::KERNEL_CODE_SELECTOR, 0x08);
         assert_eq!(Gdt::KERNEL_DATA_SELECTOR, 0x10);
-        assert_eq!(Gdt::USER_CODE_SELECTOR, 0x18);
-        assert_eq!(Gdt::USER_DATA_SELECTOR, 0x20);
-        assert_eq!(Gdt::TSS_SELECTOR, 0x28);
+        assert_eq!(Gdt::USER_CODE_SELECTOR, 0x1b);
+        assert_eq!(Gdt::USER_DATA_SELECTOR, 0x23);
     }
 
     #[test]
-    fn test_tss_new_is_zeroed() {
+    fn production_tss_layout_no_bitmap() {
+        assert_eq!(size_of::<Tss>(), 104);
+        assert_eq!(offset_of!(Tss, rsp0), 4);
+        assert_eq!(offset_of!(Tss, ist), 36);
+        assert_eq!(offset_of!(Tss, io_map_base), 102);
         let tss = Tss::new();
-        assert_eq!(tss.rsp0, 0);
-        assert_eq!(tss.rsp1, 0);
-        assert_eq!(tss.rsp2, 0);
-        assert_eq!(tss.ist, [0; 7]);
-        assert_eq!(tss.io_map_base, 0);
+        let rsp0 = tss.rsp0;
+        let rsp1 = tss.rsp1;
+        let rsp2 = tss.rsp2;
+        let ist = tss.ist;
+        let io_map_base = tss.io_map_base;
+        assert_eq!((rsp0, rsp1, rsp2), (0, 0, 0));
+        assert_eq!(ist, [0; 7]);
+        assert_eq!(io_map_base, size_of::<Tss>() as u16);
     }
 
     #[test]
-    fn test_gdt_layout() {
+    fn production_descriptor_base_limit_and_selectors() {
         let tss = Tss::new();
         let gdt = Gdt::new(&tss);
         let ptr = gdt.pointer();
-        assert_eq!(ptr.limit, 79); // 80 - 1
-        assert_eq!(ptr.base, &gdt as *const _ as u64);
+        let gdtr_limit = ptr.limit;
+        let gdtr_base = ptr.base;
+        assert_eq!(size_of::<GdtPointer>(), 10);
+        assert_eq!(gdtr_limit, (size_of::<Gdt>() - 1) as u16);
+        assert_eq!(gdtr_base, &gdt as *const _ as u64);
+        let desc = gdt.tss_descriptor;
+        let base = desc.base_low as u64
+            | ((desc.base_mid as u64) << 16)
+            | ((desc.base_high as u64) << 24)
+            | ((desc.base_upper as u64) << 32);
+        let limit = desc.limit_low as u32 | (((desc.limit_high_flags & 0x0f) as u32) << 16);
+        assert_eq!(base, &tss as *const _ as u64);
+        assert_eq!(limit, (size_of::<Tss>() - 1) as u32);
+        assert_eq!(desc.access, 0x89);
+        let reserved = desc.reserved;
+        assert_eq!(reserved, 0);
+        assert_eq!(Gdt::TSS_SELECTOR as usize, offset_of!(Gdt, tss_descriptor));
+    }
+
+    #[test]
+    fn production_entry_access_bytes() {
+        let tss = Tss::new();
+        let gdt = Gdt::new(&tss);
+        assert_eq!(gdt.entries[0].access, 0);
+        assert_eq!(gdt.entries[1].access, 0x9a);
+        assert_eq!(gdt.entries[2].access, 0x92);
+        assert_eq!(gdt.entries[3].access, 0xfa);
+        assert_eq!(gdt.entries[4].access, 0xf2);
+    }
+
+    #[test]
+    fn permanent_storage_is_in_static_objects() {
+        assert_eq!(TSS.0.get(), TSS.0.get());
+        assert_eq!(GDT.0.get(), GDT.0.get());
+        assert_ne!(TSS.0.get() as usize, GDT.0.get() as usize);
+        assert_eq!(size_of::<Gdt>(), 56);
     }
 }

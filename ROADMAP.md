@@ -14,7 +14,7 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [x] AI/agent contribution policy
 - [x] GitHub Actions CI definition
 - [x] CI green on loader + kernel + QEMU smoke test
-- [ ] Adopt project license
+- [x] Adopt project license
 - [x] Architecture decision record process
 - [x] Preserve executable bits for scripts
 

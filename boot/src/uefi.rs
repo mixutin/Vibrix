@@ -9,10 +9,10 @@ pub const EFI_SUCCESS: Status = 0;
 pub const EFI_ERROR_BIT: Status = 1usize << (usize::BITS - 1);
 pub const EFI_LOAD_ERROR: Status = EFI_ERROR_BIT | 1;
 pub const EFI_INVALID_PARAMETER: Status = EFI_ERROR_BIT | 2;
+pub const EFI_BUFFER_TOO_SMALL: Status = EFI_ERROR_BIT | 5;
 pub const EFI_OUT_OF_RESOURCES: Status = EFI_ERROR_BIT | 9;
-pub const EFI_BUFFER_TOO_SMALL: Status = EFI_ERROR_BIT | 0;
 
-const EFI_LOADER_DATA: u32 = 2;
+pub const EFI_LOADER_DATA: u32 = 2;
 const FILE_MODE_READ: u64 = 1;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -112,23 +112,33 @@ pub struct SimpleTextOutputProtocol {
     pub mode: usize,
 }
 
-type AllocatePages = extern "efiapi" fn(
+pub type AllocatePages = extern "efiapi" fn(
     allocation_type: u32,
     memory_type: u32,
     pages: usize,
     memory: *mut u64,
 ) -> Status;
-type FreePages = extern "efiapi" fn(memory: u64, pages: usize) -> Status;
+pub type FreePages = extern "efiapi" fn(memory: u64, pages: usize) -> Status;
+/// UEFI 2.10 section 7.2.3. Firmware may return a larger descriptor stride.
+#[repr(C)]
+pub struct MemoryDescriptor {
+    pub memory_type: u32,
+    pub physical_start: u64,
+    pub virtual_start: u64,
+    pub number_of_pages: u64,
+    pub attribute: u64,
+}
+
+pub type GetMemoryMap = unsafe extern "efiapi" fn(
+    memory_map_size: *mut usize,
+    memory_map: *mut MemoryDescriptor,
+    map_key: *mut usize,
+    descriptor_size: *mut usize,
+    descriptor_version: *mut u32,
+) -> Status;
 type AllocatePool =
     extern "efiapi" fn(memory_type: u32, size: usize, buffer: *mut *mut c_void) -> Status;
 type FreePool = extern "efiapi" fn(buffer: *mut c_void) -> Status;
-type GetMemoryMap = extern "efiapi" fn(
-    memory_map_size: *mut usize,
-    memory_map: *mut u64,
-    map_key: *mut usize,
-    descriptor_size: *mut usize,
-    descriptor_version: *mut usize,
-) -> Status;
 type HandleProtocol = extern "efiapi" fn(
     handle: Handle,
     protocol: *const Guid,
@@ -431,7 +441,7 @@ pub unsafe fn discover_framebuffer(system_table: *mut SystemTable) -> Option<Fra
     })
 }
 
-const ALLOCATE_ANY_PAGES: u32 = 0;
+pub const ALLOCATE_ANY_PAGES: u32 = 0;
 
 /// Allocate loader-owned physical pages that intentionally survive the firmware handoff.
 ///
@@ -448,137 +458,83 @@ pub unsafe fn allocate_loader_pages(
         return Err(EFI_INVALID_PARAMETER);
     }
 
-    let services = unsafe { (*system_table).boot_services };
-    if services.is_null() {
-        return Err(EFI_LOAD_ERROR);
-    }
-
-    let mut physical_address = 0u64;
-    let status = unsafe {
-        ((*services).allocate_pages)(
-            ALLOCATE_ANY_PAGES,
-            EFI_LOADER_DATA,
-            pages,
-            &mut physical_address,
-        )
-    };
-    if status != EFI_SUCCESS {
-        return Err(status);
-    }
-    if physical_address == 0 {
-        unsafe {
-            ((*services).free_pages)(physical_address, pages);
-        }
-        return Err(EFI_LOAD_ERROR);
-    }
-
-    Ok(physical_address)
+    let (allocate, free) = unsafe { page_services(system_table)? };
+    unsafe { allocate_pages_with(allocate, free, pages) }
 }
 
-/// Release pages previously returned by `allocate_loader_pages`.
+/// Release owned pages. On failure ownership remains with the caller; do not
+/// continue a handoff or erase tracking as though the pages had been freed.
+/// Physical base zero is permitted here to clean up a policy-invalid allocation.
 ///
 /// # Safety
-///
-/// `system_table` must still expose live UEFI Boot Services. `physical_address` and
-/// `pages` must identify an allocation currently owned by the loader and must not have
-/// been freed already.
+/// Live firmware tables and an exact currently-owned allocation are required.
 pub unsafe fn free_loader_pages(
     system_table: *mut SystemTable,
     physical_address: u64,
     pages: usize,
-) {
+) -> Result<(), Status> {
     if system_table.is_null() || pages == 0 {
-        return;
+        return Err(EFI_INVALID_PARAMETER);
     }
-
-    let services = unsafe { (*system_table).boot_services };
-    if services.is_null() {
-        return;
-    }
-
-    unsafe {
-        ((*services).free_pages)(physical_address, pages);
-    }
+    let (_, free) = unsafe { page_services(system_table)? };
+    unsafe { free_pages_with(free, physical_address, pages) }
 }
 
-/// Capture the final UEFI firmware memory map before ExitBootServices.
-///
-/// # Safety
-///
-/// `system_table` must point to a live UEFI system table whose Boot Services are
-/// still available. The returned memory map pointers and descriptors remain valid
-/// only until ExitBootServices is called; after that the firmware may reclaim or
-/// invalidate the memory ranges.
-pub unsafe fn capture_uefi_memory_map(
+// Narrow production ABI injection for page-table rollback and host tests.
+// SAFETY: any non-null system table and services pointer must be live/readable.
+pub(crate) unsafe fn page_services(
     system_table: *mut SystemTable,
-) -> Result<( *mut u64, usize, usize, usize, usize), Status> {
+) -> Result<(AllocatePages, FreePages), Status> {
     if system_table.is_null() {
         return Err(EFI_INVALID_PARAMETER);
     }
-
     let services = unsafe { (*system_table).boot_services };
     if services.is_null() {
         return Err(EFI_LOAD_ERROR);
     }
+    Ok(unsafe { ((*services).allocate_pages, (*services).free_pages) })
+}
 
-    // Query the required buffer size for the memory map.
-    let mut map_size = 0usize;
-    let mut map_key = 0usize;
-    let mut descriptor_size = 0usize;
-    let mut descriptor_version = 0usize;
-
-    let status = unsafe {
-        ((*services).get_memory_map)(
-            &mut map_size,
-            null_mut(),
-            &mut map_key,
-            &mut descriptor_size,
-            &mut descriptor_version,
-        )
-    };
-    // EFI_BUFFER_TOO_SMALL is expected; we just need the sizes.
-    if status != EFI_BUFFER_TOO_SMALL {
-        return Err(status);
+// SAFETY: callbacks obey UEFI ABI/allocation contracts and are still available.
+pub(crate) unsafe fn allocate_pages_with(
+    allocate: AllocatePages,
+    free: FreePages,
+    pages: usize,
+) -> Result<u64, Status> {
+    if pages == 0 {
+        return Err(EFI_INVALID_PARAMETER);
     }
-
-    // Allocate the memory map buffer from loader-owned pages.
-    // UEFI GetMemoryMap returns map_size in bytes.
-    // allocate_pool takes page count; EfiLoaderData pages are 4KiB each.
-    const PAGE_SIZE: usize = 4096;
-    let pages = (map_size + PAGE_SIZE - 1) / PAGE_SIZE;
-    let mut map_buffer_ptr: *mut c_void = null_mut();
-    let status = unsafe {
-        ((*services).allocate_pool)(EFI_LOADER_DATA, pages, &mut map_buffer_ptr)
-    };
-    if status != EFI_SUCCESS || map_buffer_ptr.is_null() {
-        return Err(if status == EFI_SUCCESS {
-            EFI_OUT_OF_RESOURCES
-        } else {
-            status
-        });
-    }
-    let map_buffer = map_buffer_ptr as *mut u64;
-    let mut map_buffer_capacity = map_size;
-
-    // Retrieve the actual memory map.
-    let status = unsafe {
-        ((*services).get_memory_map)(
-            &mut map_buffer_capacity,
-            map_buffer,
-            &mut map_key,
-            &mut descriptor_size,
-            &mut descriptor_version,
-        )
-    };
+    let mut physical_address = 0;
+    let status = allocate(
+        ALLOCATE_ANY_PAGES,
+        EFI_LOADER_DATA,
+        pages,
+        &mut physical_address,
+    );
     if status != EFI_SUCCESS {
-        // Free the buffer on failure so the loader doesn't leak pages.
-        unsafe {
-            ((*services).free_pool)(map_buffer as *mut c_void);
-        }
         return Err(status);
     }
+    if physical_address == 0 {
+        // Release failure takes precedence over the allocation-policy error.
+        unsafe { free_pages_with(free, physical_address, pages)? };
+        return Err(EFI_LOAD_ERROR);
+    }
+    Ok(physical_address)
+}
 
-    Ok((map_buffer, map_buffer_capacity, map_key, descriptor_size, descriptor_version))
+// SAFETY: exact owned base/count and live callback required. Never rejects base 0.
+pub(crate) unsafe fn free_pages_with(
+    free: FreePages,
+    physical_address: u64,
+    pages: usize,
+) -> Result<(), Status> {
+    if pages == 0 {
+        return Err(EFI_INVALID_PARAMETER);
+    }
+    match free(physical_address, pages) {
+        EFI_SUCCESS => Ok(()),
+        status => Err(status),
+    }
 }
 
 pub struct KernelFile {
@@ -732,7 +688,8 @@ pub unsafe fn load_kernel(
     })
 }
 
-fn debug_write(text: &str) {
+/// QEMU-only port output: no firmware calls or allocations.
+pub fn debug_write(text: &str) {
     #[cfg(feature = "qemu-debugcon")]
     for byte in text.bytes() {
         unsafe {

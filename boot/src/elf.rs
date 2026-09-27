@@ -7,6 +7,7 @@ const ET_EXEC: u16 = 2;
 const EM_X86_64: u16 = 62;
 const PT_LOAD: u32 = 1;
 const PF_X: u32 = 1;
+const PF_W: u32 = 2;
 
 pub struct ElfInfo {
     pub entry: u64,
@@ -17,10 +18,21 @@ pub struct ElfInfo {
 
 #[derive(Clone, Copy)]
 pub struct LoadSegment {
+    flags: u32,
     pub file_offset: u64,
     pub virtual_address: u64,
     pub file_size: u64,
     pub memory_size: u64,
+}
+
+impl LoadSegment {
+    pub fn writable(self) -> bool {
+        self.flags & PF_W != 0
+    }
+
+    pub fn executable(self) -> bool {
+        self.flags & PF_X != 0
+    }
 }
 
 pub struct LoadSegmentIter<'a> {
@@ -60,6 +72,7 @@ impl Iterator for LoadSegmentIter<'_> {
 
             let segment = (|| {
                 Ok(LoadSegment {
+                    flags: read_u32(self.data, base + 4)?,
                     file_offset: read_u64(self.data, base + 8)?,
                     virtual_address: read_u64(self.data, base + 16)?,
                     file_size: read_u64(self.data, base + 32)?,
@@ -484,6 +497,8 @@ mod tests {
         assert_eq!(segments[0].virtual_address, 0x1000);
         assert_eq!(segments[0].file_size, 4);
         assert_eq!(segments[0].memory_size, 8);
+        assert!(segments[0].executable());
+        assert!(!segments[0].writable());
     }
 
     #[test]
