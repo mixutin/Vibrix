@@ -1,0 +1,66 @@
+id = "target-001"
+name = "Gigabyte B550M AORUS ELITE reference machine"
+architecture = "x86_64"
+firmware = "uefi"
+
+[cpu]
+vendor = "amd"
+model = "Ryzen 7 3700X"
+microarchitecture = "zen2"
+cores = 8
+threads = 16
+physical_address_bits = 43
+virtual_address_bits = 48
+
+[memory]
+size_gib = 32
+type = "ddr4"
+speed_mt_s = 3200
+
+[gpu]
+vendor_id = "1002"
+device_id = "73ff"
+family = "navi23"
+description = "AMD Radeon RX 6600 family"
+
+[nvme]
+vendor_id = "144d"
+device_id = "a808"
+description = "Samsung NVMe SM981/PM981/PM983 controller family"
+
+[sata]
+vendor_id = "1022"
+device_id = "43eb"
+interface = "ahci"
+
+[ethernet]
+vendor_id = "10ec"
+device_id = "8168"
+family = "rtl8111-8168"
+
+[[usb_controller]]
+vendor_id = "1022"
+device_id = "43ee"
+interface = "xhci"
+
+[[usb_controller]]
+vendor_id = "1022"
+device_id = "149c"
+interface = "xhci"
+
+[audio.onboard]
+vendor_id = "1022"
+device_id = "1487"
+codec = "Realtek ALC1220"
+
+[audio.gpu]
+vendor_id = "1002"
+device_id = "ab28"
+
+[platform]
+tpm2 = true
+amd_iommu = true
+acpi_apic = true
+acpi_hpet = true
+acpi_mcfg = true
+acpi_ivrs = true
