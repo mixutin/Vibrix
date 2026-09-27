@@ -55,7 +55,7 @@ Both editions are the same operating system. Only installation and storage polic
 
 **Phase 0 — Bootstrap.** Vibrix does not boot yet. Rust has been selected as the system implementation language. The next target is the first x86-64 UEFI boot path.
 
-See [ROADMAP.md](ROADMAP.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+See [ROADMAP.md](ROADMAP.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and [docs/adr/](docs/adr/) for architecture decision records.
 
 ## Planned source tree
 
