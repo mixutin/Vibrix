@@ -1,6 +1,6 @@
 use core::ptr;
 
-use crate::elf::{ElfError, ElfInfo, LoadSegment};
+use crate::elf::{ElfError, ElfInfo};
 use crate::loader::LoadedKernel;
 use crate::uefi::{self, EFI_LOAD_ERROR, KernelFile, Status, SystemTable};
 
@@ -369,7 +369,7 @@ fn validate_loaded_span(loaded: &LoadedKernel) -> Result<(), PagingError> {
     if !valid_canonical_page(loaded.virtual_base)
         || !valid_physical_page(loaded.physical_base)
         || loaded.span_bytes == 0
-        || loaded.span_bytes % PAGE_SIZE != 0
+        || !loaded.span_bytes.is_multiple_of(PAGE_SIZE)
         || loaded.pages as u64 != loaded.span_bytes / PAGE_SIZE
     {
         return Err(PagingError::KernelSpanMismatch);
@@ -396,11 +396,11 @@ fn validate_loaded_span(loaded: &LoadedKernel) -> Result<(), PagingError> {
 }
 
 fn valid_canonical_page(address: u64) -> bool {
-    address % PAGE_SIZE == 0 && is_canonical_48(address)
+    address.is_multiple_of(PAGE_SIZE) && is_canonical_48(address)
 }
 
 fn valid_physical_page(address: u64) -> bool {
-    address != 0 && address % PAGE_SIZE == 0 && address & !ADDRESS_MASK == 0
+    address != 0 && address.is_multiple_of(PAGE_SIZE) && address & !ADDRESS_MASK == 0
 }
 
 fn is_canonical_48(address: u64) -> bool {
