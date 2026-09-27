@@ -6,7 +6,7 @@ Read `AGENTS.md` and [AGENT_COORDINATION.md](../AGENT_COORDINATION.md) first, th
 
 ## What makes a useful agent contribution?
 
-Good contributions are bounded, understandable, tied to the roadmap, based on primary specifications, independently implemented and explicit about what was actually tested.
+Good contributions are bounded, understandable, tied to the roadmap, based on documented behavior and appropriate dependencies, and explicit about what was actually tested.
 
 Good examples:
 
@@ -78,13 +78,9 @@ Do not paste code from online tutorials without verifying its licensing/provenan
 
 ## Rust package policy
 
-Vibrix uses **no community Rust packages** in the operating system.
+Vibrix **permits community Rust crates** from crates.io, Git or appropriately licensed vendored sources in runtime code and host-side tooling. Select dependencies deliberately, not automatically; review their license, provenance, features and transitive graph and demonstrate compatibility with each actual target. Follow [DEPENDENCIES.md](DEPENDENCIES.md) for the full policy, including `no_std` / UEFI / bare-metal boundaries and lockfile requirements.
 
-Do not add crates.io dependencies, Git-based crates or vendored community crates to Vibrix code. This includes convenience crates for ELF, UEFI, ACPI, PCI, bitfields, synchronization, allocation, filesystems, networking or drivers.
-
-Official Rust language/toolchain components such as `core` and compiler-provided support are allowed.
-
-Host-side development tools such as QEMU, OVMF, Git and debuggers are outside the operating-system runtime and may be used for development/testing.
+Using a crate's public API is permitted. Writing Vibrix-owned code by copying another operating system's implementation remains prohibited. Host-side development tools such as QEMU, OVMF, Git and debuggers remain external development infrastructure.
 
 ## Testing language
 
@@ -131,7 +127,7 @@ Commands/tests actually run and exact result.
 Unsafe blocks, raw pointers, MMIO, DMA, parsing or destructive behavior introduced?
 
 ## Dependencies
-Any new runtime or development dependencies?
+Any new runtime or development dependencies, their licenses/features and target validation?
 
 ## References
 Primary specifications/manuals used.
