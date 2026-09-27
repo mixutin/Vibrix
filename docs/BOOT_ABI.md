@@ -39,9 +39,12 @@ a virtual pointer for the entry argument `*const BootInfo` under the
 active page tables. Loader-owned handoff buffers use `EfiLoaderData`;
 Vibrix must reserve those physical pages until consumed or copied.
 The ADR also defines map-key retry and descriptor-stride constraints.
-This accepted address-space design is not yet an implemented
-post-`ExitBootServices` handoff. The shared ABI type is present, but the
-kernel's initial mappings and transfer remain separate work.
+This contract is now exercised in QEMU/OVMF: the loader maps BootInfo,
+its complete map buffer and required transition regions, exits UEFI boot
+services and passes an aligned, mapped BootInfo v2 pointer in RDI when
+entering the higher-half kernel. The kernel gates the version before
+reading the v2 tail, copies and validates the structure and emits its own
+post-firmware BootInfo success marker. Target 001 remains untested.
 
 ## Accepted descriptor-version migration
 
@@ -56,12 +59,14 @@ The Rust ABI type has now migrated together on loader and kernel to v2.
 The loader stages a validated v2 value into a loader-owned
 `EfiLoaderData` page allocated **before** the final `GetMemoryMap`;
 it copies the physical map-buffer address, byte count, returned stride and
-returned descriptor version from the **same** final in-place map refresh. The
-QEMU-specific `VIBRIX: BootInfo v2 staged` marker proves loader-side
-population only. The loader now software-verifies narrow identity mappings for BootInfo, the
+returned descriptor version from the **same** final in-place map refresh. The loader's `VIBRIX: BootInfo v2 staged` marker proves loader-side
+population only. The **separate kernel-originated** `VIBRIX: kernel BootInfo
+v2 validated` marker proves consumption after firmware exit in QEMU.
+The loader software-verifies narrow identity mappings for BootInfo, the
 full map buffer, the dedicated stack, RSDP, loaded PE image and uncached GOP BAR
-under its **inactive** kernel page tables (ADR 0006). It does not prove CR3
-activation, successful `ExitBootServices` or that the kernel read BootInfo.
+under its initially **inactive** kernel page tables (ADR 0006); after
+successful ExitBootServices it activates those tables and transfers to the
+kernel (ADR 0007).
 
 ## Kernel image staging
 
@@ -73,8 +78,9 @@ code must preserve that distinction explicitly.
 The current staging step allocates loader-owned `EfiLoaderData` pages,
 zeroes the complete image span, copies validated file-backed `PT_LOAD` bytes
 and verifies BSS remains zero. The loader separately constructs and
-software-verifies **inactive** higher-half and narrow transition identity
-mappings; it has not switched CR3 or transferred execution to the kernel.
+software-verifies higher-half and narrow transition identity mappings before
+ExitBootServices; after successful firmware exit it enables NX, switches CR3
+and moves to a dedicated mapped kernel stack before jumping to the ELF entry.
 
 ## Handoff
 
