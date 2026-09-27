@@ -131,7 +131,6 @@ pub fn validate(data: &[u8]) -> Result<ElfInfo, ElfError> {
             return Err(ElfError::InvalidLoadSegment);
         }
 
-
         let file_start = usize::try_from(p_offset).map_err(|_| ElfError::InvalidLoadSegment)?;
         let file_len = usize::try_from(p_filesz).map_err(|_| ElfError::InvalidLoadSegment)?;
         let file_end = file_start
