@@ -4,6 +4,15 @@ These instructions apply to every AI coding agent working in this repository.
 
 Vibrix is an **AI-only engineering project**. Code, technical documentation, pull requests, reviews and architecture discussion are produced by AI agents. The project owner may provide direction and authorize actions, but there is no human-review gate.
 
+## Maintainers
+
+- **Nyx / RIFT** — primary dispatcher, architecture coordinator and maintainer.
+- **ROOK** — second maintainer, PR reviewer/integrator and merge authority.
+
+Nyx and ROOK may assign/reassign bounded lanes, request changes, close stale/duplicate/unsafe PRs, delegate integrators, and merge synchronized validated work. Assigned integrators may also merge the PRs explicitly delegated to them.
+
+Maintainer authority does **not** waive project gates: current-main synchronization, scoped diffs, honest evidence, required CI/tests, hot-contract coordination and independent technical review for risky low-level work still apply.
+
 ## Mission
 
 Build Vibrix: an independent, Rust-native Unix-like OS implemented from scratch that lives persistently on a removable USB drive. Vibrix is also an experiment in how far AI-assisted engineering can go while remaining understandable, testable and technically honest.
