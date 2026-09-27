@@ -23,6 +23,14 @@ SERIAL_LOG="$QEMU_DIR/serial.log"
 rm -f "$LOG" "$SERIAL_LOG"
 cp -- "$OVMF_VARS" "$QEMU_DIR/OVMF_VARS.test.fd"
 
+# Opt-in *real QEMU keyboard injection*, never manufactured kernel log text.
+MONITOR=none
+if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" ]]; then
+  MONITOR_SOCKET="$QEMU_DIR/keyboard-monitor.sock"
+  rm -f "$MONITOR_SOCKET"
+  MONITOR="unix:$MONITOR_SOCKET,server=on,wait=off"
+fi
+
 ARGS=(
   -machine q35
   -accel tcg
@@ -33,7 +41,7 @@ ARGS=(
   -drive "format=raw,file=fat:rw:$QEMU_DIR/esp"
   -display none
   -serial "file:$SERIAL_LOG"
-  -monitor none
+  -monitor "$MONITOR"
   -no-reboot
   -chardev "file,id=vibrixdbg,path=$LOG"
   -device "isa-debugcon,iobase=0xe9,chardev=vibrixdbg"
@@ -48,10 +56,50 @@ fi
 echo "[vibrix] OVMF CODE: $OVMF_CODE"
 echo "[vibrix] OVMF VARS: $OVMF_VARS"
 echo "[vibrix] running headless QEMU smoke test"
+if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" ]]; then
+  # Connect through QEMU's HMP monitor and send an actual emulated key
+  # only after the independent native kernel reports its poll loop ready.
+  # Python is host test infrastructure, not part of the Vibrix runtime.
+  python3 - "$LOG" "$MONITOR_SOCKET" <<'PY' &
+import pathlib
+import socket
+import sys
+import time
+
+log = pathlib.Path(sys.argv[1])
+monitor = sys.argv[2]
+deadline = time.monotonic() + 9
+while time.monotonic() < deadline:
+    if log.exists() and "VIBRIX: kernel PS2 polling ready" in log.read_text(errors="replace"):
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                client.connect(monitor)
+                client.sendall(b"sendkey h\n")
+                time.sleep(0.3)
+                client.sendall(b"sendkey ret\n")
+                time.sleep(0.6)  # keep HMP alive through key delivery/release
+                break
+        except OSError:
+            pass
+    time.sleep(0.05)
+else:
+    sys.exit("kernel PS2 polling marker/keyboard monitor not ready")
+PY
+  KEYBOARD_PID=$!
+fi
 set +e
 timeout 12s qemu-system-x86_64 "${ARGS[@]}"
 RC=$?
 set -e
+
+if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" ]]; then
+  if ! wait "$KEYBOARD_PID"; then
+    echo "[vibrix] QEMU native keyboard injection failed" >&2
+    [[ -f "$LOG" ]] && cat "$LOG"
+    [[ -f "$SERIAL_LOG" ]] && cat "$SERIAL_LOG"
+    exit 1
+  fi
+fi
 
 if [[ "$RC" -ne 0 && "$RC" -ne 124 ]]; then
   echo "[vibrix] QEMU exited unexpectedly with status $RC" >&2
@@ -116,6 +164,13 @@ if [[ "${VIBRIX_QEMU_XHCI:-0}" == "1" ]]; then
   grep -Eq 'Vibrix ECAM segment0 bus0: [1-9][0-9]* devices, [1-9][0-9]* xHCI' "$SERIAL_LOG"
 fi
 grep -Fq "kernel heap: aligned allocations, RAM writes and reuse verified" "$SERIAL_LOG"
+if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" ]]; then
+  grep -Fq "VIBRIX: kernel PS2 polling ready" "$LOG"
+  grep -Fq "VIBRIX: kernel PS2 ASCII accepted" "$LOG"
+  # Exact complete lines: ASCII 104 must NOT pass the ASCII 10 check.
+  tr -d '\r' < "$SERIAL_LOG" | grep -Fxq "kernel PS2 ascii 104"
+  tr -d '\r' < "$SERIAL_LOG" | grep -Fxq "kernel PS2 ascii 10"
+fi
 cat "$SERIAL_LOG"
 
 echo "[vibrix] QEMU post-firmware kernel handoff smoke test passed"

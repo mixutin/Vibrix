@@ -127,3 +127,33 @@ OVMF is development firmware supplied to the virtual machine, not part of
 Vibrix. QEMU is development/testing infrastructure, not shipped as the
 Vibrix runtime. Rust package policy is documented in [AGENTS.md](../AGENTS.md) and
 [INDEPENDENCE.md](INDEPENDENCE.md).
+
+## Native keyboard input prototype (M4.5, QEMU verified)
+
+The standalone kernel includes a **read-only, polled i8042/PS/2 set-one
+keyboard input prototype**. After firmware services terminate it polls legacy
+x86 I/O status/data ports 0x64/0x60 with IRQs disabled and translates only a
+small unshifted ASCII make-code subset; releases, extended and unsupported
+codes are ignored. This is not a USB HID driver, hardware IRQ routing,
+interactive command loop, VFS, TTY or Ring 3 userspace. Physical Target 001
+may have no PS/2 keyboard and is not covered by this prototype.
+
+The opt-in QEMU smoke variant exercises **actual QEMU keyboard injection** via
+its host monitor after the kernel's own `VIBRIX: kernel PS2 polling ready`
+marker, rather than fabricating kernel log text. It sends `h` and Return,
+and requires the kernel's native COM1 output `kernel PS2 ascii 104` and
+`kernel PS2 ascii 10`. Run with:
+
+```sh
+VIBRIX_QEMU_KEYBOARD_PROBE=1 bash tools/test-qemu.sh
+```
+
+[Actions run 36347623002](https://github.com/mixutin/Vibrix/actions/runs/36347623002)
+verified the actual kernel's two distinct COM1 lines
+`kernel PS2 ascii 104` and `kernel PS2 ascii 10`, plus the independent
+debugcon readiness and accepted-character markers. The first smoke
+assertion had a false-positive ASCII prefix bug; the final test uses
+CRLF-normalized **exact-line matches** and observed Return separately.
+Normal, virtual xHCI and all exception-probe boot configurations also passed
+the kernel/QEMU job. There is still no IRQ route, USB HID, interactive
+console input editing or physical PS/2 test.

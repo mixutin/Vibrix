@@ -291,8 +291,21 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     panic!("VIBRIX: kernel panic probe");
 
     #[cfg(not(feature = "panic-probe"))]
-    loop {
-        core::hint::spin_loop();
+    {
+        // Development QEMU keyboard: read only legacy i8042 ports after
+        // ExitBootServices; IRQs remain disabled and no USB HID is implied.
+        let mut ps2 = arch::x86_64::ps2::SetOne::new();
+        debugcon::write("VIBRIX: kernel PS2 polling ready\r\n");
+        loop {
+            // SAFETY: sole boot CPU, IF=0, i8042 data has no other consumer.
+            if let Some(scan) = unsafe { arch::x86_64::ps2::poll_scancode() }
+                && let Some(ascii) = ps2.feed(scan)
+            {
+                crate::println!("kernel PS2 ascii {}", ascii);
+                debugcon::write("VIBRIX: kernel PS2 ASCII accepted\r\n");
+            }
+            core::hint::spin_loop();
+        }
     }
 }
 
