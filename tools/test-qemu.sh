@@ -26,8 +26,8 @@ cp -- "$OVMF_VARS" "$QEMU_DIR/OVMF_VARS.test.fd"
 ARGS=(
   -machine q35
   -accel tcg
-  -cpu max
-  -m 512M
+  -cpu "${VIBRIX_QEMU_CPU:-max}"
+  -m "${VIBRIX_QEMU_RAM:-512M}"
   -drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE"
   -drive "if=pflash,format=raw,file=$QEMU_DIR/OVMF_VARS.test.fd"
   -drive "format=raw,file=fat:rw:$QEMU_DIR/esp"
