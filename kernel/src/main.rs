@@ -5,22 +5,11 @@ mod arch;
 
 use core::panic::PanicInfo;
 
-#[repr(C)]
-pub struct BootInfo {
-    pub magic: u64,
-    pub version: u32,
-    pub _reserved: u32,
-    pub framebuffer_base: u64,
-    pub framebuffer_size: u64,
-    pub framebuffer_width: u32,
-    pub framebuffer_height: u32,
-    pub framebuffer_stride: u32,
-    pub framebuffer_format: u32,
-    pub rsdp: u64,
-    pub memory_map: u64,
-    pub memory_map_len: u64,
-    pub memory_descriptor_size: u64,
-}
+// Same representation and validation code is compiled by both loader and kernel.
+#[path = "../../shared/bootinfo.rs"]
+#[allow(dead_code)]
+mod bootinfo;
+pub use bootinfo::BootInfo;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn vibrix_kernel_entry(_boot_info: *const BootInfo) -> ! {
