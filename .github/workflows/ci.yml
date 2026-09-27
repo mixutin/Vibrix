@@ -81,6 +81,11 @@ jobs:
           rustc --edition=2024 --test host-tests/gdt_tss.rs -o "$RUNNER_TEMP/vibrix-gdt-tss-tests"
           "$RUNNER_TEMP/vibrix-gdt-tss-tests"
 
+      - name: Test production serial console logic on host
+        run: |
+          rustc --edition=2024 --test kernel/src/arch/x86_64/serial.rs -o "$RUNNER_TEMP/vibrix-serial-tests"
+          "$RUNNER_TEMP/vibrix-serial-tests"
+
       - name: Lint kernel
         run: cargo clippy -p vibrix-kernel --target x86_64-unknown-none -- -D warnings
 
