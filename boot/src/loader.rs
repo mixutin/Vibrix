@@ -20,7 +20,7 @@ pub enum LoadError {
 impl LoadError {
     pub fn message(self) -> &'static str {
         match self {
-            Self::ElfMetadata(_) => "VIBRIX: kernel load metadata changed after validation\r\n",
+            Self::ElfMetadata(error) => error.message(),
             Self::InvalidRange => "VIBRIX: kernel load range is invalid\r\n",
             Self::OverlappingSegments => "VIBRIX: kernel PT_LOAD memory ranges overlap\r\n",
             Self::KernelSpanTooLarge => "VIBRIX: kernel virtual span exceeds loader policy\r\n",
@@ -45,6 +45,13 @@ pub struct LoadedKernel {
     pub entry: u64,
 }
 
+/// Stage the validated ELF kernel into loader-owned physical pages.
+///
+/// # Safety
+///
+/// `system_table` must point to a live UEFI system table with valid Boot Services.
+/// `kernel_file` and `info` must refer to the same immutable kernel image, and the
+/// validated PT_LOAD metadata must remain unchanged for the duration of staging.
 pub unsafe fn stage_kernel(
     system_table: *mut SystemTable,
     kernel_file: &KernelFile,
