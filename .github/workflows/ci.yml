@@ -9,6 +9,28 @@ permissions:
   contents: read
 
 jobs:
+  supply-chain:
+    name: Dependency supply-chain gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Generate locked dependency graph
+        run: cargo generate-lockfile
+
+      - name: Install pinned audit tools
+        run: |
+          cargo install --locked --version 0.22.2 cargo-audit
+          cargo install --locked --version 0.19.4 cargo-deny
+
+      - name: Scan RustSec advisories
+        run: cargo audit --file Cargo.lock
+
+      - name: Enforce licenses, sources, bans and advisories
+        run: cargo deny --all-features check advisories bans licenses sources
+
   build-and-smoke-test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
