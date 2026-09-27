@@ -1,6 +1,7 @@
 //! Read-only GPT inspection of a regular host-side disk-image file.
 //!
 //! This is diagnostic tooling. It never provisions, repairs or writes a disk.
+use std::collections::HashSet;
 use std::env;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -18,6 +19,8 @@ struct Report {
     last_lba: u64,
     partitions: usize,
     efi_system_partitions: usize,
+    disk_guid: [u8; 16],
+    partition_guids: Vec<(usize, [u8; 16])>,
 }
 
 fn read_u32(bytes: &[u8], offset: usize) -> u32 {
@@ -26,6 +29,25 @@ fn read_u32(bytes: &[u8], offset: usize) -> u32 {
 
 fn read_u64(bytes: &[u8], offset: usize) -> u64 {
     u64::from_le_bytes(bytes[offset..offset + 8].try_into().expect("checked input"))
+}
+
+/// GPT stores the first three GUID fields in little-endian byte order.
+/// Render the standard GUID text instead of printing the raw on-disk bytes.
+fn format_guid(guid: &[u8; 16]) -> String {
+    format!(
+        "{:08x}-{:04x}-{:04x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        read_u32(guid, 0),
+        u16::from_le_bytes([guid[4], guid[5]]),
+        u16::from_le_bytes([guid[6], guid[7]]),
+        guid[8],
+        guid[9],
+        guid[10],
+        guid[11],
+        guid[12],
+        guid[13],
+        guid[14],
+        guid[15]
+    )
 }
 
 /// Reflected IEEE CRC-32, as used by UEFI GPT.
@@ -195,11 +217,14 @@ fn inspect<R: Read + Seek>(
     let mut partitions = 0;
     let mut efi_system_partitions = 0;
     let mut used_ranges = Vec::new();
-    for entry in entries.chunks_exact(entry_size as usize) {
+    let mut seen_guids = HashSet::new();
+    let mut partition_guids = Vec::new();
+    for (index, entry) in entries.chunks_exact(entry_size as usize).enumerate() {
         if entry[..16].iter().all(|&byte| byte == 0) {
             continue;
         }
-        if entry[16..32].iter().all(|&byte| byte == 0) {
+        let unique_guid: [u8; 16] = entry[16..32].try_into().expect("fixed GPT GUID width");
+        if unique_guid.iter().all(|&byte| byte == 0) {
             return Err("used GPT partition has an empty unique GUID".into());
         }
         let first = read_u64(entry, 32);
@@ -207,7 +232,14 @@ fn inspect<R: Read + Seek>(
         if first < first_usable || first > last || last > last_usable {
             return Err("partition LBA range outside GPT usable space".into());
         }
+        if !seen_guids.insert(unique_guid) {
+            return Err(format!(
+                "duplicate GPT partition unique GUID: {}",
+                format_guid(&unique_guid)
+            ));
+        }
         used_ranges.push((first, last));
+        partition_guids.push((index + 1, unique_guid));
         partitions += 1;
         if entry[..16] == ESP_TYPE_GUID {
             efi_system_partitions += 1;
@@ -222,6 +254,10 @@ fn inspect<R: Read + Seek>(
         last_lba,
         partitions,
         efi_system_partitions,
+        disk_guid: header[56..72]
+            .try_into()
+            .expect("fixed GPT disk GUID width"),
+        partition_guids,
     })
 }
 
@@ -252,10 +288,23 @@ fn main() {
         std::process::exit(1);
     }
     match inspect(&mut file, metadata.len(), sector_size) {
-        Ok(report) => println!(
-            "GPT primary and backup header/entry CRCs valid; sector_size={} last_lba={} partitions={} efi_system_partitions={}",
-            report.sector_size, report.last_lba, report.partitions, report.efi_system_partitions
-        ),
+        Ok(report) => {
+            println!(
+                "GPT primary and backup header/entry CRCs valid; sector_size={} last_lba={} partitions={} efi_system_partitions={} disk_guid={}",
+                report.sector_size,
+                report.last_lba,
+                report.partitions,
+                report.efi_system_partitions,
+                format_guid(&report.disk_guid)
+            );
+            for (index, guid) in &report.partition_guids {
+                println!(
+                    "partition_entry={} unique_guid={}",
+                    index,
+                    format_guid(guid)
+                );
+            }
+        }
         Err(err) => {
             eprintln!("GPT inspection failed: {err}");
             std::process::exit(1);
@@ -344,6 +393,59 @@ mod tests {
             assert_eq!(result.partitions, 1);
             assert_eq!(result.efi_system_partitions, 1);
             assert_eq!(result.last_lba, 127);
+            assert_eq!(result.disk_guid, [0x44; 16]);
+            assert_eq!(result.partition_guids, vec![(1, [0x42; 16])]);
+        }
+    }
+
+    #[test]
+    fn formats_uefi_mixed_endian_guids() {
+        let raw = [
+            0x78, 0x56, 0x34, 0x12, 0xbc, 0x9a, 0xf0, 0xde, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
+            0x77, 0x88,
+        ];
+        assert_eq!(format_guid(&raw), "12345678-9abc-def0-1122-334455667788");
+    }
+
+    fn add_second_partition(image: &mut [u8], sector_size: usize, guid: [u8; 16]) {
+        let second = sector_size * 2 + 128;
+        image[second..second + 16].copy_from_slice(&[0x43; 16]);
+        image[second + 16..second + 32].copy_from_slice(&guid);
+        image[second + 32..second + 40].copy_from_slice(&72u64.to_le_bytes());
+        image[second + 40..second + 48].copy_from_slice(&82u64.to_le_bytes());
+        reset_checksums(image, sector_size);
+    }
+
+    #[test]
+    fn reports_disk_and_distinct_partition_guids_for_both_sector_sizes() {
+        for sector_size in [512usize, 4096] {
+            let mut image = synthetic_gpt(sector_size);
+            add_second_partition(&mut image, sector_size, [0x43; 16]);
+            let report = check(image, sector_size as u64).unwrap();
+            assert_eq!(report.partitions, 2);
+            assert_eq!(report.efi_system_partitions, 1);
+            assert_eq!(
+                format_guid(&report.disk_guid),
+                "44444444-4444-4444-4444-444444444444"
+            );
+            assert_eq!(
+                report.partition_guids,
+                vec![(1, [0x42; 16]), (2, [0x43; 16])]
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_duplicate_unique_guids_with_valid_copy_crcs_for_both_sector_sizes() {
+        for sector_size in [512usize, 4096] {
+            let mut image = synthetic_gpt(sector_size);
+            add_second_partition(&mut image, sector_size, [0x42; 16]);
+            let err = check(image, sector_size as u64).unwrap_err();
+            assert!(err.contains("duplicate GPT partition unique GUID"), "{err}");
+            assert!(
+                err.contains("42424242-4242-4242-4242-424242424242"),
+                "{err}"
+            );
         }
     }
 
