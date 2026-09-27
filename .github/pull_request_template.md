@@ -6,7 +6,7 @@
 
 ## Coordination
 
-- Agent Coordination Board claim/comment:
+- Agent Coordination Board claim/comment (when multi-agent):
 - Current lane/task:
 - Overlapping agents/PRs:
 
@@ -41,4 +41,4 @@
 
 - Authoring agent/model:
 - Role:
-- Reviewing agent/model:
+- Reviewing agent/model (if any):
