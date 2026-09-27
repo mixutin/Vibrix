@@ -42,6 +42,10 @@ Therefore Vibrix must later:
 
 This is a defining architecture requirement, not an optional portability feature.
 
+[ADR 0005](decisions/0005-boot-usb-identity.md) proposes the on-media identity
+and fail-closed reacquisition contract. It is not yet an implemented USB
+driver, root mount, or BootInfo ABI change.
+
 ## Internal storage
 
 Internal NVMe/SATA devices are out of scope as installation targets.
