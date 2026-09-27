@@ -45,8 +45,18 @@ perform hardware-triggered exception probes:
 `VIBRIX: kernel page fault diagnostic` and actual COM1 CR2/error bits.
 The normal build does not intentionally fault.
 
-These tests validate the QEMU boot CPU only, not Target 001, double-fault
-IST recovery, interrupts, APIC timer or user-mode fault isolation.
+[Synchronized-head Actions run 36340579141](https://github.com/mixutin/Vibrix/actions/runs/36340579141)
+passed host IDT layout/error-code tests, warning-denying Clippy and both
+target builds, and the normal, panic, real breakpoint and real page-fault
+QEMU probes **after** the kernel's merged ACPI and early memory allocator
+initialization. The tested #BP handler returns with IRETQ; the #PF
+handler captures the expected CR2 `0x10000000000` and reports raw error
+bits via native COM1. The host fixtures are not substituted for the two
+hardware-triggered trap probes.
+
+These tests validate the QEMU boot CPU only, not Target 001, the installed
+but not fault-injected #DF/#GP paths, double-fault IST recovery, hardware
+IRQs, APIC timer, or user-mode fault isolation.
 
 ## References
 
