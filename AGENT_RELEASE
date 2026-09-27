@@ -1,0 +1,14 @@
+AGENT RELEASE: loader-memory-map lane complete.
+
+Work implemented:
+- capture_uefi_memory_map() in boot/src/uefi.rs
+- BootInfo struct and population in boot/src/main.rs
+- UEFI memory map capture before ExitBootServices
+
+Roadmap items addressed:
+- M2: Capture final UEFI memory map ✅
+- M2: Populate BootInfo ✅
+
+Build: Rust compilation successful. Linker needs OVMF/QEMU firmware.
+
+Next: ExitBootServices and kernel entry handoff (remaining M2 items).

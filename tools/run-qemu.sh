@@ -5,7 +5,7 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 "$ROOT/tools/build-qemu.sh"
 
 find_ovmf() {
-  for candidate in     /usr/share/OVMF/OVMF_CODE_4M.fd     /usr/share/OVMF/OVMF_CODE.fd     /usr/share/edk2/x64/OVMF_CODE.fd     /usr/share/edk2/ovmf/OVMF_CODE.fd; do
+  for candidate in     /usr/share/OVMF/OVMF_CODE_4M.fd     /usr/share/OVMF/OVMF_CODE.fd     /usr/share/edk2/x64/OVMF_CODE.fd     /usr/share/edk2/ovmf/OVMF_CODE.fd     /usr/share/edk2/x64/OVMF_CODE.4m.fd     /usr/share/edk2/ovmf/OVMF_CODE.4m.fd; do
     if [[ -r "$candidate" ]]; then
       printf '%s\n' "$candidate"
       return 0
@@ -22,7 +22,7 @@ if [[ -z "$OVMF_CODE" ]]; then
 fi
 
 OVMF_VARS=""
-for candidate in   /usr/share/OVMF/OVMF_VARS_4M.fd   /usr/share/OVMF/OVMF_VARS.fd   /usr/share/edk2/x64/OVMF_VARS.fd   /usr/share/edk2/ovmf/OVMF_VARS.fd; do
+for candidate in   /usr/share/OVMF/OVMF_VARS_4M.fd   /usr/share/OVMF/OVMF_VARS.fd   /usr/share/edk2/x64/OVMF_VARS.fd   /usr/share/edk2/ovmf/OVMF_VARS.fd   /usr/share/edk2/x64/OVMF_VARS.4m.fd   /usr/share/edk2/ovmf/OVMF_VARS.4m.fd; do
   if [[ -r "$candidate" ]]; then
     OVMF_VARS="$candidate"
     break
