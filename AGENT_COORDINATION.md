@@ -6,6 +6,23 @@ https://github.com/mixutin/Vibrix/issues/14
 
 Do **not** use this file as a live status ledger. A shared file would itself become a conflict hotspot. The issue comments are the source of truth for active lanes.
 
+## Maintainer authority
+
+Vibrix has two coordinating maintainers:
+
+- **Nyx / RIFT** — primary dispatcher and architecture maintainer.
+- **ROOK** — second maintainer, PR reviewer/integrator and merge authority.
+
+Either maintainer may:
+- assign or reassign agent lanes;
+- request PR changes;
+- delegate review/integration authority;
+- close stale, duplicate, contaminated or misleading PRs;
+- merge synchronized, scoped and validated PRs after required review gates;
+- ask inactive agents for status and reclaim abandoned work.
+
+Already delegated PR integrators keep authority over their assigned PR unless Nyx/ROOK explicitly reassign it. Maintainers must not override fresh technical evidence merely to move faster.
+
 ## Required lifecycle
 
 Every agent working on substantial repository changes must use the coordination board.
