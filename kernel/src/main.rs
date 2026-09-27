@@ -131,6 +131,42 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     }
     debugcon::write("VIBRIX: kernel conventional frames allocated\r\n");
 
+    // Legacy PCI config mechanism #1 reads segment-zero vendor/class/BAR
+    // metadata without relying on firmware protocols after ExitBootServices.
+    // This scans all 256 bus numbers but does NOT touch any device BAR
+    // memory, enable bus mastering or identify the persistent boot USB.
+    let mut shown = 0usize;
+    let pci = unsafe {
+        arch::x86_64::pci::discover_legacy_segment_zero(|device| {
+            if shown < 8 {
+                crate::println!(
+                    "PCI {:02x}:{:02x}.{} {:04x}:{:04x} class {:02x}:{:02x}:{:02x}",
+                    device.bdf.bus,
+                    device.bdf.device,
+                    device.bdf.function,
+                    device.vendor,
+                    device.id,
+                    device.class,
+                    device.subclass,
+                    device.programming_interface
+                );
+                shown += 1;
+            }
+        })
+    };
+    crate::println!(
+        "Vibrix PCI segment0: {} devices, {} assigned BARs, {} xHCI",
+        pci.devices,
+        pci.assigned_bars,
+        pci.xhci_controllers
+    );
+    if pci.devices == 0 || pci.assigned_bars == 0 || pci.malformed_bars != 0 {
+        debugcon::write("VIBRIX: kernel PCI segment0 discovery rejected\r\n");
+    } else {
+        debugcon::write("VIBRIX: kernel PCI segment0 enumerated\r\n");
+        debugcon::write("VIBRIX: kernel PCI BARs parsed\r\n");
+    }
+
     // Physical GOP BAR is explicitly identity-mapped UC in the active PML4.
     if unsafe { framebuffer::draw_boot_marker(&info) }.is_ok() {
         debugcon::write("VIBRIX: kernel framebuffer wrote pixels\r\n");
