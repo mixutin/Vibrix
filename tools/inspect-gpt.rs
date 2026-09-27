@@ -93,10 +93,7 @@ fn inspect<R: Read + Seek>(
     let entry_lba = read_u64(&header, 72);
     let entry_count = read_u32(&header, 80);
     let entry_size = read_u32(&header, 84);
-    if entry_lba < 2
-        || entry_count == 0
-        || entry_size < GPT_ENTRY_MIN_BYTES
-        || entry_size % 8 != 0
+    if entry_lba < 2 || entry_count == 0 || entry_size < GPT_ENTRY_MIN_BYTES || entry_size % 8 != 0
     {
         return Err("invalid GPT partition-entry layout".into());
     }
@@ -151,10 +148,7 @@ fn inspect<R: Read + Seek>(
         }
     }
     used_ranges.sort_unstable();
-    if used_ranges
-        .windows(2)
-        .any(|pair| pair[0].1 >= pair[1].0)
-    {
+    if used_ranges.windows(2).any(|pair| pair[0].1 >= pair[1].0) {
         return Err("overlapping GPT partitions".into());
     }
     Ok(Report {
