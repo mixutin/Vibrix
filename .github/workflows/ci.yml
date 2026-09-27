@@ -67,6 +67,14 @@ jobs:
           rustc --edition=2024 --test kernel/src/arch/x86_64/cpuid.rs -o "$RUNNER_TEMP/vibrix-cpuid-tests"
           "$RUNNER_TEMP/vibrix-cpuid-tests"
 
+      - name: Test production-linked GDT/TSS on host
+        run: |
+          rustfmt --check host-tests/gdt_layout.rs host-tests/gdt_tss.rs
+          rustc --edition=2024 --test host-tests/gdt_layout.rs -o "$RUNNER_TEMP/vibrix-gdt-layout-tests"
+          "$RUNNER_TEMP/vibrix-gdt-layout-tests"
+          rustc --edition=2024 --test host-tests/gdt_tss.rs -o "$RUNNER_TEMP/vibrix-gdt-tss-tests"
+          "$RUNNER_TEMP/vibrix-gdt-tss-tests"
+
       - name: Lint kernel
         run: cargo clippy -p vibrix-kernel --target x86_64-unknown-none -- -D warnings
 
