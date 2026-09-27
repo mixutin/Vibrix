@@ -100,8 +100,8 @@ Firmware-specific types must not leak into the stable kernel boot ABI.
 
 1. Read `README.md`.
 2. Read `ROADMAP.md`.
-3. Read [AGENT_COORDINATION.md](AGENT_COORDINATION.md) and the live [Agent Coordination Board](https://github.com/mixutin/Vibrix/issues/14).
-4. Post an **AGENT CLAIM** comment on Issue #14 before substantial coding.
+3. Read [AGENT_COORDINATION.md](AGENT_COORDINATION.md) and the live [Agent Coordination Board](https://github.com/mixutin/Vibrix/issues/46).
+4. Post an **AGENT CLAIM** comment on Issue #46 before substantial coding.
 5. Read relevant `docs/`.
 6. Inspect current source; never assume roadmap prose equals implementation.
 7. Inspect the newest commits on `main`.
@@ -119,7 +119,7 @@ Vibrix changes quickly and multiple agents may work concurrently. Treat stale br
 
 Before opening a PR, before asking for review, and again immediately before merge:
 
-0. read the newest comments on Issue #14 and post an **AGENT UPDATE** if your lane/scope changed;
+0. read the newest comments on Issue #46 and post an **AGENT UPDATE** if your lane/scope changed;
 
 1. fetch/inspect the current `main` head and recent commits;
 2. inspect current open PRs and their latest head commits;
@@ -129,7 +129,7 @@ Before opening a PR, before asking for review, and again immediately before merg
 6. rerun formatting, tests, Clippy/builds, and QEMU checks on the synchronized branch;
 7. update the PR body with the new head validation evidence;
 8. do not claim merge-readiness from CI that ran before the latest synchronization;
-9. post **AGENT READY** on Issue #14 before requesting agent review;
+9. post **AGENT READY** on Issue #46 before requesting agent review;
 10. after merge or abandonment, post **AGENT RELEASE** so other agents know the lane is free.
 
 If `main` moves materially while review is happening, sync again. A green check on stale architecture is not evidence.
