@@ -130,8 +130,8 @@ impl BootInfo {
         if self.memory_map == 0
             || self.memory_map_len == 0
             || self.memory_descriptor_size < MEMORY_DESCRIPTOR_PREFIX_BYTES
-            || self.memory_descriptor_size % 8 != 0
-            || self.memory_map_len % self.memory_descriptor_size != 0
+            || !self.memory_descriptor_size.is_multiple_of(8)
+            || !self.memory_map_len.is_multiple_of(self.memory_descriptor_size)
             || self.memory_map.checked_add(self.memory_map_len).is_none()
         {
             return Err(BootInfoError::InvalidMemoryMap);
