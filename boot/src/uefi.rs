@@ -9,9 +9,10 @@ pub const EFI_SUCCESS: Status = 0;
 pub const EFI_ERROR_BIT: Status = 1usize << (usize::BITS - 1);
 pub const EFI_LOAD_ERROR: Status = EFI_ERROR_BIT | 1;
 pub const EFI_INVALID_PARAMETER: Status = EFI_ERROR_BIT | 2;
+pub const EFI_BUFFER_TOO_SMALL: Status = EFI_ERROR_BIT | 5;
 pub const EFI_OUT_OF_RESOURCES: Status = EFI_ERROR_BIT | 9;
 
-const EFI_LOADER_DATA: u32 = 2;
+pub const EFI_LOADER_DATA: u32 = 2;
 const FILE_MODE_READ: u64 = 1;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -118,9 +119,26 @@ type AllocatePages = extern "efiapi" fn(
     memory: *mut u64,
 ) -> Status;
 type FreePages = extern "efiapi" fn(memory: u64, pages: usize) -> Status;
-type AllocatePool =
+/// UEFI 2.10 section 7.2.3. Firmware may return a larger descriptor stride.
+#[repr(C)]
+pub struct MemoryDescriptor {
+    pub memory_type: u32,
+    pub physical_start: u64,
+    pub virtual_start: u64,
+    pub number_of_pages: u64,
+    pub attribute: u64,
+}
+
+pub type GetMemoryMap = unsafe extern "efiapi" fn(
+    memory_map_size: *mut usize,
+    memory_map: *mut MemoryDescriptor,
+    map_key: *mut usize,
+    descriptor_size: *mut usize,
+    descriptor_version: *mut u32,
+) -> Status;
+pub type AllocatePool =
     extern "efiapi" fn(memory_type: u32, size: usize, buffer: *mut *mut c_void) -> Status;
-type FreePool = extern "efiapi" fn(buffer: *mut c_void) -> Status;
+pub type FreePool = extern "efiapi" fn(buffer: *mut c_void) -> Status;
 type HandleProtocol = extern "efiapi" fn(
     handle: Handle,
     protocol: *const Guid,
@@ -140,7 +158,7 @@ pub struct BootServices {
     pub restore_tpl: usize,
     pub allocate_pages: AllocatePages,
     pub free_pages: FreePages,
-    pub get_memory_map: usize,
+    pub get_memory_map: GetMemoryMap,
     pub allocate_pool: AllocatePool,
     pub free_pool: FreePool,
     pub create_event: usize,
@@ -644,7 +662,8 @@ pub unsafe fn load_kernel(
     })
 }
 
-fn debug_write(text: &str) {
+/// QEMU-only port output: no firmware calls or allocations.
+pub fn debug_write(text: &str) {
     #[cfg(feature = "qemu-debugcon")]
     for byte in text.bytes() {
         unsafe {
