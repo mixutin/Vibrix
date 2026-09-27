@@ -25,15 +25,33 @@ const DARK: u32 = 0x0010_1517;
 /// Rows are five bits wide, most-significant pixel on the left.
 fn boot_glyph(ch: u8) -> [u8; 7] {
     match ch {
-        b'V' => [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100],
-        b'I' => [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111],
-        b'B' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110],
-        b'R' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001],
-        b'X' => [0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001],
-        b'K' => [0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001],
-        b'E' => [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111],
-        b'N' => [0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001],
-        b'L' => [0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111],
+        b'V' => [
+            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100,
+        ],
+        b'I' => [
+            0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111,
+        ],
+        b'B' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110,
+        ],
+        b'R' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001,
+        ],
+        b'X' => [
+            0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001,
+        ],
+        b'K' => [
+            0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001,
+        ],
+        b'E' => [
+            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111,
+        ],
+        b'N' => [
+            0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001,
+        ],
+        b'L' => [
+            0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111,
+        ],
         b' ' => [0; 7],
         _ => [0; 7],
     }
@@ -138,7 +156,11 @@ pub unsafe fn draw_boot_marker(info: &BootInfo) -> Result<bool, ()> {
     let pixels = PixelSurface::new(info)?;
     let marker_width = pixels.width.min(48);
     let marker_height = pixels.height.min(16);
-    let green = if info.framebuffer_format == 2 { 0 } else { GREEN };
+    let green = if info.framebuffer_format == 2 {
+        0
+    } else {
+        GREEN
+    };
     // PixelBitMask's masks are absent from the present BootInfo ABI:
     // zero is unambiguously black; do not invent a white/green bit layout.
     for y in 0..marker_height {
@@ -201,6 +223,7 @@ mod tests {
                 descriptor_size: 48,
                 descriptor_version: 1,
             },
+            0x3000,
         )
         .unwrap()
     }
@@ -237,6 +260,7 @@ mod tests {
                 descriptor_size: 48,
                 descriptor_version: 1,
             },
+            0x3000,
         )
         .unwrap();
         // SAFETY: live and uniquely borrowed 32-bit host test pixel buffer.
@@ -249,9 +273,11 @@ mod tests {
         // K of KERNEL LIVE is row 0/column 0 of its 3x glyph.
         assert_eq!(framebuffer[(BANNER_Y + 72) * STRIDE + BANNER_X + 77], WHITE);
         assert_eq!(framebuffer[149 * STRIDE + 395], SENTINEL);
-        assert!(framebuffer[STRIDE * HEIGHT..]
-            .iter()
-            .all(|&value| value == SENTINEL));
+        assert!(
+            framebuffer[STRIDE * HEIGHT..]
+                .iter()
+                .all(|&value| value == SENTINEL)
+        );
     }
 
     #[test]
@@ -273,6 +299,7 @@ mod tests {
                 descriptor_size: 48,
                 descriptor_version: 1,
             },
+            0x3000,
         )
         .unwrap();
         // SAFETY: live and uniquely borrowed host test framebuffer.

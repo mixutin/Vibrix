@@ -15,11 +15,11 @@ rustc --edition=2024 --test tools/inspect-gpt.rs -o /tmp/vibrix-gpt-tests
 /tmp/vibrix-gpt-tests
 ```
 
-The inspector validates the protective MBR, primary and backup GPT signatures,
+The inspector validates the protective MBR, including a single 0xEE partition record starting at LBA 1 and covering all later logical blocks (with 0xFFFFFFFF size saturation on larger media), while rejecting nonzero extra/hybrid MBR records. It validates primary and backup GPT signatures,
 version, header size/CRC, header LBAs, usable range, partition-entry
 bounds/CRCs, reciprocal header locations, matching disk/layout metadata,
 byte-identical primary/backup entry arrays, nonempty unique GUIDs, partition
-ranges and overlaps. The inspector also **rejects duplicate nonzero partition
+ranges and overlaps. The inspector also **rejects a zero GPT disk GUID** (even when both header CRCs and copies match) and **rejects duplicate nonzero partition
 unique GUIDs** across all used GPT entries, including non-ESP entries. It
 reports the GPT **disk GUID** and each used partition's **unique GUID** with
 its 1-based GPT entry index for read-only identity diagnostics. GUID text
@@ -27,7 +27,7 @@ follows the standard mixed-endian GPT/UEFI representation rather than the raw
 on-disk byte sequence. Duplicate-GUID rejection occurs only after both GPT
 copies validate; failure produces no partially accepted identity report.
 
-Synthetic corruption and identity tests cover both 512-byte and 4096-byte
+Synthetic corruption and identity tests cover malformed protective start/size, hybrid records and nil disk identity, as well as both 512-byte and 4096-byte
 logical sectors, including individually CRC-valid matching copies with
 duplicate partition GUIDs. The tool counts partitions and EFI System
 Partitions by GPT type GUID. The entry table is capped at 16 MiB and the

@@ -103,7 +103,7 @@ bash tools/test-qemu.sh
 
 The smoke test now verifies **real kernel execution after firmware exit**. Its
 QEMU debugcon log requires `ExitBootServices succeeded`, the standalone
-kernel entry and BootInfo v2 validation, GDT/TSS initialization, COM1 setup,
+kernel entry and BootInfo v3 validation, GDT/TSS initialization, COM1 setup,
 and pixel writes to the uncached GOP framebuffer. The distinct QEMU serial
 file must contain `Vibrix kernel started.`. This is not a native USB,
 filesystem, userspace or physical Target 001 test.
