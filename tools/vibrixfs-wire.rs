@@ -133,10 +133,9 @@ fn i64_at(data: &[u8], at: usize) -> Result<i64, Error> {
 
 fn u48_at(data: &[u8], at: usize) -> Result<u64, Error> {
     let bytes = data.get(at..at + 6).ok_or(Error::Truncated)?;
-    Ok(bytes
-        .iter()
-        .enumerate()
-        .fold(0u64, |value, (shift, byte)| value | (u64::from(*byte) << (shift * 8))))
+    Ok(bytes.iter().enumerate().fold(0u64, |value, (shift, byte)| {
+        value | (u64::from(*byte) << (shift * 8))
+    }))
 }
 
 fn put_u48(data: &mut [u8], at: usize, value: u64) -> Result<(), Error> {
@@ -190,12 +189,20 @@ fn validate_superblock(
         return Err(Error::Geometry);
     }
     for (index, region) in regions.iter().enumerate() {
-        if regions.iter().take(index).any(|other| region.overlaps(*other)) {
+        if regions
+            .iter()
+            .take(index)
+            .any(|other| region.overlaps(*other))
+        {
             return Err(Error::Geometry);
         }
     }
     let bits_per_block = (BLOCK as u64) * 8;
-    if info.block_bitmap.blocks.checked_mul(bits_per_block).is_none_or(|n| n < info.total_blocks)
+    if info
+        .block_bitmap
+        .blocks
+        .checked_mul(bits_per_block)
+        .is_none_or(|n| n < info.total_blocks)
         || info
             .inode_bitmap
             .blocks
@@ -385,7 +392,10 @@ fn parse_inode(data: &[u8], fs: &Superblock) -> Result<Inode, Error> {
     if usize::from(count) > INODE_EXTENTS {
         return Err(Error::Inode);
     }
-    let mut extents = [Extent { start: 0, blocks: 0 }; INODE_EXTENTS];
+    let mut extents = [Extent {
+            start: 0,
+            blocks: 0,
+        }; INODE_EXTENTS];
     for (index, extent) in extents.iter_mut().enumerate() {
         let at = 104 + index * 12;
         let flags = u16_at(raw, at + 10)?;
@@ -470,7 +480,9 @@ fn validate_inode(inode: &Inode, fs: &Superblock) -> Result<(), Error> {
                 return Err(Error::Extent);
             }
         }
-        sum = sum.checked_add(u64::from(extent.blocks)).ok_or(Error::Extent)?;
+        sum = sum
+            .checked_add(u64::from(extent.blocks))
+            .ok_or(Error::Extent)?;
     }
     if sum != inode.allocated_blocks
         || (matches!(inode.file_type, 1 | 2 | 3)
@@ -501,17 +513,32 @@ mod tests {
             generation: 7,
             total_blocks: 8192,
             total_inodes: 1024,
-            block_bitmap: Range { start: 1, blocks: 1 },
-            inode_bitmap: Range { start: 2, blocks: 1 },
-            inode_table: Range { start: 3, blocks: 64 },
+            block_bitmap: Range {
+                start: 1,
+                blocks: 1,
+            },
+            inode_bitmap: Range {
+                start: 2,
+                blocks: 1,
+            },
+            inode_table: Range {
+                start: 3,
+                blocks: 64,
+            },
             filesystem_uuid: [0x11; 16],
             root_partition_guid: ROOT_GUID,
         }
     }
 
     fn sample_inode() -> Inode {
-        let mut extents = [Extent { start: 0, blocks: 0 }; INODE_EXTENTS];
-        extents[0] = Extent { start: 100, blocks: 2 };
+        let mut extents = [Extent {
+            start: 0,
+            blocks: 0,
+        }; INODE_EXTENTS];
+        extents[0] = Extent {
+            start: 100,
+            blocks: 2,
+        };
         Inode {
             number: 1,
             file_type: 2,
@@ -565,17 +592,26 @@ mod tests {
         // Recompute CRC to prove reserved-byte validation is independent.
         let crc = block_crc(&bad, 120..124);
         bad[120..124].copy_from_slice(&crc.to_le_bytes());
-        assert_eq!(parse_superblock(&bad, 8192, &ROOT_GUID), Err(Error::Reserved));
+        assert_eq!(
+            parse_superblock(&bad, 8192, &ROOT_GUID),
+            Err(Error::Reserved)
+        );
 
         let mut bad = good;
         bad[128] = 1;
         let crc = block_crc(&bad, 120..124);
         bad[120..124].copy_from_slice(&crc.to_le_bytes());
-        assert_eq!(parse_superblock(&bad, 8192, &ROOT_GUID), Err(Error::Features));
+        assert_eq!(
+            parse_superblock(&bad, 8192, &ROOT_GUID),
+            Err(Error::Features)
+        );
 
         let mut bad = good;
         bad[24] ^= 1;
-        assert_eq!(parse_superblock(&bad, 8192, &ROOT_GUID), Err(Error::Checksum));
+        assert_eq!(
+            parse_superblock(&bad, 8192, &ROOT_GUID),
+            Err(Error::Checksum)
+        );
 
         assert_eq!(
             parse_superblock(&good, 8192, &[0x44; 16]),
@@ -648,8 +684,14 @@ mod tests {
         let fs = sample_superblock();
         let mut inode = sample_inode();
         inode.extent_count = 2;
-        inode.extents[0] = Extent { start: 100, blocks: 2 };
-        inode.extents[1] = Extent { start: 101, blocks: 1 };
+        inode.extents[0] = Extent {
+            start: 100,
+            blocks: 2,
+        };
+        inode.extents[1] = Extent {
+            start: 101,
+            blocks: 1,
+        };
         inode.allocated_blocks = 3;
         assert_eq!(encode_inode(&inode, &fs), Err(Error::Extent));
 
