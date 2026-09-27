@@ -628,14 +628,16 @@ mod identity_tests {
             executable: false,
             uncached: false,
         };
-        assert_eq!(identity_span(&region), Ok((0x1000, 0x3000)));
+        assert!(matches!(identity_span(&region), Ok((0x1000, 0x3000))));
     }
 
     #[test]
     fn production_mapper_sets_uc_and_nx_on_identity_mmio() {
         reset();
         let mut allocator = TableAllocator::new(allocate, free);
-        let root = unsafe { allocator.allocate_zeroed() }.unwrap();
+        let root = unsafe { allocator.allocate_zeroed() }
+            .map_err(|error| error.message())
+            .unwrap();
         assert!(
             unsafe {
                 map_page_with_cache(
@@ -648,9 +650,12 @@ mod identity_tests {
                     true,
                 )
             }
+            .map_err(|error| error.message())
             .unwrap()
         );
-        let leaf = unsafe { walk_leaf(root, 0xe000_0000) }.unwrap();
+        let leaf = unsafe { walk_leaf(root, 0xe000_0000) }
+            .map_err(|error| error.message())
+            .unwrap();
         assert_eq!(leaf & ADDRESS_MASK, 0xe000_0000);
         assert_eq!(
             leaf & (UNCACHED | NO_EXECUTE | WRITABLE | PRESENT),
