@@ -34,6 +34,11 @@ jobs:
       - name: Lint bootloader
         run: cargo clippy -p vibrix-boot --features qemu-debugcon --target x86_64-unknown-uefi -- -D warnings
 
+      - name: Test CPUID discovery on host
+        run: |
+          rustc --edition=2024 --test kernel/src/arch/x86_64/cpuid.rs -o "$RUNNER_TEMP/vibrix-cpuid-tests"
+          "$RUNNER_TEMP/vibrix-cpuid-tests"
+
       - name: Lint kernel
         run: cargo clippy -p vibrix-kernel --target x86_64-unknown-none -- -D warnings
 

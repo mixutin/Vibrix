@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+mod arch;
+
 use core::panic::PanicInfo;
 
 #[repr(C)]
@@ -22,6 +24,8 @@ pub struct BootInfo {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn vibrix_kernel_entry(_boot_info: *const BootInfo) -> ! {
+    // Re-enumerate on each boot; a portable USB may boot on a different CPU.
+    let _cpu = arch::x86_64::cpuid::discover();
     loop {
         core::hint::spin_loop();
     }
