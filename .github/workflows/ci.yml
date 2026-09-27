@@ -290,4 +290,13 @@ jobs:
           VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
           grep -Fq "kernel #PF cr2=0xffffc00000000000" build/qemu/serial.log
           grep -Fq "present=false write=false user=false reserved=false exec=false" build/qemu/serial.log
+      - name: Preserve QEMU failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: qemu-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/qemu/*.log
+          if-no-files-found: ignore
+          retention-days: 7
 
