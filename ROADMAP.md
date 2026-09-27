@@ -13,7 +13,7 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [x] Sanitized Target 001 profile
 - [x] AI/agent contribution policy
 - [x] GitHub Actions CI definition
-- [ ] CI green on loader + kernel + QEMU smoke test
+- [x] CI green on loader + kernel + QEMU smoke test
 - [ ] Adopt project license
 - [ ] Architecture decision record process
 - [ ] Preserve executable bits for scripts
@@ -29,11 +29,11 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [x] BootInfo v1 design
 
 ## M2 — Firmware-to-kernel handoff
-- [ ] Loader filesystem access
-- [ ] Locate /vibrix/kernel.elf
-- [ ] Vibrix-owned ELF64 parser
-- [ ] Validate ELF class/machine/endianness
-- [ ] Parse PT_LOAD headers
+- [x] Loader filesystem access
+- [x] Locate /vibrix/kernel.elf
+- [x] Vibrix-owned ELF64 parser
+- [x] Validate ELF class/machine/endianness
+- [x] Parse PT_LOAD headers
 - [ ] Allocate/copy kernel segments and zero BSS
 - [ ] Establish initial kernel mappings
 - [ ] Discover GOP framebuffer
@@ -44,6 +44,8 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [ ] Transfer to vibrix_kernel_entry
 - [ ] Kernel framebuffer output without UEFI
 - [ ] Kernel panic output
+
+**Current verified checkpoint:** GitHub Actions builds loader + kernel and boots QEMU far enough to load and validate /vibrix/kernel.elf and parse PT_LOAD headers.
 
 **Exit:** standalone kernel prints after ExitBootServices without firmware boot services.
 
