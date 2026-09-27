@@ -1,0 +1,48 @@
+name: Vibrix Nightly Torture
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qemu-matrix:
+    name: QEMU matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        ram: ["128M", "256M", "512M"]
+        cpu: ["qemu64", "max"]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+      - name: Build
+        run: bash tools/build-qemu.sh
+      - name: Boot constrained configuration
+        env:
+          VIBRIX_SKIP_BUILD: "1"
+          VIBRIX_QEMU_RAM: ${{ matrix.ram }}
+          VIBRIX_QEMU_CPU: ${{ matrix.cpu }}
+        run: bash tools/test-qemu.sh
+      - name: Reject unexpected fatal diagnostics
+        if: always()
+        run: |
+          if [[ -f build/qemu/serial.log ]] && grep -Eiq 'kernel panic|#DF|triple fault' build/qemu/serial.log; then
+            echo "::error::unexpected fatal kernel diagnostic"
+            cat build/qemu/serial.log
+            exit 1
+          fi
+      - name: Preserve QEMU diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: qemu-${{ matrix.ram }}-${{ matrix.cpu }}-${{ github.run_attempt }}
+          path: build/qemu/*.log
+          if-no-files-found: ignore
+          retention-days: 7
