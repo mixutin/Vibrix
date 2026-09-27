@@ -34,13 +34,18 @@ handles are not persistent kernel identities.
    `RemovableMedia` is a hint, not proof of USB transport: many USB-attached
    SSDs report fixed media. Do not fall back to an internal disk.
 2. **Record on-media identity, not a firmware object.** From that disk,
-   validate the GPT header and entry array (bounds, CRCs and partition
-   extents), and record the GPT disk GUID plus the **unique partition GUID**
+   validate both GPT header and entry-array copies (bounds, CRCs, matching
+   disk/layout metadata and identical entry-array bytes), and record the GPT
+   disk GUID plus the **unique partition GUID**
    of the booted ESP. A separately provisioned root-partition unique GUID is
    part of the identity when a persistent root is configured. The root GUID
    must come from an explicit boot configuration on the *booted ESP* and must
-   name a valid partition on that same disk; it must not be inferred by
-   searching all disks for a matching filesystem. The exact configuration
+   name exactly one valid partition on that same disk; it must not be inferred
+   by searching all disks for a matching filesystem. Reject duplicate unique
+   partition GUIDs anywhere in the selected GPT (including duplicates of the
+   ESP or root GUID), and reject zero or multiple matches for the configured
+   root GUID; never accept the first matching entry by enumeration order.
+   The exact configuration
    format, root partition type and on-disk filesystem are separate future
    decisions. Until that contract exists, this proposal cannot identify a
    root and cannot be treated as an implemented boot path.
@@ -60,13 +65,18 @@ handles are not persistent kernel identities.
    the validated disk GUID **and** boot-ESP unique GUID, then (when present)
    check that the configured root unique GUID belongs to that same disk.
    Validate partition extents and the intended root filesystem before mounting.
+   If primary and backup GPT copies disagree, reject the disk even when each
+   copy has an individually valid CRC; do not select whichever copy matches
+   the boot hint. Apply the same single-match partition checks on reacquisition.
    A matching partition GUID on a different whole disk is not sufficient.
    Recheck identity after a disconnect/reconnect before resuming I/O; never
    reuse a stale native device address or handle as proof.
 5. **Fail closed.** If no USB disk matches, more than one disk matches (for
    example a byte-for-byte clone), identity metadata is missing/corrupt,
-   partition association fails, or the root GUID is absent/invalid when root
-   mounting is requested, do not select a different disk or mount it writable.
+   partition association fails, GPT copies disagree, unique partition GUIDs
+   are duplicated, or the root GUID is absent/invalid or matches other than
+   exactly one entry when root mounting is requested, do not select a different
+   disk or mount it writable.
    Report a diagnostic and enter a bounded recovery/read-only path or stop;
    any manual selection requires an explicit future recovery design. Do not
    break ties by enumeration order, port, serial number, label or internal
@@ -117,7 +127,10 @@ images. In QEMU, boot from an explicitly USB-attached GPT image, exit Boot
 Services, rediscover it through native xHCI/mass storage, read the selected
 root, and verify persistence after reboot. Repeat with a second internal disk,
 USB disk on another port, cloned USB disk, missing USB disk, changed GPT GUID,
-corrupt GPT, mismatched root GUID and USB reconnect. Require clear failure and
+corrupt GPT, duplicate ESP/root or unrelated unique partition GUIDs on one
+disk, zero/multiple root GUID matches, individually CRC-valid but inconsistent
+primary/backup GPT headers or entry arrays, mismatched root GUID and USB
+reconnect. Require clear failure and
 no internal-disk fallback or accidental writes. Validate portability on
 Target 001 and a second compatible machine separately; QEMU cannot establish
 bare-metal support.
