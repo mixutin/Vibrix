@@ -209,6 +209,7 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
         page_tables.table_pages,
         page_tables.mapped_pages,
         kernel_stack_base,
+        memory_map.pages,
     );
     console.write("VIBRIX: transition mappings verified\r\n");
 
