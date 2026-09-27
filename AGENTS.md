@@ -15,7 +15,7 @@ Maintainer authority does **not** waive project gates: current-main synchronizat
 
 ## Mission
 
-Build Vibrix: an independent, Rust-native Unix-like OS implemented from scratch that lives persistently on a removable USB drive. Vibrix is also an experiment in how far AI-assisted engineering can go while remaining understandable, testable and technically honest.
+Build Vibrix: an independent, Rust-native Unix-like OS that lives persistently on a removable USB drive. Community Rust crates may be used within Vibrix's own architecture. Vibrix is also an experiment in how far AI-assisted engineering can go while remaining understandable, testable and technically honest.
 
 ## Prime directive: do not fake progress
 
@@ -39,15 +39,24 @@ Tiny architecture-specific assembly is allowed only where hardware requires it. 
 
 ## Dependencies
 
-**Community Rust packages are forbidden in Vibrix.**
+**Community Rust crates are allowed in Vibrix.** This includes crates.io
+packages, Git-based crates, and properly licensed vendored crates for the
+bootloader, kernel, drivers, system libraries, installer, package tooling,
+and first-party userspace. Use an appropriate crate when it makes a feature
+safer, simpler or more maintainable; a first-party implementation is still
+permitted.
 
-Do not add crates.io dependencies, Git-based Rust dependencies, vendored third-party crates, or community packages to the bootloader, kernel, drivers, system libraries, installer, package tooling or first-party userspace.
+Read [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) before adding or upgrading
+a dependency. Review its license, provenance, maintenance, transitive
+dependencies, feature flags, unsafe behavior and target compatibility. Disable
+default features where necessary for `no_std` / UEFI / bare-metal builds.
+Do not silently pull in a host operating system, `std`, a C runtime, an
+allocator, or other runtime services that are not available on the target.
+Record dependency rationale and exact build/test evidence in the PR; commit
+`Cargo.lock` for reproducible application and OS builds.
 
-The only Rust foundation/runtime code allowed is what is supplied as part of the official Rust language/toolchain itself, such as `core` and compiler support.
-
-If functionality is needed for ELF, UEFI, ACPI, PCI, USB, NVMe, synchronization, allocation, parsing, bitfields, filesystems, networking or similar subsystems, implement it inside Vibrix from primary specifications.
-
-External host-side tools such as QEMU, OVMF, GDB, Git and shell utilities are development infrastructure and are not Vibrix runtime dependencies.
+External host-side tools such as QEMU, OVMF, GDB, Git and shell utilities
+remain development infrastructure, not Vibrix runtime dependencies.
 
 ## Unsafe Rust
 
@@ -196,7 +205,7 @@ State:
 - observed result
 - known limitations
 - unsafe code added/changed
-- dependencies added
+- dependencies added/updated, their licenses, target features and rationale
 - primary specifications/references used
 - authoring AI agent/model used, when known
 - reviewing AI agent/model, when reviewed
