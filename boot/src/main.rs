@@ -9,10 +9,35 @@ mod elf;
 mod loader;
 mod memory_map;
 mod paging;
+mod transition;
 mod uefi;
 
 use core::panic::PanicInfo;
-use uefi::{Console, EFI_LOAD_ERROR, Handle, Status, SystemTable};
+use uefi::{Console, EFI_INVALID_PARAMETER, EFI_LOAD_ERROR, EFI_SUCCESS, Handle, Status, SystemTable};
+
+fn create_boot_info(
+    framebuffer: &uefi::Framebuffer,
+    rsdp_address: u64,
+    memory_map: &memory_map::CapturedMemoryMap,
+) -> Result<bootinfo::BootInfo, bootinfo::BootInfoError> {
+    bootinfo::BootInfo::new(
+        bootinfo::FramebufferInfo {
+            physical_base: framebuffer.base,
+            size_bytes: framebuffer.size,
+            width: framebuffer.width,
+            height: framebuffer.height,
+            stride: framebuffer.stride,
+            pixel_format: framebuffer.format,
+        },
+        rsdp_address,
+        bootinfo::FinalMemoryMap {
+            physical_base: memory_map.physical_base,
+            byte_len: memory_map.byte_len,
+            descriptor_size: memory_map.descriptor_size,
+            descriptor_version: memory_map.descriptor_version,
+        },
+    )
+}
 
 /// UEFI application entry point.
 ///
@@ -120,7 +145,7 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
             return status;
         }
     };
-    let Some(_kernel_stack_top) = kernel_stack_base.checked_add(STACK_PAGES as u64 * 4096) else {
+    let Some(kernel_stack_top) = kernel_stack_base.checked_add(STACK_PAGES as u64 * 4096) else {
         console.write("VIBRIX: kernel stack range invalid\r\n");
         return EFI_LOAD_ERROR;
     };
@@ -212,6 +237,58 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     );
     console.write("VIBRIX: transition mappings verified\r\n");
 
+    // Check NX, 4-level translation and the CPU physical-address width
+    // before losing the ability to report failures using the UEFI console.
+    let regions = [
+        transition::PhysicalRegion {
+            physical_base: page_tables.root_physical,
+            byte_len: 4096,
+        },
+        transition::PhysicalRegion {
+            physical_base: loaded_kernel.physical_base,
+            byte_len: loaded_kernel.span_bytes,
+        },
+        transition::PhysicalRegion {
+            physical_base: loader_image_base,
+            byte_len: loader_image_size,
+        },
+        transition::PhysicalRegion {
+            physical_base: kernel_stack_base,
+            byte_len: STACK_PAGES as u64 * 4096,
+        },
+        transition::PhysicalRegion {
+            physical_base: boot_info_physical,
+            byte_len: 4096,
+        },
+        transition::PhysicalRegion {
+            physical_base: memory_map.physical_base,
+            byte_len: memory_map.capacity as u64,
+        },
+        transition::PhysicalRegion {
+            physical_base: rsdp_address,
+            byte_len: 4096,
+        },
+        transition::PhysicalRegion {
+            physical_base: framebuffer.base,
+            byte_len: framebuffer.size,
+        },
+    ];
+    if transition::preflight(&regions).is_err() {
+        console.write("VIBRIX: CPU paging/NX/physical range unsupported\r\n");
+        return EFI_LOAD_ERROR;
+    }
+
+    // Cache firmware callback *before* first ExitBootServices. A rejected
+    // attempt may partially shut down services; only GetMemoryMap is used
+    // on retry, and never a SystemTable dereference after exit succeeds.
+    let exit_boot_services = match unsafe { uefi::exit_boot_services_service(system_table) } {
+        Ok(callback) => callback,
+        Err(status) => {
+            console.write("VIBRIX: ExitBootServices callback unavailable\r\n");
+            return status;
+        }
+    };
+
     // GetMemoryMap from the *same preallocated buffer* after all allocations.
     // This refresh performs no AllocatePages, FreePages or firmware logging.
     if let Err(status) = unsafe { memory_map::refresh(&mut memory_map) } {
@@ -223,23 +300,7 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     // No firmware calls after successful map acquisition: preserve exactly
     // this buffer's length, stride and descriptor version, and keep the key
     // strictly loader-local for the later ExitBootServices implementation.
-    let boot_info = match bootinfo::BootInfo::new(
-        bootinfo::FramebufferInfo {
-            physical_base: framebuffer.base,
-            size_bytes: framebuffer.size,
-            width: framebuffer.width,
-            height: framebuffer.height,
-            stride: framebuffer.stride,
-            pixel_format: framebuffer.format,
-        },
-        rsdp_address,
-        bootinfo::FinalMemoryMap {
-            physical_base: memory_map.physical_base,
-            byte_len: memory_map.byte_len,
-            descriptor_size: memory_map.descriptor_size,
-            descriptor_version: memory_map.descriptor_version,
-        },
-    ) {
+    let boot_info = match create_boot_info(&framebuffer, rsdp_address, &memory_map) {
         Ok(info) => info,
         Err(_error) => {
             uefi::debug_write("VIBRIX: BootInfo v2 validation failed\r\n");
@@ -253,9 +314,46 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     let _boot_info_page_owner = boot_info_physical;
     uefi::debug_write("VIBRIX: BootInfo v2 staged\r\n");
 
-    // The kernel PT_LOAD and identity transition regions are now software
-    // verified but CR3 remains untouched. ExitBootServices and the direct
-    // kernel jump belong to the subsequent separately validated step.
+    // UEFI 2.10 §7.4.6: use the exact key from our refreshed map.
+    // On EFI_INVALID_PARAMETER, use *only* GetMemoryMap into the same owned
+    // capacity, rebuild the entire BootInfo tuple and retry with a fresh key.
+    // Do not return to partially-shutdown firmware on any failed exit.
+    const EXIT_ATTEMPTS: usize = 4;
+    for attempt in 0..EXIT_ATTEMPTS {
+        let status = unsafe { exit_boot_services(image, memory_map.map_key) };
+        if status == EFI_SUCCESS {
+            uefi::debug_write("VIBRIX: ExitBootServices succeeded\r\n");
+            // SAFETY: no firmware call follows; CPU/features, new CR3, live
+            // identity-mapped loader, dedicated stack and BootInfo were
+            // preflighted and software verified. The higher-half ELF entry
+            // was checked executable by the parser/staging mapper.
+            unsafe {
+                transition::enter_kernel(
+                    page_tables.root_physical,
+                    kernel_stack_top,
+                    boot_info_physical,
+                    loaded_kernel.entry,
+                )
+            }
+        }
+        if status != EFI_INVALID_PARAMETER || attempt + 1 == EXIT_ATTEMPTS {
+            uefi::debug_write("VIBRIX: ExitBootServices failed\r\n");
+            break;
+        }
+        uefi::debug_write("VIBRIX: ExitBootServices retrying fresh map\r\n");
+        if unsafe { memory_map::refresh(&mut memory_map) }.is_err() {
+            uefi::debug_write("VIBRIX: ExitBootServices map refresh failed\r\n");
+            break;
+        }
+        let Ok(updated) = create_boot_info(&framebuffer, rsdp_address, &memory_map) else {
+            uefi::debug_write("VIBRIX: ExitBootServices map version rejected\r\n");
+            break;
+        };
+        // SAFETY: same exclusive mapped EfiLoaderData page as first write;
+        // no memory allocation/free or firmware logging occurs here.
+        unsafe { (boot_info_address as *mut bootinfo::BootInfo).write(updated) };
+    }
+    // Fail-stop rather than returning into partially disabled firmware.
     loop {
         core::hint::spin_loop();
     }
