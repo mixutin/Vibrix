@@ -37,9 +37,25 @@ const SIMPLE_FILE_SYSTEM_PROTOCOL_GUID: Guid = Guid {
 };
 
 static KERNEL_PATH: &[u16] = &[
-    '\\' as u16, 'v' as u16, 'i' as u16, 'b' as u16, 'r' as u16, 'i' as u16,
-    'x' as u16, '\\' as u16, 'k' as u16, 'e' as u16, 'r' as u16, 'n' as u16,
-    'e' as u16, 'l' as u16, '.' as u16, 'e' as u16, 'l' as u16, 'f' as u16, 0,
+    '\\' as u16,
+    'v' as u16,
+    'i' as u16,
+    'b' as u16,
+    'r' as u16,
+    'i' as u16,
+    'x' as u16,
+    '\\' as u16,
+    'k' as u16,
+    'e' as u16,
+    'r' as u16,
+    'n' as u16,
+    'e' as u16,
+    'l' as u16,
+    '.' as u16,
+    'e' as u16,
+    'l' as u16,
+    'f' as u16,
+    0,
 ];
 
 #[repr(C)]
@@ -54,8 +70,7 @@ pub struct TableHeader {
 #[repr(C)]
 pub struct SimpleTextOutputProtocol {
     pub reset: usize,
-    pub output_string:
-        extern "efiapi" fn(*mut SimpleTextOutputProtocol, *const u16) -> Status,
+    pub output_string: extern "efiapi" fn(*mut SimpleTextOutputProtocol, *const u16) -> Status,
     pub test_string: usize,
     pub query_mode: usize,
     pub set_mode: usize,
@@ -69,8 +84,11 @@ pub struct SimpleTextOutputProtocol {
 type AllocatePool =
     extern "efiapi" fn(memory_type: u32, size: usize, buffer: *mut *mut c_void) -> Status;
 type FreePool = extern "efiapi" fn(buffer: *mut c_void) -> Status;
-type HandleProtocol =
-    extern "efiapi" fn(handle: Handle, protocol: *const Guid, interface: *mut *mut c_void) -> Status;
+type HandleProtocol = extern "efiapi" fn(
+    handle: Handle,
+    protocol: *const Guid,
+    interface: *mut *mut c_void,
+) -> Status;
 
 #[repr(C)]
 pub struct BootServices {
@@ -140,8 +158,7 @@ type FileOpen = extern "efiapi" fn(
 type FileClose = extern "efiapi" fn(this: *mut FileProtocol) -> Status;
 type FileRead =
     extern "efiapi" fn(this: *mut FileProtocol, size: *mut usize, buffer: *mut c_void) -> Status;
-type FileGetPosition =
-    extern "efiapi" fn(this: *mut FileProtocol, position: *mut u64) -> Status;
+type FileGetPosition = extern "efiapi" fn(this: *mut FileProtocol, position: *mut u64) -> Status;
 type FileSetPosition = extern "efiapi" fn(this: *mut FileProtocol, position: u64) -> Status;
 
 #[repr(C)]
@@ -159,10 +176,8 @@ struct FileProtocol {
     flush: usize,
 }
 
-type OpenVolume = extern "efiapi" fn(
-    this: *mut SimpleFileSystemProtocol,
-    root: *mut *mut FileProtocol,
-) -> Status;
+type OpenVolume =
+    extern "efiapi" fn(this: *mut SimpleFileSystemProtocol, root: *mut *mut FileProtocol) -> Status;
 
 #[repr(C)]
 struct SimpleFileSystemProtocol {
