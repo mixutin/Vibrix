@@ -66,3 +66,16 @@ and all probe kernels reported real map/protect/unmap/remap RAM success.
 At CR2 `0xffffc00000000000`, the supervisor-write probe observed error `0x3`
 (P=1,W=1,U=0), and the unmap-read probe observed error `0x0` (P=0,W=0,U=0).
 These are actual CPU #PFs logged on native COM1. Target 001 is untested.
+
+## Later UC PCI configuration-window extension (M4)
+
+The temporary v3 leaf window's separate `map_mmio_readonly` operation
+maps explicitly validated PCI ECAM pages supervisor-only, NX and PWT+PCD
+for UC PAT index 3, without changing `map`'s WB RAM policy.
+The caller validates that firmware's map labels the entire physical page
+`EfiMemoryMappedIO` and permits UC and that the CPU's actual IA32_PAT
+entry 3 is UC; it uses volatile aligned dword reads and unmaps immediately.
+Mapping a page does not convey ownership of PCI devices, safe register
+writes, bus mastering, DMA or interrupt routing. No new global alias to
+WB RAM is accepted. This early primitive retains the single CPU/IF=0
+restriction and depends on future general MMIO resource coordination.
