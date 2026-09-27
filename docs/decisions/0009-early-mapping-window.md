@@ -73,7 +73,8 @@ The temporary v3 leaf window's separate `map_mmio_readonly` operation
 maps explicitly validated PCI ECAM pages supervisor-only, NX and PWT+PCD
 for UC PAT index 3, without changing `map`'s WB RAM policy.
 The caller validates that firmware's map labels the entire physical page
-`EfiMemoryMappedIO` and permits UC and that the CPU's actual IA32_PAT
+`EfiReservedMemoryType` or `EfiMemoryMappedIO` and permits UC, and that
+the CPU's actual IA32_PAT
 entry 3 is UC; it uses volatile aligned dword reads and unmaps immediately.
 Mapping a page does not convey ownership of PCI devices, safe register
 writes, bus mastering, DMA or interrupt routing. No new global alias to
