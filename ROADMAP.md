@@ -138,6 +138,35 @@ unchecked tasks. Reading an assigned BAR is not using its memory or
 writing an internal disk.
 
 
+## M4.5 — Interactive kernel console
+
+This is an intentionally small bridge between device discovery and the real
+M5/M6 userspace stack. It exists so Vibrix becomes directly operable during
+kernel development; it does **not** replace Ring 3, syscalls, VFS, TTY or the
+future userspace shell.
+
+- [ ] Hardware interrupt path usable in QEMU
+- [ ] Monotonic timer source available to the console
+- [ ] QEMU keyboard input reaches the kernel without UEFI Boot Services
+- [ ] Kernel console input buffer and line editing
+- [ ] Command parser and dispatch table
+- [ ] `help`
+- [ ] `clear`
+- [ ] `info` / build information
+- [ ] `mem` memory diagnostics
+- [ ] `pci` PCI discovery output
+- [ ] `acpi` ACPI discovery output
+- [ ] `uptime`
+- [ ] `reboot`
+- [ ] Unknown-command and malformed-input handling
+- [ ] QEMU smoke test proves prompt → input → command → output
+
+**Exit:** after `ExitBootServices`, QEMU reaches a `vibrix>` prompt, accepts
+real keyboard input and executes diagnostic commands entirely in the Vibrix
+kernel. The console is a development milestone only; the M6 Rust shell remains
+the first real userspace CLI.
+
+
 ### Target 001
 - [ ] AMD xHCI 1022:43ee
 - [ ] AMD xHCI 1022:149c
