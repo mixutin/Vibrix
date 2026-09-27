@@ -3,6 +3,8 @@
 
 #[allow(dead_code)]
 mod elf;
+#[allow(dead_code)]
+mod fs;
 
 type Handle = *mut core::ffi::c_void;
 type Status = usize;
