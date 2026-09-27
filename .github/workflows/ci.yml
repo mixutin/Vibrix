@@ -28,6 +28,11 @@ jobs:
             bash -n "$script"
           done
 
+      - name: Test host OVMF firmware discovery
+        run: |
+          bash -n tools/ovmf.inc host-tests/ovmf-discovery.sh
+          bash host-tests/ovmf-discovery.sh
+
       - name: Install QEMU and OVMF
         run: |
           sudo apt-get update
