@@ -14,6 +14,7 @@ pub const EFI_OUT_OF_RESOURCES: Status = EFI_ERROR_BIT | 9;
 const EFI_LOADER_DATA: u32 = 2;
 const FILE_MODE_READ: u64 = 1;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct Guid {
     data1: u32,
@@ -35,6 +36,27 @@ const SIMPLE_FILE_SYSTEM_PROTOCOL_GUID: Guid = Guid {
     data3: 0x11d2,
     data4: [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b],
 };
+
+// UEFI Specification 2.9A: ACPI configuration table GUIDs.
+const ACPI_20_TABLE_GUID: Guid = Guid {
+    data1: 0x8868e871,
+    data2: 0xe4f1,
+    data3: 0x11d3,
+    data4: [0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81],
+};
+
+const ACPI_10_TABLE_GUID: Guid = Guid {
+    data1: 0xeb9d2d30,
+    data2: 0x2d88,
+    data3: 0x11d3,
+    data4: [0x9a, 0x16, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d],
+};
+
+#[repr(C)]
+struct ConfigurationTable {
+    vendor_guid: Guid,
+    vendor_table: *const u8,
+}
 
 static KERNEL_PATH: &[u16] = &[
     '\\' as u16,
@@ -211,6 +233,55 @@ impl Console {
         }
         debug_write(text);
     }
+}
+
+/// Discover a validated ACPI RSDP before ExitBootServices.
+///
+/// # Safety
+/// The caller supplies a live firmware SystemTable. Firmware configuration-table
+/// entries and their vendor-table pointers must remain mapped while called.
+/// The returned physical address requires appropriate kernel mapping before use.
+pub unsafe fn find_rsdp(system_table: *mut SystemTable) -> Option<u64> {
+    if system_table.is_null() {
+        return None;
+    }
+    let system = unsafe { &*system_table };
+    let count = system.number_of_table_entries;
+    if count == 0 || count > 4096 || system.configuration_table == 0 {
+        return None;
+    }
+    let table = system.configuration_table as *const ConfigurationTable;
+
+    // ACPI 6.6: prefer the ACPI 2.0+ GUID and fall back to ACPI 1.0.
+    for guid in [ACPI_20_TABLE_GUID, ACPI_10_TABLE_GUID] {
+        for index in 0..count {
+            let entry = unsafe { &*table.add(index) };
+            if entry.vendor_guid != guid || entry.vendor_table.is_null() {
+                continue;
+            }
+            let header = unsafe { slice::from_raw_parts(entry.vendor_table, 20) };
+            if header.get(..8) != Some(b"RSD PTR ".as_slice()) || !checksum_zero(header) {
+                continue;
+            }
+            if header[15] >= 2 {
+                let base = unsafe { slice::from_raw_parts(entry.vendor_table, 36) };
+                let length = u32::from_le_bytes([base[20], base[21], base[22], base[23]]) as usize;
+                if !(36..=4096).contains(&length) {
+                    continue;
+                }
+                let extended = unsafe { slice::from_raw_parts(entry.vendor_table, length) };
+                if !checksum_zero(extended) {
+                    continue;
+                }
+            }
+            return Some(entry.vendor_table as usize as u64);
+        }
+    }
+    None
+}
+
+fn checksum_zero(bytes: &[u8]) -> bool {
+    bytes.iter().fold(0u8, |sum, &byte| sum.wrapping_add(byte)) == 0
 }
 
 pub struct KernelFile {
