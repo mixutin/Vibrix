@@ -15,13 +15,16 @@ rustc --edition=2024 --test tools/inspect-gpt.rs -o /tmp/vibrix-gpt-tests
 /tmp/vibrix-gpt-tests
 ```
 
-The inspector validates the protective MBR, **primary** GPT signature,
+The inspector validates the protective MBR, primary and backup GPT signatures,
 version, header size/CRC, header LBAs, usable range, partition-entry
-bounds/CRC, nonempty unique GUIDs, partition ranges and overlaps. It counts
+bounds/CRCs, reciprocal header locations, matching disk/layout metadata,
+byte-identical primary/backup entry arrays, nonempty unique GUIDs, partition
+ranges and overlaps. Synthetic backup-corruption tests cover both 512-byte and
+4096-byte logical sectors. It counts
 partitions and EFI System Partitions by GPT type GUID. The entry table is
 capped at 16 MiB and the tool makes **no** writes.
 
-Limitations: it does not verify or repair the **backup** GPT, partition
+Limitations: it does not repair either GPT, or validate partition
 contents, filesystems, removable-device identity, USB topology or actual
 persistent-root boot. A valid disk image does not prove that the target USB
 drive is safe to write. It does not check whether a partition contains

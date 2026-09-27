@@ -3,6 +3,8 @@
 
 mod elf;
 mod loader;
+mod memory_map;
+mod paging;
 mod uefi;
 
 use core::panic::PanicInfo;
@@ -90,7 +92,47 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
         loaded_kernel.entry,
     );
     console.write("VIBRIX: kernel segments staged\r\n");
-    console.write("Next: establish initial kernel mappings.\r\n");
+
+    let page_tables = match unsafe {
+        paging::build_kernel_page_tables(system_table, &kernel, &info, &loaded_kernel)
+    } {
+        Ok(page_tables) => page_tables,
+        Err(error) => {
+            console.write(error.message());
+            return error.status();
+        }
+    };
+    let _ = (
+        page_tables.root_physical,
+        page_tables.table_pages,
+        page_tables.mapped_pages,
+    );
+    console.write("VIBRIX: kernel page tables verified\r\n");
+    console.write("Next: capture UEFI memory map; firmware exit is not implemented.\r\n");
+
+    let memory_map = match unsafe { memory_map::capture(system_table) } {
+        Ok(map) => map,
+        Err(status) => {
+            // No successful map/key is retained on failure, so console use is safe.
+            console.write("VIBRIX: final memory map capture failed\r\n");
+            return status;
+        }
+    };
+    // Future consumption boundary: retain the entire tuple from the same final
+    // call. No BootInfo population or ExitBootServices yet. Do not use Console
+    // here: firmware output could allocate and invalidate the key. The map's
+    // page allocation has no Drop and remains owned while this checkpoint spins.
+    let _ = (
+        memory_map.buffer,
+        memory_map.physical_base,
+        memory_map.pages,
+        memory_map.capacity,
+        memory_map.byte_len,
+        memory_map.map_key,
+        memory_map.descriptor_size,
+        memory_map.descriptor_version,
+    );
+    uefi::debug_write("VIBRIX: final memory map captured\r\n");
 
     loop {
         core::hint::spin_loop();

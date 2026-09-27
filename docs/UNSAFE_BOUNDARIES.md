@@ -1,73 +1,56 @@
 # Current unsafe boundaries
 
-This is an inventory of code **on `main`**, not a design for future drivers or
-proof that every firmware pointer is safe. The UEFI loader owns all current
-`unsafe` blocks; the kernel does not yet dereference `BootInfo` or initialize
-an IDT, GDT, frame allocator, heap, page tables, or device I/O. `#[unsafe(no_mangle)]`
-on each entry point is an exported-symbol requirement, not a pointer access.
-The separate initial-page-table PR is not included until it lands on `main`.
+This inventory describes code **merged on main through #40, #28, #34 and #32**. It records invariants and remaining trust at the actual raw-pointer, firmware, assembly and hardware boundaries; it does not assert those invariants are independently proven by Rust types or the smoke test. `#[unsafe(no_mangle)]` exports symbols and does not by itself dereference a pointer.
 
-## Loader: firmware lifetime and protocol pointers
+## Loader: firmware ABI, protocols and physical resources
 
-| Owner | Boundary and required invariant | Checks and remaining trust |
+| Production owner | Unsafe operation and required invariant | Validation and residual limitation |
 | --- | --- | --- |
-| `boot/src/main.rs::efi_main`, `uefi.rs::Console` | Firmware enters with the UEFI x86-64 calling convention and a live, correctly laid-out `SystemTable`; `con_out` and its `output_string` function remain valid until this loader stops using Boot Services. | Null table/output pointers are rejected. The firmware, not a Rust type check, guarantees alignment, structure layout, function pointers and lifetime. `Console::write` passes a local NUL-terminated UTF-16 pair synchronously. |
-| `uefi.rs::load_kernel`, `KernelFile::as_slice` | Loaded-image, filesystem, root/file protocol pointers and callbacks belong to live firmware. The `allocate_pool(EfiLoaderData)` result must be initialized by `read`, remain mapped and exclusive to this loader while a slice exists, and not be freed early. | Status/null checks and nonzero/representable file size precede use; failed reads close handles and free the pool, successful reads close handles but retain the pool for the loader lifetime. Firmware is trusted not to report a read count larger than the supplied buffer or return misaligned/invalid pointers. A Rust slice cannot independently validate firmware memory. |
-| `uefi.rs::find_rsdp` | The configuration-table array and the matching ACPI vendor-table pointer must remain mapped and readable for every byte inspected. | Rejects null table, zero or >4096 entries, null vendor pointer, invalid signature/checksum, and invalid extended length (36..=4096). Reading the initial 20/36 bytes and declared extended length still assumes firmware supplies accessible backing; checksum is not a memory-validity proof. The returned number is an address, not a kernel mapping. |
-| `uefi.rs::discover_framebuffer` | `LocateProtocol` returns a live, properly aligned GOP interface, mode and information structure. The framebuffer address itself is **not** dereferenced here. | Checks status/null pointers, mode-info size, linear pixel format, geometry, checked byte count and framebuffer extent. Firmware supplies pointer validity and backing; geometry validation does not map the framebuffer for the kernel. |
-| `uefi.rs::allocate_loader_pages`, `free_loader_pages` | The SystemTable/Boot Services callbacks remain live; a successful allocation is loader-owned until freed once or explicitly reserved for handoff. Freeing must use the original address and page count before `ExitBootServices`. | Rejects null table, zero page count and null services; rejects a returned zero physical address and attempts to free it. Firmware is trusted to allocate page-aligned, accessible `EfiLoaderData` pages and to honor ownership. |
+| `boot/src/main.rs::efi_main`; `uefi.rs::Console` | Firmware enters via `extern "efiapi"` with a live, correctly laid-out and aligned `SystemTable`; its console and `OutputString` callback must remain available for each synchronous UTF-16 write. | Nulls/statuses are checked where used. Firmware still supplies the backing/lifetime. Console output can change the UEFI memory map: no `Console::write` after a successful final-map capture. |
+| `uefi.rs::load_kernel`, `KernelFile::as_slice` | Live loaded-image, Simple File System and file protocol function pointers; `allocate_pool(EfiLoaderData)` returns exclusively owned, readable backing initialized by firmware reads before `from_raw_parts` creates the file slice. | File size/read counts, selected statuses, null pointers and conversions are checked; handles are closed and failed-read pools freed, while the successful buffer remains owned during staging. Null checks cannot establish arbitrary firmware pointer alignment/extent or safe concurrent mutation. |
+| `uefi.rs::find_rsdp` | Configuration-table entries and ACPI vendor-table bytes are mapped for every probed 20/36/extended byte range. | Checks bounds on count and RSDP length, signature and checksums; these validate *contents*, not accessibility or provenance of firmware-provided pointers. Returned RSDP is a physical numeric address, not an entry-time kernel reference. |
+| `uefi.rs::discover_framebuffer` | GOP interface, mode and info pointers remain readable during inspection. No framebuffer pixels are accessed here. | Status/null/mode-info-size, linear format, geometry and checked physical range tests precede use; the framebuffer is not mapped for future kernel access by this operation. |
+| `uefi.rs::allocate_loader_pages`, `page_services`, `allocate_pages_with` | Correct live Boot Services function pointers and `AllocatePages(EfiLoaderData)` contract. Returned physical pages must be 4 KiB aligned, uniquely owned and directly accessible in the loader's pre-handoff mapping before dereference. | Rejects null SystemTable/services and zero page count. A successful allocation whose physical base is zero is policy-invalid and **attempted to be freed**, rather than silently accepted. If that FreePages call fails, its exact firmware status outranks the original policy error. |
+| `uefi.rs::free_loader_pages`, `free_pages_with` | Exact still-owned physical base and page count, live firmware and exactly one valid release attempt. | Returns `Result<(), Status>`, rejects zero page count and bad wrapper pointers, preserves actual FreePages status. Physical address zero is allowed for cleanup of a firmware allocation that violates the loader's nonzero-base policy. A failed release **does not** establish that ownership was relinquished. |
 
-UEFI protocol structures and callbacks are defined locally with `#[repr(C)]`
-and `extern "efiapi"` in `boot/src/uefi.rs`. These definitions are the FFI
-boundary: the loader cannot prove firmware-origin pointer provenance, memory
-extent or concurrent mutation merely by checking for null. No Boot Services
-call is permitted after a future successful `ExitBootServices` handoff; the
-current loader never reaches that transition.
+Firmware ABI types and callback slots are first-party `#[repr(C)]` / `extern "efiapi"` definitions in `boot/src/uefi.rs`. The firmware, not a Rust declaration, guarantees that valid non-null pointers refer to properly aligned, accessible objects with adequate lifetime.
 
-## Loader: physical staging and debug output
+## Loader: staged ELF image and page-table construction
 
-| Owner | Boundary and required invariant | Checks and remaining trust |
+| Production owner | Unsafe operation and required invariant | Validation and residual limitation |
 | --- | --- | --- |
-| `boot/src/loader.rs::stage_kernel`, `copy_segments`, `verify_file_bytes`, `verify_bss` | The firmware allocation spans the computed page-rounded virtual image size and is identity-accessible to the loader before any CR3 switch. Conversion of its physical base to a pointer is valid only under that pre-handoff mapping. `write_bytes`, `copy_nonoverlapping`, pointer arithmetic and `from_raw_parts` require initialized, in-bounds, nonoverlapping storage; source ELF bytes stay immutable during copying. | Staging bounds the span to 256 MiB, uses checked virtual/file arithmetic and conversions, validates PT_LOAD metadata, zeroes the entire span, copies file-backed bytes and verifies them and BSS. Allocation failures and copy/verification errors release pages. The firmware allocation/mapping guarantee is still necessary; byte verification alone cannot prove memory safety. |
-| `uefi.rs::debug_write` | When `qemu-debugcon` is enabled, x86 `out dx, al` writes bytes to QEMU's debug I/O port `0xE9`; inline assembly has no memory/stack effects and preserves flags. | Build-time feature gates the port operation; it is not compiled into the ordinary bare-metal build. This is diagnostic output, not evidence of native serial, memory-mapped I/O or kernel logging. |
+| `boot/src/loader.rs::stage_kernel_with`, `copy_segments`, `verify_segments` | Convert page-exclusive, identity-accessible loader-owned physical backing to raw byte pointers; `write_bytes`, `copy_nonoverlapping`, pointer arithmetic and `from_raw_parts` require live, in-bounds, disjoint source/destination ranges and unmodified ELF data/metadata. | Checked PT_LOAD file/memory sizes and address conversions, 4 KiB rounding, 256 MiB staging policy, whole-span zeroing and byte/BSS verification. On copy/verification/physical conversion failure, FreePages is attempted and **release error takes precedence** if ownership is uncertain. A passed byte check cannot independently prove a firmware pointer's validity. |
+| `boot/src/paging.rs::TableAllocator`, `build_kernel_page_tables` | Allocate page-exclusive EfiLoaderData for PML4/PDPT/PD/PT frames; convert physical address to a directly accessible pointer, zero new frames, read/write 64-bit raw entries. Hierarchy must remain inactive while firmware mappings are assumed for raw access. | Checks 4 KiB alignment/physical PTE mask and canonical-48 virtual pages, page-table budget and span/bounds; supervisor-only W/NX leaf flags track ELF PT_LOAD flags, contradictory shared-page mappings fail closed, software walker verifies expected leaf pages. Actual CR3 activation and NXE/LA57/transition mappings are **not** performed. A future explicitly PF_W+PF_X ELF segment is not categorically rejected by this builder; do not claim a universal W^X admission policy. |
+| `boot/src/paging.rs::release_all` and invalid allocation cleanup | Free every tracked page in deterministic reverse allocation order while retaining failed-free ownership; no use of freed page-table frames afterward. | First failed firmware status in reverse order is returned; successful frees are cleared and failed addresses compacted into a dense owned prefix. If boot aborts and the local allocator is dropped after a rollback failure, ownership does **not** escape to a recoverable cross-function tracker: reporting the failure is not full reclamation. Successful staging and table construction keep their pages allocated. |
 
-The ELF parser (`boot/src/elf.rs`) works on checked byte slices and contains
-no `unsafe` blocks. Its metadata validation is necessary before staging but
-does not make arbitrary firmware-returned pointers safe. The loader currently
-stages kernel bytes, prints `VIBRIX: kernel segments staged`, then spins; it
-does **not** activate new mappings, populate `BootInfo`, call
-`ExitBootServices`, or jump to the kernel on `main`.
+The linked kernel currently has separate page-granular text, read-only data, writable GOT and writable data PT_LOAD mappings. A GNU_RELRO header does not itself make the GOT read-only: the current initial mapper derives writability from PT_LOAD `PF_W`. ADR 0003 covers **construction and software verification of an inactive hierarchy**, not activation.
 
-## Kernel: present boundary, not future promises
+## Loader: final UEFI memory map and debug output
 
-`kernel/src/main.rs` declares `#[repr(C)] BootInfo` and exports
-`vibrix_kernel_entry(_boot_info: *const BootInfo)` with
-`#[unsafe(no_mangle)]`. It does not dereference the pointer. The caller will
-eventually need to provide a mapped, aligned, live and version-validated
-argument under [ADR 0001](decisions/0001-bootinfo-address-spaces.md); that is
-not implemented. `kernel/src/arch/x86_64/cpuid.rs` calls the **safe** official
-Rust `core::arch::x86_64::__cpuid_count` intrinsic, gates optional leaves by
-the advertised maxima and only records feature bits. It does not execute an
-`unsafe` block or enable NX, SMEP, SMAP or APIC. There is no kernel inline
-assembly on current `main`.
+| Production owner | Unsafe operation and required invariant | Validation and residual limitation |
+| --- | --- | --- |
+| `boot/src/memory_map.rs::capture`, `capture_with_services` | Read a live Boot Services table and retain `GetMemoryMap`/`AllocatePages`/`FreePages` callbacks; allocate page-exclusive EfiLoaderData, identity-access physical buffer, zero capacity and hand firmware valid writable pointers for map bytes and scalar outputs. Firmware must not write beyond supplied capacity even on error. | Bounds growth/headroom/retries, alignment and checked capacity arithmetic. Validates final nonzero byte length, returned descriptor stride/alignment, capacity limit and whole descriptor count. Frees rejected/sizing-stale allocations **before** reacquisition; failed FreePages status is surfaced. Retains full allocation `physical_base/pages/capacity`, plus one successful `byte_len/map_key/descriptor_size/descriptor_version` tuple. Firmware controls pointer validity and may still stale the key via unrelated events. |
+| `boot/src/main.rs` after successful `capture` | Do not perform firmware calls or allocations that might change the final map/key; do not dereference the returned physical address as a post-transition virtual pointer. | The loader retains the map and stops at `VIBRIX: final memory map captured` using **non-UEFI** `uefi::debug_write`. It does **not** populate BootInfo, call ExitBootServices or enter the kernel. All framebuffer/RSDP/map address values need explicit future handoff mapping and reservation. |
+| `uefi.rs::debug_write` | With `qemu-debugcon`, `out dx, al` writes to QEMU debug port `0xE9` under the relevant x86 I/O privilege/platform assumption. | Inline assembly declares no memory/stack effects and preserves flags. Without the feature it does nothing; it is diagnostic output, not proof of native serial/kernel logging or real-hardware device access. |
 
-## Evidence and maintenance
+Memory-map capture's standalone host tests use the production acquisition helper with injected EFI ABI callbacks, not a fabricated full Boot Services table. The raw firmware descriptor version is retained without pretending the kernel has validated/parses unknown revisions.
 
-The current CI compiles/Clippy-checks loader and kernel, runs host ELF and
-CPUID tests (plus the independent GPT inspector tests), and uses OVMF/QEMU to
-check loader discovery and kernel segment staging. Host CPUID tests exercise
-the decoder and host instruction, **not** kernel entry. QEMU staging exercises
-loader firmware calls and physical copying, **not** the post-firmware kernel
-or bare metal. These checks do not prove all unsafe invariants, especially
-malformed firmware pointer backing or later use after Boot Services exit.
+## Kernel: implemented source boundaries, **not executed by loader smoke**
 
-When a new unsafe operation lands, its owner must document alignment, extent,
-ownership, lifetime, mapping and synchronization at the operation, update
-this inventory against the merged code, and provide relevant build/test/QEMU
-evidence without marking a roadmap item complete prematurely.
+| Production owner | Unsafe operation and required invariant | Validation and residual limitation |
+| --- | --- | --- |
+| `kernel/src/arch/x86_64/gdt.rs::init` / `load_gdt` / `load_tss` | Early single-core/interrupts-disabled, one-time init; immutable addresses of dedicated static `UnsafeCell` GDT/TSS backing; writable mapped GDT for CPU-set descriptor accessed/TSS busy bits. `lgdt`, segment reload via stack-using far return and `ltr` need valid selectors/descriptor base/limit and a live stack. | Real GDT's TSS selector equals descriptor offset `0x28`; 104-byte TSS uses inclusive limit 103 and I/O bitmap offset 104; user selectors include RPL3. `push/push/retfq` does **not** claim `nostack`. `unsafe impl Sync` relies on one boot-CPU writer and no uncoordinated later accesses. RSP0/IST stacks remain zero/unconfigured: no privilege-changing interrupts/user entry are safe merely because descriptors are defined. |
+| `kernel/src/arch/x86_64/serial.rs::outb` / `inb` | Port-I/O assembly requires accessible COM1 registers at ring 0. Initialization clears inherited DLAB before disabling IER, then configures divisor/8N1/FIFO; TX polling is bounded and reports timeout. | Immutable `SerialPort`/`SerialConsole` avoids unnecessary Rust `UnsafeCell`/manual Sync. Hardware transactions are not serialized: coherent early output assumes one CPU/interrupts disabled until a future lock. The production module has host behavioral tests, but the loader has not executed this kernel code. |
+| `kernel/src/main.rs::vibrix_kernel_entry` and `BootInfo` | Exported `#[unsafe(no_mangle)]` entry exists; its BootInfo pointer would require mapped, live, aligned, version/extent-checked backing once called. | Currently ignores the pointer and has no proven caller. CPUID decoder uses the safe official intrinsic; GDT and serial functions are wired *in source*, but no post-firmware kernel execution was demonstrated. No IDT, heap or frame allocator is claimed here. |
 
-References: [UEFI Specification](https://uefi.org/specifications) (System
-Table, Boot Services, protocols and GOP), [ACPI Specification](https://uefi.org/specifications)
-(RSDP layout/checksums), [Rust pointer safety rules](https://doc.rust-lang.org/core/ptr/index.html),
-[Rust `from_raw_parts` safety requirements](https://doc.rust-lang.org/core/slice/fn.from_raw_parts.html),
-and [Rust x86-64 CPUID intrinsic](https://doc.rust-lang.org/core/arch/x86_64/fn.__cpuid_count.html).
+## Validation, current checkpoint and maintenance
+
+On this merged baseline, CI checks tracked script modes/syntax, formatting, ELF parser, **read-only primary/backup GPT inspector**, final memory-map acquisition, production-linked loader cleanup/rollback tests, CPUID, production-linked GDT/TSS, production serial tests, both warning-denying Clippy builds and OVMF/QEMU smoke. The QEMU loader markers observed across the staged M2 work include:
+
+- `VIBRIX: kernel segments staged`
+- `VIBRIX: kernel page tables verified` — hierarchy **inactive**
+- `VIBRIX: final memory map captured` — owned map/key tuple **not passed to a running kernel**
+
+Host injected-error tests validate deterministic loader cleanup/error reporting, but they do not demonstrate an actual firmware FreePages failure on QEMU. Serial/GDT host tests exercise logic/descriptor bytes, **not privileged kernel instructions on the QEMU boot path**. No ExitBootServices, CR3 switch, BootInfo v2 population, kernel framebuffer/COM1 runtime output, persistent USB reacquisition or Target 001 bare-metal behavior is proven. Docs-only ADR 0005 designs a future USB identity, not an implemented driver.
+
+When a new unsafe operation lands, its owner must document required alignment, allocation extent, provenance, ownership, lifetime, mapping and synchronization at the actual operation; keep this inventory aligned to merged code and record the correct test-vs-runtime evidence. See [BootInfo address-space ADR 0001](decisions/0001-bootinfo-address-spaces.md), [inactive paging ADR 0003](decisions/0003-initial-kernel-page-tables.md), [descriptor-version ADR 0004](decisions/0004-memory-descriptor-version.md), the [UEFI specification](https://uefi.org/specifications), and [Rust raw-pointer rules](https://doc.rust-lang.org/core/ptr/index.html).
