@@ -4,7 +4,7 @@ These instructions apply to every AI coding agent working in this repository.
 
 ## Mission
 
-Build Vibrix: an independent, Rust-native Unix-like OS implemented from scratch. Vibrix is also an experiment in how far AI-assisted engineering can go while remaining understandable, testable and technically honest.
+Build Vibrix: an independent, Rust-native Unix-like OS implemented from scratch that lives persistently on a removable USB drive. Vibrix is also an experiment in how far AI-assisted engineering can go while remaining understandable, testable and technically honest.
 
 ## Prime directive: do not fake progress
 
@@ -53,6 +53,14 @@ Never use unsafe merely to silence the borrow checker.
 - Physical reference: `targets/target-001/`
 
 Avoid baking Target 001 quirks into generic interfaces.
+
+## Product scope
+
+Vibrix is USB-only. Its boot device, persistent root filesystem, packages, configuration and user data live on removable USB storage.
+
+Do not add an internal-disk installation mode. NVMe/SATA support may eventually exist for optional data access, but internal drives are not Vibrix system/root targets.
+
+Design boot and storage code around rediscovering and reacquiring the removable boot device after UEFI Boot Services are released.
 
 ## Current intended boot chain
 
@@ -113,7 +121,7 @@ Firmware tables, executables, filesystems, packets and device descriptors are un
 
 Validate lengths, offsets, integer arithmetic, alignment and bounds before copying or dereferencing. Prefer checked arithmetic. Fail loudly and diagnostically.
 
-Storage/installer code must never default to destructive operations.
+USB provisioning/storage code must never default to destructive operations. Internal disks must never be selected as Vibrix system targets.
 
 ## Style
 
