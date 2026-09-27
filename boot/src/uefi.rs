@@ -10,6 +10,7 @@ pub const EFI_ERROR_BIT: Status = 1usize << (usize::BITS - 1);
 pub const EFI_LOAD_ERROR: Status = EFI_ERROR_BIT | 1;
 pub const EFI_INVALID_PARAMETER: Status = EFI_ERROR_BIT | 2;
 pub const EFI_OUT_OF_RESOURCES: Status = EFI_ERROR_BIT | 9;
+pub const EFI_BUFFER_TOO_SMALL: Status = EFI_ERROR_BIT | 0;
 
 const EFI_LOADER_DATA: u32 = 2;
 const FILE_MODE_READ: u64 = 1;
@@ -121,6 +122,13 @@ type FreePages = extern "efiapi" fn(memory: u64, pages: usize) -> Status;
 type AllocatePool =
     extern "efiapi" fn(memory_type: u32, size: usize, buffer: *mut *mut c_void) -> Status;
 type FreePool = extern "efiapi" fn(buffer: *mut c_void) -> Status;
+type GetMemoryMap = extern "efiapi" fn(
+    memory_map_size: *mut usize,
+    memory_map: *mut u64,
+    map_key: *mut usize,
+    descriptor_size: *mut usize,
+    descriptor_version: *mut usize,
+) -> Status;
 type HandleProtocol = extern "efiapi" fn(
     handle: Handle,
     protocol: *const Guid,
@@ -140,7 +148,7 @@ pub struct BootServices {
     pub restore_tpl: usize,
     pub allocate_pages: AllocatePages,
     pub free_pages: FreePages,
-    pub get_memory_map: usize,
+    pub get_memory_map: GetMemoryMap,
     pub allocate_pool: AllocatePool,
     pub free_pool: FreePool,
     pub create_event: usize,
@@ -491,6 +499,86 @@ pub unsafe fn free_loader_pages(
     unsafe {
         ((*services).free_pages)(physical_address, pages);
     }
+}
+
+/// Capture the final UEFI firmware memory map before ExitBootServices.
+///
+/// # Safety
+///
+/// `system_table` must point to a live UEFI system table whose Boot Services are
+/// still available. The returned memory map pointers and descriptors remain valid
+/// only until ExitBootServices is called; after that the firmware may reclaim or
+/// invalidate the memory ranges.
+pub unsafe fn capture_uefi_memory_map(
+    system_table: *mut SystemTable,
+) -> Result<( *mut u64, usize, usize, usize, usize), Status> {
+    if system_table.is_null() {
+        return Err(EFI_INVALID_PARAMETER);
+    }
+
+    let services = unsafe { (*system_table).boot_services };
+    if services.is_null() {
+        return Err(EFI_LOAD_ERROR);
+    }
+
+    // Query the required buffer size for the memory map.
+    let mut map_size = 0usize;
+    let mut map_key = 0usize;
+    let mut descriptor_size = 0usize;
+    let mut descriptor_version = 0usize;
+
+    let status = unsafe {
+        ((*services).get_memory_map)(
+            &mut map_size,
+            null_mut(),
+            &mut map_key,
+            &mut descriptor_size,
+            &mut descriptor_version,
+        )
+    };
+    // EFI_BUFFER_TOO_SMALL is expected; we just need the sizes.
+    if status != EFI_BUFFER_TOO_SMALL {
+        return Err(status);
+    }
+
+    // Allocate the memory map buffer from loader-owned pages.
+    // UEFI GetMemoryMap returns map_size in bytes.
+    // allocate_pool takes page count; EfiLoaderData pages are 4KiB each.
+    const PAGE_SIZE: usize = 4096;
+    let pages = (map_size + PAGE_SIZE - 1) / PAGE_SIZE;
+    let mut map_buffer_ptr: *mut c_void = null_mut();
+    let status = unsafe {
+        ((*services).allocate_pool)(EFI_LOADER_DATA, pages, &mut map_buffer_ptr)
+    };
+    if status != EFI_SUCCESS || map_buffer_ptr.is_null() {
+        return Err(if status == EFI_SUCCESS {
+            EFI_OUT_OF_RESOURCES
+        } else {
+            status
+        });
+    }
+    let map_buffer = map_buffer_ptr as *mut u64;
+    let mut map_buffer_capacity = map_size;
+
+    // Retrieve the actual memory map.
+    let status = unsafe {
+        ((*services).get_memory_map)(
+            &mut map_buffer_capacity,
+            map_buffer,
+            &mut map_key,
+            &mut descriptor_size,
+            &mut descriptor_version,
+        )
+    };
+    if status != EFI_SUCCESS {
+        // Free the buffer on failure so the loader doesn't leak pages.
+        unsafe {
+            ((*services).free_pool)(map_buffer as *mut c_void);
+        }
+        return Err(status);
+    }
+
+    Ok((map_buffer, map_buffer_capacity, map_key, descriptor_size, descriptor_version))
 }
 
 pub struct KernelFile {

@@ -6,7 +6,29 @@ mod loader;
 mod uefi;
 
 use core::panic::PanicInfo;
+
+// BootInfo layout must match kernel::BootInfo for the handoff pointer.
+#[repr(C)]
+pub struct BootInfo {
+    pub magic: u64,
+    pub version: u32,
+    pub _reserved: u32,
+    pub framebuffer_base: u64,
+    pub framebuffer_size: u64,
+    pub framebuffer_width: u32,
+    pub framebuffer_height: u32,
+    pub framebuffer_stride: u32,
+    pub framebuffer_format: u32,
+    pub rsdp: u64,
+    pub memory_map: u64,
+    pub memory_map_len: u64,
+    pub memory_descriptor_size: u64,
+}
+
 use uefi::{Console, EFI_LOAD_ERROR, Handle, Status, SystemTable};
+
+const BOOT_MAGIC: u64 = 0x5649_4252_4958_3031; // "VIBRIX01"
+const BOOT_VERSION: u32 = 1;
 
 /// UEFI application entry point.
 ///
@@ -54,7 +76,7 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     console.write("VIBRIX: kernel validated\r\n");
 
     // The physical address must eventually be forwarded in BootInfo.
-    let Some(_rsdp_address) = (unsafe { uefi::find_rsdp(system_table) }) else {
+    let Some(rsdp_address) = (unsafe { uefi::find_rsdp(system_table) }) else {
         console.write("VIBRIX: ACPI RSDP not found or invalid\r\n");
         return EFI_LOAD_ERROR;
     };
@@ -64,15 +86,6 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
         console.write("VIBRIX: GOP framebuffer unavailable\r\n");
         return EFI_LOAD_ERROR;
     };
-    // This is discovery only: BootInfo population and kernel mapping follow later.
-    let _ = (
-        framebuffer.base,
-        framebuffer.size,
-        framebuffer.width,
-        framebuffer.height,
-        framebuffer.stride,
-        framebuffer.format,
-    );
     console.write("VIBRIX: GOP framebuffer discovered\r\n");
 
     let loaded_kernel = match unsafe { loader::stage_kernel(system_table, &kernel, &info) } {
@@ -90,7 +103,78 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
         loaded_kernel.entry,
     );
     console.write("VIBRIX: kernel segments staged\r\n");
-    console.write("Next: establish initial kernel mappings.\r\n");
+
+    // Capture the final UEFI firmware memory map before ExitBootServices.
+    // This must happen while Boot Services are still available.
+    let (map_buffer, map_size, map_key, desc_size, desc_ver) = match unsafe {
+        uefi::capture_uefi_memory_map(system_table)
+    } {
+        Ok(data) => data,
+        Err(status) => {
+            console.write("VIBRIX: failed to capture UEFI memory map\r\n");
+            return status;
+        }
+    };
+
+    // Build the BootInfo structure that the kernel will use after ExitBootServices.
+    // The firmware memory map physical addresses will be forwarded via BootInfo,
+    // and the kernel will re-map them after taking over page tables.
+    let boot_info = BootInfo {
+        magic: BOOT_MAGIC,
+        version: BOOT_VERSION,
+        _reserved: 0,
+        framebuffer_base: framebuffer.base,
+        framebuffer_size: framebuffer.size,
+        framebuffer_width: framebuffer.width,
+        framebuffer_height: framebuffer.height,
+        framebuffer_stride: framebuffer.stride,
+        framebuffer_format: framebuffer.format,
+        rsdp: rsdp_address as u64,
+        memory_map: map_buffer as u64,
+        memory_map_len: map_size as u64,
+        memory_descriptor_size: desc_size as u64,
+    };
+
+    console.write("VIBRIX: BootInfo populated\r\n");
+
+    // Set up stack top for the kernel. The stack will be established at a high address
+    // in the higher-half kernel mapping. For now use a default kernel stack top.
+    let stack_top = 0xFFFF_FFFF_FFF0_0000; // 4 KiB-aligned top of kernel stack
+
+    // Call ExitBootServices to release firmware services.
+    // After this, the kernel must own all physical memory it used through Boot Services.
+    console.write("VIBRIX: exiting boot services\r\n");
+    let exit_status = unsafe {
+        ((*system_table).boot_services.exit_boot_services)(
+            image,
+            map_key,
+        )
+    };
+    if exit_status != EFI_SUCCESS {
+        console.write("VIBRIX: ExitBootServices failed\r\n");
+        loop {
+            core::hint::spin_loop();
+        }
+    }
+    console.write("VIBRIX: boot services released\r\n");
+
+    // Transfer control to the kernel entry point.
+    // The kernel will set up its own page tables and continue initialization.
+    console.write("VIBRIX: transferring to kernel entry\r\n");
+
+    // SAFETY: The bootloader has:
+    // - Constructed a valid BootInfo with physical addresses
+    // - Called ExitBootServices, releasing firmware ownership
+    // - The kernel.elf has been staged in loader-owned physical pages
+    // - The UEFI memory map is no longer valid after ExitBootServices
+    // The kernel entry will set up its own page tables.
+    unsafe {
+        core::arch::asm!(
+            "jmp {target}",
+            target = in(reg) loaded_kernel.entry,
+            options(noreturn),
+        );
+    }
 
     loop {
         core::hint::spin_loop();
