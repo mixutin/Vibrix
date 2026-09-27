@@ -89,17 +89,19 @@ pub unsafe fn enter_kernel(root: u64, stack_top: u64, bootinfo_virtual: u64, ent
         // Simulate a call's 8-byte return slot so SysV entry has RSP % 16 = 8.
         asm!(
             "cli",
-            "mov cr3, {pml4}",
-            "mov rsp, {stack}",
+            "mov cr3, rcx",
+            "mov rsp, rsi",
             "sub rsp, 8",
             "mov qword ptr [rsp], 0",
             "xor rbp, rbp",
-            "mov rdi, {boot}",
-            "jmp {kernel}",
-            pml4 = in(reg) root,
-            stack = in(reg) stack_top,
-            boot = in(reg) bootinfo_virtual,
-            kernel = in(reg) entry,
+            "mov rdi, rdx",
+            "jmp rax",
+            // Fixed, distinct registers: the boot argument write to RDI
+            // cannot accidentally clobber the kernel entry register.
+            in("rcx") root,
+            in("rsi") stack_top,
+            in("rdx") bootinfo_virtual,
+            in("rax") entry,
             options(noreturn)
         );
     }
