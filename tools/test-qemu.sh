@@ -82,6 +82,7 @@ for expected in \
   "VIBRIX: kernel ACPI RSDP parsed" \
   "VIBRIX: kernel frame allocator initialized" \
   "VIBRIX: kernel conventional frames allocated" \
+  "VIBRIX: kernel heap allocation and reuse verified" \
   "VIBRIX: kernel framebuffer wrote pixels"; do
   if ! grep -Fq "$expected" "$LOG"; then
     echo "[vibrix] missing smoke-test marker: $expected" >&2
@@ -94,6 +95,8 @@ if [[ ! -f "$SERIAL_LOG" ]] || ! grep -Fq "Vibrix kernel started." "$SERIAL_LOG"
   [[ -f "$SERIAL_LOG" ]] && cat "$SERIAL_LOG"
   exit 1
 fi
+grep -Fq "kernel heap: aligned allocations, RAM writes and reuse verified" "$SERIAL_LOG"
 cat "$SERIAL_LOG"
 
 echo "[vibrix] QEMU post-firmware kernel handoff smoke test passed"
+

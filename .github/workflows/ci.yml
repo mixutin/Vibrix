@@ -122,6 +122,12 @@ jobs:
           rustc --edition=2024 --test kernel/src/memory/frame_allocator.rs -o "$RUNNER_TEMP/vibrix-frame-tests"
           "$RUNNER_TEMP/vibrix-frame-tests"
 
+      - name: Test production early kernel heap on host
+        run: |
+          rustfmt --edition 2024 --check kernel/src/memory/heap.rs
+          rustc --edition=2024 --test kernel/src/memory/heap.rs -o "$RUNNER_TEMP/vibrix-heap-tests"
+          "$RUNNER_TEMP/vibrix-heap-tests"
+
       - name: Test CPUID discovery on host
         run: |
           rustc --edition=2024 --test kernel/src/arch/x86_64/cpuid.rs -o "$RUNNER_TEMP/vibrix-cpuid-tests"
@@ -190,3 +196,4 @@ jobs:
           grep -Fq "VIBRIX: kernel page fault diagnostic" build/qemu/debugcon.log
           grep -Fq "kernel #PF cr2=0x10000000000" build/qemu/serial.log
           grep -Fq "present=false write=false user=false reserved=false exec=false" build/qemu/serial.log
+
