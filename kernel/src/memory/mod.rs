@@ -9,7 +9,7 @@ use core::cell::UnsafeCell;
 use core::slice;
 
 use crate::BootInfo;
-use frame_allocator::{FrameAllocator, FrameError};
+use frame_allocator::{FrameAllocator, FrameError, ReservedFrames};
 
 const MAX_MAP_BYTES: usize = 16 * 1024 * 1024;
 const PAGE_SIZE: u64 = 4096;
@@ -17,7 +17,12 @@ const PAGE_SIZE: u64 = 4096;
 /// Until interrupt-driven allocation or AP startup is implemented, exactly
 /// one boot CPU may enter these APIs with interrupts disabled. The only
 /// mutable owner lives here, never in multiple fresh allocator instances.
-struct EarlyFrameState(UnsafeCell<Option<FrameAllocator<'static>>>);
+struct EarlyAllocator {
+    frames: FrameAllocator<'static>,
+    protected: [ReservedFrames; 3],
+}
+
+struct EarlyFrameState(UnsafeCell<Option<EarlyAllocator>>);
 
 // SAFETY: every caller is unsafe and required to be the sole CPU with IRQs
 // disabled. This impl MUST be replaced with synchronization before SMP or
@@ -31,6 +36,19 @@ pub enum EarlyFrameError {
     InvalidBootMap,
     AlreadyInitialized,
     Descriptor(FrameError),
+}
+
+/// Protect a potentially unaligned physical byte span using whole 4 KiB
+/// frames, including the final partial page. Numeric only, no dereference.
+fn protect_span(start: u64, len: u64) -> Result<ReservedFrames, EarlyFrameError> {
+    let aligned = start & !(PAGE_SIZE - 1);
+    let page_offset = start - aligned;
+    let pages = page_offset
+        .checked_add(len)
+        .and_then(|bytes| bytes.checked_add(PAGE_SIZE - 1))
+        .map(|rounded| rounded / PAGE_SIZE)
+        .ok_or(EarlyFrameError::InvalidBootMap)?;
+    ReservedFrames::new(aligned, pages).map_err(EarlyFrameError::Descriptor)
 }
 
 /// Initialize the *one* boot-CPU frame allocator from the retained final
@@ -61,12 +79,23 @@ pub unsafe fn init_from_boot_info(info: &BootInfo) -> Result<(), EarlyFrameError
         info.memory_descriptor_version,
     )
     .map_err(EarlyFrameError::Descriptor)?;
+    // These ranges should already be non-conventional in the UEFI map.
+    // Excluding them explicitly makes ownership conservative even if a
+    // firmware type annotation is surprising or the RSDP spans two pages.
+    let protected = [
+        protect_span(info.memory_map, info.memory_map_len)?,
+        protect_span(info.framebuffer_base, info.framebuffer_size)?,
+        protect_span(info.rsdp, PAGE_SIZE)?,
+    ];
     // SAFETY: only the boot CPU may access this cell, with IRQs disabled.
     let state = unsafe { &mut *EARLY_FRAMES.0.get() };
     if state.is_some() {
         return Err(EarlyFrameError::AlreadyInitialized);
     }
-    *state = Some(allocator);
+    *state = Some(EarlyAllocator {
+        frames: allocator,
+        protected,
+    });
     Ok(())
 }
 
@@ -80,8 +109,8 @@ pub unsafe fn init_from_boot_info(info: &BootInfo) -> Result<(), EarlyFrameError
 /// must track ownership and map/zero a page before constructing references.
 pub unsafe fn allocate_frame() -> Option<u64> {
     // SAFETY: sole-boot-CPU/IRQs-off invariant described above.
-    let allocator = unsafe { (*EARLY_FRAMES.0.get()).as_mut()? };
-    allocator.allocate_frame(&[])
+    let owner = unsafe { (*EARLY_FRAMES.0.get()).as_mut()? };
+    owner.frames.allocate_frame(&owner.protected)
 }
 
 /// Runtime validation of two independent, suitably aligned allocations.
