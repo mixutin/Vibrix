@@ -150,12 +150,13 @@ unsafe fn read_ecam_word(vm: &mut Window, physical: u64) -> Result<u32, ReadErro
     if offset > PAGE as usize - 4 || !unsafe { memory::mmio_span_is_reserved(page, PAGE) } {
         return Err(ReadError::MmioRange);
     }
-    // SAFETY: device config MMIO is exclusively mapped UC, RO and NX.
-    let base = unsafe { vm.map_mmio_readonly(0, page) }.map_err(|_| ReadError::Mapping)?;
-    let ptr = usize::try_from(base)
+    // Prevalidate virtual-pointer arithmetic before changing any mapping.
+    let ptr = usize::try_from(WINDOW_BASE)
         .ok()
         .and_then(|start| start.checked_add(offset))
         .ok_or(ReadError::Mapping)?;
+    // SAFETY: device config MMIO is exclusively mapped UC, RO and NX.
+    unsafe { vm.map_mmio_readonly(0, page) }.map_err(|_| ReadError::Mapping)?;
     // SAFETY: aligned four-byte register lies within the mapped MMIO page.
     let word = unsafe { core::ptr::read_volatile(ptr as *const u32) };
     // SAFETY: the volatile read is complete and no Rust reference remains.
@@ -225,10 +226,10 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
         mcfg_allocations = mcfg_allocations
             .checked_add(result.0)
             .ok_or(ReadError::TooManyEntries)?;
-        if let Some(entry) = result.1 {
-            if selected_ecam.replace(entry).is_some() {
-                return Err(ReadError::MultipleEcam);
-            }
+        if let Some(entry) = result.1
+            && selected_ecam.replace(entry).is_some()
+        {
+            return Err(ReadError::MultipleEcam);
         }
     }
     if mcfg_allocations == 0 {
