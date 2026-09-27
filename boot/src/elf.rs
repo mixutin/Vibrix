@@ -17,7 +17,6 @@ pub struct ElfInfo {
 
 #[derive(Clone, Copy)]
 pub struct LoadSegment {
-    pub flags: u32,
     pub file_offset: u64,
     pub virtual_address: u64,
     pub file_size: u64,
@@ -61,7 +60,6 @@ impl Iterator for LoadSegmentIter<'_> {
 
             let segment = (|| {
                 Ok(LoadSegment {
-                    flags: read_u32(self.data, base + 4)?,
                     file_offset: read_u64(self.data, base + 8)?,
                     virtual_address: read_u64(self.data, base + 16)?,
                     file_size: read_u64(self.data, base + 32)?,
@@ -448,7 +446,6 @@ mod tests {
             .collect();
 
         assert_eq!(segments.len(), 1);
-        assert_eq!(segments[0].flags, PF_X);
         assert_eq!(segments[0].file_offset, PAYLOAD_OFFSET as u64);
         assert_eq!(segments[0].virtual_address, 0x1000);
         assert_eq!(segments[0].file_size, 4);
