@@ -43,7 +43,9 @@ impl ElfError {
             Self::BadHeaderSize => "ELF error: bad header size\r\n",
             Self::BadProgramHeaderSize => "ELF error: bad program header size\r\n",
             Self::MissingProgramHeaders => "ELF error: no program headers\r\n",
-            Self::ProgramHeaderTableOutOfBounds => "ELF error: program header table out of bounds\r\n",
+            Self::ProgramHeaderTableOutOfBounds => {
+                "ELF error: program header table out of bounds\r\n"
+            }
             Self::InvalidLoadSegment => "ELF error: invalid PT_LOAD segment\r\n",
             Self::NoLoadSegments => "ELF error: no PT_LOAD segments\r\n",
         }
@@ -124,8 +126,7 @@ pub fn validate(data: &[u8]) -> Result<ElfInfo, ElfError> {
             return Err(ElfError::InvalidLoadSegment);
         }
 
-        let file_start =
-            usize::try_from(p_offset).map_err(|_| ElfError::InvalidLoadSegment)?;
+        let file_start = usize::try_from(p_offset).map_err(|_| ElfError::InvalidLoadSegment)?;
         let file_len = usize::try_from(p_filesz).map_err(|_| ElfError::InvalidLoadSegment)?;
         let file_end = file_start
             .checked_add(file_len)
