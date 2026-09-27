@@ -128,7 +128,7 @@ Vibrix. QEMU is development/testing infrastructure, not shipped as the
 Vibrix runtime. Rust package policy is documented in [AGENTS.md](../AGENTS.md) and
 [INDEPENDENCE.md](INDEPENDENCE.md).
 
-## Native keyboard input prototype (M4.5, QEMU validation pending)
+## Native keyboard input prototype (M4.5, QEMU verified)
 
 The standalone kernel includes a **read-only, polled i8042/PS/2 set-one
 keyboard input prototype**. After firmware services terminate it polls legacy
@@ -148,6 +148,12 @@ and requires the kernel's native COM1 output `kernel PS2 ascii 104` and
 VIBRIX_QEMU_KEYBOARD_PROBE=1 bash tools/test-qemu.sh
 ```
 
-The normal boot and existing exception-probe QEMU runs remain unchanged.
-This section is a planned validation contract until exact-head Actions/QEMU
-actually confirms the emitted events.
+[Actions run 36347623002](https://github.com/mixutin/Vibrix/actions/runs/36347623002)
+verified the actual kernel's two distinct COM1 lines
+`kernel PS2 ascii 104` and `kernel PS2 ascii 10`, plus the independent
+debugcon readiness and accepted-character markers. The first smoke
+assertion had a false-positive ASCII prefix bug; the final test uses
+CRLF-normalized **exact-line matches** and observed Return separately.
+Normal, virtual xHCI and all exception-probe boot configurations also passed
+the kernel/QEMU job. There is still no IRQ route, USB HID, interactive
+console input editing or physical PS/2 test.
