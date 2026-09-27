@@ -298,6 +298,40 @@ mod tests {
         data
     }
 
+    fn valid_elf_with_out_of_span_empty_load() -> Vec<u8> {
+        let payload_offset = ELF_HEADER_SIZE + 2 * PROGRAM_HEADER_SIZE;
+        let mut data = vec![0u8; payload_offset + 4];
+        data[0..4].copy_from_slice(b"\x7fELF");
+        data[4] = ELFCLASS64;
+        data[5] = ELFDATA2LSB;
+        data[6] = EV_CURRENT;
+        data[16..18].copy_from_slice(&ET_EXEC.to_le_bytes());
+        data[18..20].copy_from_slice(&EM_X86_64.to_le_bytes());
+        data[20..24].copy_from_slice(&(EV_CURRENT as u32).to_le_bytes());
+        data[24..32].copy_from_slice(&0x1000u64.to_le_bytes());
+        data[32..40].copy_from_slice(&(ELF_HEADER_SIZE as u64).to_le_bytes());
+        data[52..54].copy_from_slice(&(ELF_HEADER_SIZE as u16).to_le_bytes());
+        data[54..56].copy_from_slice(&(PROGRAM_HEADER_SIZE as u16).to_le_bytes());
+        data[56..58].copy_from_slice(&2u16.to_le_bytes());
+
+        let first = ELF_HEADER_SIZE;
+        data[first..first + 4].copy_from_slice(&PT_LOAD.to_le_bytes());
+        data[first + 4..first + 8].copy_from_slice(&PF_X.to_le_bytes());
+        data[first + 8..first + 16].copy_from_slice(&(payload_offset as u64).to_le_bytes());
+        data[first + 16..first + 24].copy_from_slice(&0x1000u64.to_le_bytes());
+        data[first + 32..first + 40].copy_from_slice(&4u64.to_le_bytes());
+        data[first + 40..first + 48].copy_from_slice(&8u64.to_le_bytes());
+        data[first + 48..first + 56].copy_from_slice(&1u64.to_le_bytes());
+
+        let empty = ELF_HEADER_SIZE + PROGRAM_HEADER_SIZE;
+        data[empty..empty + 4].copy_from_slice(&PT_LOAD.to_le_bytes());
+        data[empty + 16..empty + 24].copy_from_slice(&0xffff_ffff_ffff_f000u64.to_le_bytes());
+        data[empty + 48..empty + 56].copy_from_slice(&1u64.to_le_bytes());
+
+        data[payload_offset..].copy_from_slice(&[1, 2, 3, 4]);
+        data
+    }
+
     #[test]
     fn accepts_valid_elf64_with_bss() {
         let info = validate(&valid_elf()).unwrap_or_else(|_| panic!("valid fixture rejected"));
@@ -450,6 +484,21 @@ mod tests {
         assert_eq!(segments[0].virtual_address, 0x1000);
         assert_eq!(segments[0].file_size, 4);
         assert_eq!(segments[0].memory_size, 8);
+    }
+
+    #[test]
+    fn accepts_out_of_span_zero_length_load_segment() {
+        let data = valid_elf_with_out_of_span_empty_load();
+        let info = validate(&data).unwrap_or_else(|_| panic!("valid fixture rejected"));
+        let segments: Vec<_> = info
+            .load_segments(&data)
+            .map(|segment| segment.unwrap_or_else(|_| panic!("validated segment failed")))
+            .collect();
+
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[1].virtual_address, 0xffff_ffff_ffff_f000);
+        assert_eq!(segments[1].file_size, 0);
+        assert_eq!(segments[1].memory_size, 0);
     }
 
     #[test]

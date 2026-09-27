@@ -201,6 +201,10 @@ fn verify_file_bytes(
     data: &[u8],
     segment: LoadSegment,
 ) -> Result<(), LoadError> {
+    if segment.file_size == 0 {
+        return Ok(());
+    }
+
     let source_start = usize::try_from(segment.file_offset).map_err(|_| LoadError::InvalidRange)?;
     let file_len = usize::try_from(segment.file_size).map_err(|_| LoadError::InvalidRange)?;
     let source_end = source_start
