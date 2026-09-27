@@ -106,6 +106,13 @@ jobs:
             "$RUNNER_TEMP/vibrix-inspect-gpt" "$image" "$sector" >/dev/null
           done
 
+      - name: Test VibrixFS v1 wire-format conformance on host
+        run: |
+          rustfmt --edition 2024 --check tools/vibrixfs-wire.rs
+          rustc --edition=2024 --test tools/vibrixfs-wire.rs -o "$RUNNER_TEMP/vibrixfs-wire-tests"
+          "$RUNNER_TEMP/vibrixfs-wire-tests"
+          rustc --edition=2024 -D warnings tools/vibrixfs-wire.rs -o "$RUNNER_TEMP/vibrixfs-wire"
+
       - name: Test UEFI memory-map acquisition on host
         run: |
           rustc --edition=2024 --test boot/src/memory_map.rs -o "$RUNNER_TEMP/vibrix-memory-map-tests"
