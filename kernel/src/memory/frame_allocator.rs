@@ -6,6 +6,7 @@
 //! All other firmware memory types, including LoaderData, remain reserved.
 
 const PAGE_SIZE: u64 = 4096;
+const EFI_RESERVED_MEMORY: u32 = 0;
 const EFI_CONVENTIONAL_MEMORY: u32 = 7;
 const EFI_ACPI_RECLAIM_MEMORY: u32 = 9;
 const EFI_ACPI_MEMORY_NVS: u32 = 10;
@@ -189,11 +190,14 @@ impl<'a> FrameAllocator<'a> {
     }
 
     /// Confirm that *all page padding*, not only the bytes used by a PCI
-    /// register, belongs to UC-capable EfiMemoryMappedIO in the final map.
-    /// This is a numeric ownership check, not a PCI write or virtual map.
+    /// register, belongs to UC-capable reserved or MMIO memory in the final
+    /// firmware map. QEMU OVMF marks its MCFG aperture type 0 (reserved) with
+    /// UC capability, not type 11 (MMIO). MCFG separately proves the ECAM
+    /// address and bus bounds; this rejects any conventional/loader/ACPI RAM.
+    /// Numeric only: never interprets a generic reserved span as PCI MMIO.
     pub fn covers_mmio_bytes(&self, start: u64, len: u64) -> bool {
         self.covers_pages(start, len, |region| {
-            region.kind == EFI_MEMORY_MAPPED_IO
+            matches!(region.kind, EFI_RESERVED_MEMORY | EFI_MEMORY_MAPPED_IO)
                 && region.attr & EFI_MEMORY_UC != 0
                 && region.attr & EFI_MEMORY_RUNTIME == 0
         })
@@ -371,6 +375,9 @@ mod tests {
         .concat();
         let frames = FrameAllocator::from_memory_map(&map, 48, 1).unwrap();
         assert!(frames.covers_mmio_bytes(0xe000_0ffc, 8));
+        let reserved = raw(0, 0xe000_0000, 1, EFI_MEMORY_UC);
+        let owner = FrameAllocator::from_memory_map(&reserved, 48, 1).unwrap();
+        assert!(owner.covers_mmio_bytes(0xe000_0000, PAGE_SIZE));
         assert!(frames.covers_mmio_bytes(0xe000_2000, 0x1000));
         assert!(!frames.covers_mmio_bytes(0xe000_2ffc, 8));
         assert!(!frames.covers_mmio_bytes(0xe000_3000, 4));
@@ -378,6 +385,9 @@ mod tests {
         assert!(!frames.covers_mmio_bytes(u64::MAX, 4));
         for (kind, attrs) in [
             (7, EFI_MEMORY_UC),
+            (0, 0),
+            (0, EFI_MEMORY_WB),
+            (0, EFI_MEMORY_UC | EFI_MEMORY_RUNTIME),
             (11, 0),
             (11, EFI_MEMORY_WB),
             (11, EFI_MEMORY_UC | EFI_MEMORY_RUNTIME),
