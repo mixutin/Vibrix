@@ -590,6 +590,51 @@ mod tests {
     }
 
     #[test]
+    fn madt_rejects_reserved_flags_and_duplicate_lapic_override() {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&0xfee0_0000u32.to_le_bytes());
+        payload.extend_from_slice(&2u32.to_le_bytes());
+        payload.extend_from_slice(&[1, 12, 1, 0]);
+        payload.extend_from_slice(&0xfec0_0000u32.to_le_bytes());
+        payload.extend_from_slice(&0u32.to_le_bytes());
+        let raw = table(b"APIC", &payload);
+        assert!(matches!(
+            Sdt::parse(&raw).unwrap().madt_entries(),
+            Err(AcpiError::InvalidEntry)
+        ));
+
+        let mut duplicate = Vec::new();
+        duplicate.extend_from_slice(&0u32.to_le_bytes());
+        duplicate.extend_from_slice(&1u32.to_le_bytes());
+        duplicate.extend_from_slice(&[1, 12, 1, 0]);
+        duplicate.extend_from_slice(&0xfec0_0000u32.to_le_bytes());
+        duplicate.extend_from_slice(&0u32.to_le_bytes());
+        for address in [0xfee0_0000u64, 0xfee0_1000] {
+            duplicate.extend_from_slice(&[5, 12, 0, 0]);
+            duplicate.extend_from_slice(&address.to_le_bytes());
+        }
+        let raw = table(b"APIC", &duplicate);
+        assert!(matches!(
+            Sdt::parse(&raw).unwrap().madt_entries(),
+            Err(AcpiError::InvalidEntry)
+        ));
+
+        let mut processor_flags = Vec::new();
+        processor_flags.extend_from_slice(&0xfee0_0000u32.to_le_bytes());
+        processor_flags.extend_from_slice(&1u32.to_le_bytes());
+        processor_flags.extend_from_slice(&[0, 8, 0, 0]);
+        processor_flags.extend_from_slice(&3u32.to_le_bytes());
+        processor_flags.extend_from_slice(&[1, 12, 1, 0]);
+        processor_flags.extend_from_slice(&0xfec0_0000u32.to_le_bytes());
+        processor_flags.extend_from_slice(&0u32.to_le_bytes());
+        let raw = table(b"APIC", &processor_flags);
+        assert!(matches!(
+            Sdt::parse(&raw).unwrap().madt_entries(),
+            Err(AcpiError::InvalidEntry)
+        ));
+    }
+
+    #[test]
     fn madt_rejects_missing_ioapic_bad_lengths_and_unaligned_mmio() {
         let mut no_ioapic = Vec::new();
         no_ioapic.extend_from_slice(&0xfee0_0000u32.to_le_bytes());
