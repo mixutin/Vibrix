@@ -496,6 +496,7 @@ fn validate_inode(inode: &Inode, fs: &Superblock) -> Result<(), Error> {
     Ok(())
 }
 
+#[cfg(not(test))]
 fn main() {
     eprintln!("VibrixFS wire conformance helper: run with rustc --test");
 }
