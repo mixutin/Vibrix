@@ -7,6 +7,13 @@ mod uefi;
 use core::panic::PanicInfo;
 use uefi::{Console, EFI_LOAD_ERROR, Handle, Status, SystemTable};
 
+/// UEFI application entry point.
+///
+/// # Safety
+///
+/// Firmware must call this function according to the UEFI x86-64 ABI. `image` must be the
+/// current image handle and `system_table` must point to a valid UEFI system table whose
+/// boot services remain available for the duration of this function.
 #[unsafe(no_mangle)]
 pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemTable) -> Status {
     let Some(mut console) = (unsafe { Console::from_system_table(system_table) }) else {
