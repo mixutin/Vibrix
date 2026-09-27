@@ -338,6 +338,136 @@ USB persistence. Those remain separate unchecked M9/M7 tasks.
 - [ ] Build kernel on Vibrix
 - [ ] Produce a bootable Vibrix USB image from Vibrix
 
+
+## M16 — Reliability, updates and recovery
+
+Post-operational milestone: Vibrix already boots into persistent userspace before
+this milestone begins.
+
+- [ ] Signed system update manifests and artifacts
+- [ ] Stable / beta / nightly update channels
+- [ ] Transactional update staging
+- [ ] Automatic rollback after failed boot/update
+- [ ] Explicit `vpm update` / system-update workflow
+- [ ] Update history and rollback selection
+- [ ] Known-good recovery environment on the Vibrix USB itself
+- [ ] Recovery can inspect and repair Vibrix FS without another OS
+- [ ] Recovery can restore previous system generation
+- [ ] Recovery never selects internal disks as Vibrix system targets
+- [ ] Offline signed update bundles
+- [ ] USB health and write/endurance diagnostics
+- [ ] Power-loss/update interruption tests
+
+**Exit:** a failed system update can be diagnosed and rolled back from the same
+Vibrix USB without another computer or operating system.
+
+## M17 — Package ecosystem and profiles
+
+- [ ] `vpm` package manager UX
+- [ ] `vpm search/install/remove/update/why/audit`
+- [ ] Package provenance, license and signature display
+- [ ] Package dependency graph inspection
+- [ ] Minimal profile
+- [ ] Developer profile
+- [ ] Server profile
+- [ ] Recovery profile
+- [ ] Optional security-lab profile
+- [ ] Profile installation/removal is transactional
+- [ ] Offline package cache
+- [ ] Package repository mirrors cannot bypass signature verification
+
+### Optional authorized security-lab profile
+
+Security tooling is **not part of the default installation**. The optional
+profile is intended for diagnostics, CTFs, labs and systems the operator is
+authorized to test.
+
+Possible package categories:
+
+- packet capture and protocol inspection
+- network discovery/scanning
+- DNS/HTTP/TLS diagnostics
+- web application testing
+- binary inspection, reversing and debugging
+- forensic image/file inspection
+- cryptographic utilities
+- traffic generation for owned lab environments
+- exploit-development/debugging tooling where legally appropriate
+
+- [ ] Security tools run in a clearly identified profile
+- [ ] Disposable/sandboxed security workspaces
+- [ ] Optional isolated network namespace
+- [ ] Restricted host/persistent filesystem mounts by default
+- [ ] Easy reset to a clean lab state
+- [ ] Security profile never silently enables network-facing services
+
+**Exit:** Vibrix can install signed package profiles without bloating or
+weakening the default system.
+
+## M18 — Observability and troubleshooting
+
+- [ ] Structured kernel logging
+- [ ] Persistent userspace journal
+- [ ] Boot IDs and monotonic/wall-clock timestamps
+- [ ] Log levels and subsystem filtering
+- [ ] `vlog` query/follow interface
+- [ ] Previous-boot log access
+- [ ] Flash-aware log rotation and retention
+- [ ] Panic/crash record persisted across reboot where safe
+- [ ] Symbolized kernel stack traces
+- [ ] Register/fault context in crash diagnostics
+- [ ] `vibrix status` system overview
+- [ ] `vibrix doctor` automated diagnostics
+- [ ] Driver binding/missing-driver diagnostics
+- [ ] Filesystem/network/update health checks
+- [ ] Privacy-reviewed `vibrix doctor --bundle` support bundle
+- [ ] Verbose boot mode while normal boot remains clean
+- [ ] Hardware compatibility/quirk reporting
+- [ ] Optional anonymized compatibility reports only with explicit opt-in
+
+**Exit:** common boot, driver, storage, update and network failures can be
+diagnosed from Vibrix itself with useful logs and an exportable support bundle.
+
+## M19 — Isolation and security workstation
+
+This extends the security roadmap; it does not replace the security gates that
+must already exist before third-party software is trusted.
+
+- [ ] Application sandbox primitives
+- [ ] Package/application capability declarations
+- [ ] Filesystem namespace/mount isolation
+- [ ] Network namespace/isolation
+- [ ] Device-access mediation
+- [ ] Per-application resource limits
+- [ ] Audit log for security-sensitive operations
+- [ ] Security-lab disposable environment integration
+- [ ] Read-only forensic mounting mode
+- [ ] Package permission review before installation
+- [ ] Hardened developer/debug mode separation
+
+**Exit:** optional engineering/security tooling can be used without automatically
+receiving unrestricted access to the persistent Vibrix system.
+
+## M20 — Self-hosted engineering workstation
+
+M15 proves self-hosting fundamentals; M20 turns them into a sustainable
+day-to-day development environment.
+
+- [ ] Native Vibrix SDK
+- [ ] Rust toolchain packaged through `vpm`
+- [ ] Debugger and profiler packages
+- [ ] Local API/manual documentation
+- [ ] Reproducible package build environment
+- [ ] Build recipes usable entirely on Vibrix
+- [ ] Build and test third-party Rust applications on Vibrix
+- [ ] Build signed Vibrix packages on Vibrix
+- [ ] Build/update the Vibrix system from Vibrix
+- [ ] Produce and verify a complete bootable USB release from Vibrix
+
+**Exit:** a developer can boot Vibrix, diagnose it, write software, build
+packages and produce a verifiable Vibrix release without depending on a
+different host operating system.
+
 ## Optional later storage support
 
 Internal NVMe/SATA disks may be supported as user-accessible **data devices**. They are not Vibrix root/system installation targets.
