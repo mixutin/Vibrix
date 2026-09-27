@@ -484,7 +484,7 @@ mod tests {
     fn rejects_wrong_protective_mbr_start_size_and_hybrid_records() {
         for sector_size in [512, 4096] {
             let source = synthetic_gpt(sector_size);
-            for (start_lba, size_lba) in [(0, 127), (2, 126), (1, 126), (1, 128)] {
+            for (start_lba, size_lba) in [(0u32, 127u32), (2, 126), (1, 126), (1, 128)] {
                 let mut image = source.clone();
                 image[454..458].copy_from_slice(&start_lba.to_le_bytes());
                 image[458..462].copy_from_slice(&size_lba.to_le_bytes());
