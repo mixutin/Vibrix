@@ -78,8 +78,32 @@ fn inspect<R: Read + Seek>(
     let mut mbr = [0u8; 512];
     image.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
     image.read_exact(&mut mbr).map_err(|e| e.to_string())?;
-    if mbr[510..512] != [0x55, 0xaa] || mbr[450] != 0xee {
-        return Err("missing protective MBR signature/type 0xEE".into());
+    if mbr[510..512] != [0x55, 0xaa] {
+        return Err("missing protective MBR signature".into());
+    }
+    // UEFI 2.10 §5.2.3 requires one protective 0xEE record spanning
+    // the disk after LBA 0, with the other three records zero. Checking
+    // the type byte alone would accept a misleading/hybrid disk layout.
+    let (records, _) = mbr[446..510].as_chunks::<16>();
+    let expected_size = u32::try_from(last_lba).unwrap_or(u32::MAX);
+    let mut protective_found = false;
+    for record in records {
+        if record.iter().all(|&byte| byte == 0) {
+            continue;
+        }
+        if protective_found || record[4] != 0xee {
+            return Err("invalid protective MBR partition records".into());
+        }
+        if read_u32(record, 8) != 1 {
+            return Err("protective MBR starting LBA is not 1".into());
+        }
+        if read_u32(record, 12) != expected_size {
+            return Err("protective MBR does not cover the full disk".into());
+        }
+        protective_found = true;
+    }
+    if !protective_found {
+        return Err("missing protective MBR type 0xEE".into());
     }
 
     let sector_len = usize::try_from(sector_size).map_err(|e| e.to_string())?;
@@ -213,6 +237,11 @@ fn inspect<R: Read + Seek>(
     if entries != backup_entries {
         return Err("primary/backup GPT partition-entry arrays differ".into());
     }
+    // An all-zero disk GUID cannot identify a removable USB root
+    // installation; both GPT copies have already passed CRC/cross-checks.
+    if header[56..72].iter().all(|&byte| byte == 0) {
+        return Err("empty GPT disk GUID".into());
+    }
 
     let mut partitions = 0;
     let mut efi_system_partitions = 0;
@@ -321,6 +350,8 @@ mod tests {
         let mut image = vec![0u8; sector_size * 128];
         image[510..512].copy_from_slice(&[0x55, 0xaa]);
         image[450] = 0xee;
+        image[454..458].copy_from_slice(&1u32.to_le_bytes());
+        image[458..462].copy_from_slice(&127u32.to_le_bytes());
 
         let entries_start = sector_size * 2;
         let entry = &mut image[entries_start..entries_start + 128];
@@ -446,6 +477,51 @@ mod tests {
                 err.contains("42424242-4242-4242-4242-424242424242"),
                 "{err}"
             );
+        }
+    }
+
+    #[test]
+    fn rejects_wrong_protective_mbr_start_size_and_hybrid_records() {
+        for sector_size in [512, 4096] {
+            let source = synthetic_gpt(sector_size);
+            for (start_lba, size_lba) in [(0, 127), (2, 126), (1, 126), (1, 128)] {
+                let mut image = source.clone();
+                image[454..458].copy_from_slice(&start_lba.to_le_bytes());
+                image[458..462].copy_from_slice(&size_lba.to_le_bytes());
+                assert!(check(image, sector_size as u64)
+                    .unwrap_err()
+                    .contains("protective MBR"));
+            }
+            let mut hybrid = source.clone();
+            hybrid[462 + 4] = 0x07; // a second legacy MBR partition
+            assert!(check(hybrid, sector_size as u64)
+                .unwrap_err()
+                .contains("protective MBR"));
+
+            // UEFI allows the single protective record in any of the
+            // four slots; do not mistake its index for disk provenance.
+            let mut shifted = source.clone();
+            let protective = shifted[446..462].to_vec();
+            shifted[446..462].fill(0);
+            shifted[462..478].copy_from_slice(&protective);
+            assert!(check(shifted, sector_size as u64).is_ok());
+        }
+    }
+
+    #[test]
+    fn rejects_nil_gpt_disk_guid_even_with_both_header_crcs_valid() {
+        for sector_size in [512usize, 4096] {
+            let mut image = synthetic_gpt(sector_size);
+            for header_lba in [1, 127] {
+                let base = header_lba * sector_size;
+                image[base + 56..base + 72].fill(0);
+                image[base + 16..base + 20].fill(0);
+                let checksum = crc32(&image[base..base + 92]);
+                image[base + 16..base + 20].copy_from_slice(&checksum.to_le_bytes());
+            }
+            assert!(check(image, sector_size as u64)
+                .unwrap_err()
+                .contains("empty GPT disk GUID"));
         }
     }
 
