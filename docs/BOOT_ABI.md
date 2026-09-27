@@ -22,6 +22,15 @@ The initial structure carries:
 
 The kernel must treat all pointers as untrusted boot-time inputs until validated.
 
+## Proposed address-space semantics
+
+[ADR 0001](decisions/0001-bootinfo-address-spaces.md) proposes physical
+addresses for the framebuffer, ACPI RSDP and final memory-map copy, but
+a virtual pointer for the entry argument `*const BootInfo` under the
+active page tables. It also discusses buffer lifetimes and map-key retry
+constraints. The ADR is **Proposed**; no ABI changes or working handoff
+are implied until a reviewed implementation passes QEMU tests.
+
 ## Handoff
 
 The intended sequence is:
