@@ -137,6 +137,19 @@ pub unsafe fn mmio_span_is_reserved(start: u64, len: u64) -> bool {
         .is_some_and(|owner| owner.frames.covers_mmio_bytes(start, len))
 }
 
+/// Check one page whose device identity is independently established
+/// (for example by ACPI MADT) against the retained firmware map.
+/// Missing firmware coverage is allowed; conflicting RAM/runtime coverage is not.
+///
+/// # Safety
+/// Sole boot CPU, IF=0, immutable final UEFI map. This does not prove device
+/// identity; callers must establish that from a trusted hardware contract.
+pub unsafe fn external_mmio_page_is_safe(physical: u64) -> bool {
+    // SAFETY: same EARLY_FRAMES ownership invariant as other map queries.
+    unsafe { (*EARLY_FRAMES.0.get()).as_ref() }
+        .is_some_and(|owner| owner.frames.permits_external_mmio_page(physical))
+}
+
 /// Diagnostics only: no ownership or pointer access is granted.
 /// # Safety
 /// Sole boot CPU and IF=0, same as mmio_span_is_reserved.
