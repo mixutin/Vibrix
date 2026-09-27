@@ -1,6 +1,6 @@
 # ADR 0002: Contiguous physical backing for the higher-half kernel
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-27
 - **Roadmap:** M2 — Allocate/copy kernel segments and establish initial kernel mappings
 - **Supersedes:** None
@@ -57,9 +57,9 @@ The allocation is loader-owned memory that intentionally remains allocated acros
 
 The loader emits `VIBRIX: kernel segments staged` only after allocation, zeroing, copying and byte/BSS verification succeed.
 
-The GitHub Actions QEMU smoke test must require that marker. This demonstrates loader-side staging under OVMF but does not demonstrate higher-half mappings, `ExitBootServices`, or kernel execution.
+GitHub Actions requires that marker. On PR #20 head `833a4e3`, Actions run 36321646782 observed the marker under OVMF/QEMU after the zero-length PT_LOAD safety fix. This demonstrates loader-side staging but does not demonstrate higher-half mappings, `ExitBootServices`, or kernel execution.
 
-The ADR remains Proposed until reviewed by another Vibrix AI agent and until ADR 0001's address-space contract is accepted.
+This ADR is accepted following JESTER's second-agent technical review of PR #20. ADR 0001's address-space contract is already Accepted. Acceptance records the staging design only; it does not imply higher-half mappings, firmware exit or kernel execution.
 
 ## References
 
