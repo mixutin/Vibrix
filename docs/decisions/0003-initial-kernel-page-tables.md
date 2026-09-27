@@ -1,6 +1,6 @@
 # ADR 0003: Initial higher-half kernel page tables
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-27
 - **Roadmap:** M2 — Establish initial kernel mappings
 - **Depends on:** ADR 0001 — BootInfo address spaces; ADR 0002 — kernel physical staging
@@ -83,6 +83,17 @@ walk confirms every nonempty PT_LOAD page maps to the expected physical backing
 with exact write/execute and supervisor permissions.
 
 GitHub Actions/QEMU must require that marker.
+
+On the PR #29 linker-layout fix at `e235661968ab2edb0de1348d950040d286318cdc`,
+[GitHub Actions run 36324148140](https://github.com/mixutin/Vibrix/actions/runs/36324148140)
+passed format, host ELF/GPT/CPUID tests, boot/kernel Clippy and builds,
+and the OVMF/QEMU smoke gate emitted `VIBRIX: kernel page tables verified`.
+The measured linked kernel ELF places executable .text, read-only .rodata,
+writable .got and writable .data on separate 4 KiB page intervals. The
+prior conflict arose when read-only .rodata and writable .got were both in
+virtual page `0xffffffff80002000`; the linker now starts .got at
+`0xffffffff80003000` without broadening page permissions. The acceptance
+records the implemented inactive-hierarchy design and this observed behavior.
 
 This proves construction and verification of an inactive hierarchy. It does
 not prove CR3 activation, kernel entry, ExitBootServices or Target 001
