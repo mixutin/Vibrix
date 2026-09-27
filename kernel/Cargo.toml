@@ -12,5 +12,7 @@ qemu-debugcon = []
 panic-probe = []
 breakpoint-probe = []
 page-fault-probe = []
+vm-write-probe = []
+vm-unmap-probe = []
 
 [dependencies]

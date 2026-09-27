@@ -17,10 +17,10 @@ pub use bootinfo::BootInfo;
 
 /// BootInfo is loader-owned and identity-mapped while the initial kernel
 /// page tables are active. Check the v1-prefix version *before* reading the
-/// 8-byte v2 tail, then validate all remaining metadata as untrusted input.
+/// 16-byte v2/v3 tail, then validate all remaining metadata as untrusted input.
 ///
 /// # Safety
-/// Loader must provide an aligned, mapped 88-byte BootInfo page that remains
+/// Loader must provide an aligned, mapped 96-byte BootInfo page that remains
 /// owned until the kernel copies it. Non-null/alignment checks alone do not
 /// establish that pointer provenance or mapping.
 unsafe fn read_boot_info(raw: *const BootInfo) -> Result<BootInfo, ()> {
@@ -32,8 +32,8 @@ unsafe fn read_boot_info(raw: *const BootInfo) -> Result<BootInfo, ()> {
     if version != bootinfo::BOOTINFO_VERSION {
         return Err(());
     }
-    // SAFETY: version check above and loader's full v2 mapping/lifetime
-    // establish the 88-byte readable object before dereferencing its tail.
+    // SAFETY: version check above and loader's full v3 mapping/lifetime
+    // establish the 96-byte readable object before dereferencing its tail.
     let info = unsafe { raw.read() };
     info.validate().map_err(|_| ())?;
     Ok(info)
@@ -68,7 +68,7 @@ unsafe fn parse_boot_rsdp(info: &BootInfo) -> Result<arch::x86_64::acpi::Rsdp, (
 /// activated verified PML4 and a dedicated 16-byte-aligned entry stack.
 ///
 /// # Safety
-/// BootInfo must point to one loader-owned, aligned, mapped and readable v2
+/// BootInfo must point to one loader-owned, aligned, mapped and readable v3
 /// page retained until this function copies and validates the object.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
@@ -78,13 +78,13 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     let info = match unsafe { read_boot_info(boot_info) } {
         Ok(info) => info,
         Err(()) => {
-            debugcon::write("VIBRIX: BootInfo v2 rejected by kernel\r\n");
+            debugcon::write("VIBRIX: BootInfo v3 rejected by kernel\r\n");
             loop {
                 core::hint::spin_loop();
             }
         }
     };
-    debugcon::write("VIBRIX: kernel BootInfo v2 validated\r\n");
+    debugcon::write("VIBRIX: kernel BootInfo v3 validated\r\n");
 
     // Re-enumerate on each boot; a portable USB may boot on a different CPU.
     let _cpu = arch::x86_64::cpuid::discover();
@@ -167,6 +167,13 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         debugcon::write("VIBRIX: kernel PCI BARs parsed\r\n");
     }
 
+    // SAFETY: v3 loader retained the exclusive mapped leaf table; IF=0.
+    if unsafe { memory::virtual_memory::runtime::smoke_test(&info) }.is_err() {
+        panic!("kernel mapping window validation failed");
+    }
+    debugcon::write("VIBRIX: kernel virtual mappings verified\r\n");
+    crate::println!("kernel VM: map, protect, unmap and remap verified");
+
     // Static BSS backing is already supervisor RW/NX in the loader mappings.
     // SAFETY: sole boot CPU, IF=0, no interrupt or reentrant heap users.
     if unsafe { memory::heap::smoke_test() }.is_err() {
@@ -180,6 +187,11 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         debugcon::write("VIBRIX: kernel framebuffer wrote pixels\r\n");
     } else {
         debugcon::write("VIBRIX: kernel framebuffer rejected\r\n");
+    }
+
+    #[cfg(any(feature = "vm-write-probe", feature = "vm-unmap-probe"))]
+    unsafe {
+        memory::virtual_memory::runtime::fault_probe(&info);
     }
 
     // QEMU-only probes exercise *actual CPU traps* through the production

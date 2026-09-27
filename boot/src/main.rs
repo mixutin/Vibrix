@@ -21,6 +21,7 @@ fn create_boot_info(
     framebuffer: &uefi::Framebuffer,
     rsdp_address: u64,
     memory_map: &memory_map::CapturedMemoryMap,
+    kernel_window_table: u64,
 ) -> Result<bootinfo::BootInfo, bootinfo::BootInfoError> {
     bootinfo::BootInfo::new(
         bootinfo::FramebufferInfo {
@@ -38,6 +39,7 @@ fn create_boot_info(
             descriptor_size: memory_map.descriptor_size,
             descriptor_version: memory_map.descriptor_version,
         },
+        kernel_window_table,
     )
 }
 
@@ -126,6 +128,16 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     };
     console.write("VIBRIX: kernel page tables verified\r\n");
 
+    let kernel_window_table =
+        match unsafe { paging::prepare_kernel_window(system_table, &mut page_tables) } {
+            Ok(table) => table,
+            Err(error) => {
+                console.write(error.message());
+                return error.status();
+            }
+        };
+    console.write("VIBRIX: kernel mapping window prepared\r\n");
+
     // Preserve the loader's actual firmware-resident PE image when the new
     // hierarchy becomes active, rather than identity-mapping arbitrary RAM.
     let (loader_image_base, loader_image_size) =
@@ -182,6 +194,13 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     // stack and physical handoff memory without identity-mapping all RAM.
     // The GOP BAR is explicitly uncached (PCD), not treated as write-back RAM.
     let identity_regions = [
+        paging::IdentityRegion {
+            physical_base: kernel_window_table,
+            byte_len: 4096,
+            writable: true,
+            executable: false,
+            uncached: false,
+        },
         paging::IdentityRegion {
             physical_base: loader_image_base,
             byte_len: loader_image_size,
@@ -244,6 +263,10 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     // before losing the ability to report failures using the UEFI console.
     let regions = [
         transition::PhysicalRegion {
+            physical_base: kernel_window_table,
+            byte_len: 4096,
+        },
+        transition::PhysicalRegion {
             physical_base: page_tables.root_physical,
             byte_len: 4096,
         },
@@ -303,19 +326,20 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     // No firmware calls after successful map acquisition: preserve exactly
     // this buffer's length, stride and descriptor version, and keep the key
     // strictly loader-local for the later ExitBootServices implementation.
-    let boot_info = match create_boot_info(&framebuffer, rsdp_address, &memory_map) {
+    let boot_info =
+        match create_boot_info(&framebuffer, rsdp_address, &memory_map, kernel_window_table) {
         Ok(info) => info,
         Err(_error) => {
-            uefi::debug_write("VIBRIX: BootInfo v2 validation failed\r\n");
+            uefi::debug_write("VIBRIX: BootInfo v3 validation failed\r\n");
             return EFI_LOAD_ERROR;
         }
     };
     // SAFETY: UEFI AllocatePages granted one page of EfiLoaderData, writable
     // and mapped in the firmware address space. The checked address is aligned
-    // for BootInfo and the 88-byte object fits in the exclusive 4096-byte page.
+    // for BootInfo and the 96-byte object fits in the exclusive 4096-byte page.
     unsafe { (boot_info_address as *mut bootinfo::BootInfo).write(boot_info) };
     let _boot_info_page_owner = boot_info_physical;
-    uefi::debug_write("VIBRIX: BootInfo v2 staged\r\n");
+    uefi::debug_write("VIBRIX: BootInfo v3 staged\r\n");
 
     // UEFI 2.10 §7.4.6: use the exact key from our refreshed map.
     // On EFI_INVALID_PARAMETER, use *only* GetMemoryMap into the same owned
@@ -348,7 +372,9 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
             uefi::debug_write("VIBRIX: ExitBootServices map refresh failed\r\n");
             break;
         }
-        let Ok(updated) = create_boot_info(&framebuffer, rsdp_address, &memory_map) else {
+        let Ok(updated) =
+            create_boot_info(&framebuffer, rsdp_address, &memory_map, kernel_window_table)
+        else {
             uefi::debug_write("VIBRIX: ExitBootServices map version rejected\r\n");
             break;
         };
