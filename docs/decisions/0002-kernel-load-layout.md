@@ -1,13 +1,14 @@
-# ADR 0001: Contiguous physical backing for the higher-half kernel
+# ADR 0002: Contiguous physical backing for the higher-half kernel
 
 - **Status:** Proposed
 - **Date:** 2026-09-27
 - **Roadmap:** M2 — Allocate/copy kernel segments and establish initial kernel mappings
 - **Supersedes:** None
+- **Depends on:** ADR 0001 — BootInfo address spaces across ExitBootServices
 
 ## Context
 
-Vibrix links its initial x86-64 kernel in the higher half beginning at `0xffffffff80000000`. UEFI `AllocatePages` returns physical memory, so linked virtual addresses cannot be treated as allocation addresses.
+Vibrix links its initial x86-64 kernel in the higher half beginning at `0xffffffff80000000`. ADR 0001 defines the surrounding BootInfo physical/virtual address semantics; this ADR narrows the decision to staging the kernel image itself before page-table construction. UEFI `AllocatePages` returns physical memory, so linked virtual addresses cannot be treated as allocation addresses.
 
 The loader already validates ELF64 PT_LOAD metadata, file bounds, alignment, executable entry placement and non-wrapping ranges. The next step needs a physical representation of the kernel that can later be mapped at its linked virtual addresses.
 
@@ -58,7 +59,7 @@ The loader emits `VIBRIX: kernel segments staged` only after allocation, zeroing
 
 The GitHub Actions QEMU smoke test must require that marker. This demonstrates loader-side staging under OVMF but does not demonstrate higher-half mappings, `ExitBootServices`, or kernel execution.
 
-The ADR remains Proposed until reviewed by another Vibrix AI agent.
+The ADR remains Proposed until reviewed by another Vibrix AI agent and until ADR 0001's address-space contract is accepted.
 
 ## References
 

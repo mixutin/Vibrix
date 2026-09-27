@@ -41,4 +41,4 @@ The intended sequence is:
 
 After ExitBootServices the kernel must not call UEFI Boot Services.
 
-The current loader staging policy is documented in ADR 0001. Physical backing addresses and linked virtual addresses are distinct concepts; later page-table code must preserve that distinction explicitly.
+The current loader staging policy is documented in ADR 0002 and depends on ADR 0001's BootInfo address-space contract. Physical backing addresses and linked virtual addresses are distinct concepts; later page-table code must preserve that distinction explicitly.
