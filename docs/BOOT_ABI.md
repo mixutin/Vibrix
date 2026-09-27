@@ -33,6 +33,19 @@ The ADR also defines map-key retry and descriptor-stride constraints.
 This **accepted design is not implemented handoff**; no Rust ABI layout
 change or successful post-`ExitBootServices` kernel entry is implied.
 
+## Proposed descriptor-version migration
+
+[ADR 0004](decisions/0004-memory-descriptor-version.md) proposes **BootInfo
+v2** for the first implemented UEFI memory-map handoff. It appends an
+explicit `u32 memory_descriptor_version` and a zero `u32 _reserved_v2`,
+without reusing the existing reserved field or changing the physical
+address / byte-count / stride semantics from ADR 0001. UEFI's descriptor
+version and Vibrix's BootInfo version are independent numbers.
+
+**This is a Proposed design, not an implemented ABI change.** The Rust
+`BootInfo` struct remains the v1 layout in this documentation PR;
+loader and kernel must migrate together in a separately validated PR.
+
 ## Kernel image staging
 
 [ADR 0002](decisions/0002-kernel-load-layout.md) defines the loader-side
