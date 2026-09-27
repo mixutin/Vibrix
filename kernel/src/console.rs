@@ -25,7 +25,10 @@ pub struct LineEditor {
 
 impl LineEditor {
     pub const fn new() -> Self {
-        Self { bytes: [0; LINE_CAPACITY], len: 0 }
+        Self {
+            bytes: [0; LINE_CAPACITY],
+            len: 0,
+        }
     }
 
     pub fn feed(&mut self, byte: u8) -> Option<&str> {
@@ -52,7 +55,9 @@ impl LineEditor {
         self.len = 0;
     }
 
-    pub fn len(&self) -> usize { self.len }
+    pub fn len(&self) -> usize {
+        self.len
+    }
 }
 
 pub fn parse(line: &str) -> Command {
@@ -88,7 +93,9 @@ mod tests {
     #[test]
     fn full_buffer_drops_extra_input_without_overflow() {
         let mut e = LineEditor::new();
-        for _ in 0..LINE_CAPACITY + 20 { let _ = e.feed(b'a'); }
+        for _ in 0..LINE_CAPACITY + 20 {
+            let _ = e.feed(b'a');
+        }
         assert_eq!(e.len(), LINE_CAPACITY);
         assert_eq!(e.feed(b'\n').unwrap().len(), LINE_CAPACITY);
     }
