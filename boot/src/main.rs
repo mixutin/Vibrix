@@ -2,6 +2,8 @@
 #![no_main]
 
 mod elf;
+mod loader;
+mod paging;
 mod uefi;
 
 use core::panic::PanicInfo;
@@ -73,7 +75,39 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
         framebuffer.format,
     );
     console.write("VIBRIX: GOP framebuffer discovered\r\n");
-    console.write("Next: allocate and map kernel segments.\r\n");
+
+    let loaded_kernel = match unsafe { loader::stage_kernel(system_table, &kernel, &info) } {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            console.write(error.message());
+            return error.status();
+        }
+    };
+    let _ = (
+        loaded_kernel.physical_base,
+        loaded_kernel.virtual_base,
+        loaded_kernel.span_bytes,
+        loaded_kernel.pages,
+        loaded_kernel.entry,
+    );
+    console.write("VIBRIX: kernel segments staged\r\n");
+
+    let page_tables = match unsafe {
+        paging::build_kernel_page_tables(system_table, &kernel, &info, &loaded_kernel)
+    } {
+        Ok(page_tables) => page_tables,
+        Err(error) => {
+            console.write(error.message());
+            return error.status();
+        }
+    };
+    let _ = (
+        page_tables.root_physical,
+        page_tables.table_pages,
+        page_tables.mapped_pages,
+    );
+    console.write("VIBRIX: kernel page tables verified\r\n");
+    console.write("Next: capture final UEFI memory map and build BootInfo.\r\n");
 
     loop {
         core::hint::spin_loop();

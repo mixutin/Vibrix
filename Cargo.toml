@@ -2,6 +2,10 @@
 resolver = "3"
 members = ["boot", "kernel"]
 
+[workspace.package]
+license = "0BSD"
+repository = "https://github.com/mixutin/Vibrix"
+
 [profile.dev]
 panic = "abort"
 
