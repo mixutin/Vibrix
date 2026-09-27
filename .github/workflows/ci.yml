@@ -17,6 +17,17 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Check development script modes and syntax
+        run: |
+          for script in tools/*.sh; do
+            mode="$(git ls-files --stage -- "$script" | cut -d ' ' -f 1)"
+            if [[ "$mode" != "100755" ]]; then
+              echo "::error file=$script::Expected tracked executable mode 100755, got ${mode:-untracked}"
+              exit 1
+            fi
+            bash -n "$script"
+          done
+
       - name: Install QEMU and OVMF
         run: |
           sudo apt-get update
