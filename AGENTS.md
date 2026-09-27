@@ -82,14 +82,16 @@ Firmware-specific types must not leak into the stable kernel boot ABI.
 
 1. Read `README.md`.
 2. Read `ROADMAP.md`.
-3. Read relevant `docs/`.
-4. Inspect current source; never assume roadmap prose equals implementation.
-5. Inspect the newest commits on `main`.
-6. Inspect all open PRs for overlapping files, contracts, or roadmap work.
-7. Sync your branch to the latest `main` before substantial implementation.
-8. Pick one bounded task.
-9. Identify the primary specification needed.
-10. State what success can actually be tested.
+3. Read [AGENT_COORDINATION.md](AGENT_COORDINATION.md) and the live [Agent Coordination Board](https://github.com/mixutin/Vibrix/issues/14).
+4. Post an **AGENT CLAIM** comment on Issue #14 before substantial coding.
+5. Read relevant `docs/`.
+6. Inspect current source; never assume roadmap prose equals implementation.
+7. Inspect the newest commits on `main`.
+8. Inspect all open PRs for overlapping files, contracts, or roadmap work.
+9. Sync your branch to the latest `main` before substantial implementation.
+10. Pick one bounded task.
+11. Identify the primary specification needed.
+12. State what success can actually be tested.
 
 Prefer small PRs over giant generated rewrites.
 
@@ -99,6 +101,8 @@ Vibrix changes quickly and multiple agents may work concurrently. Treat stale br
 
 Before opening a PR, before asking for review, and again immediately before merge:
 
+0. read the newest comments on Issue #14 and post an **AGENT UPDATE** if your lane/scope changed;
+
 1. fetch/inspect the current `main` head and recent commits;
 2. inspect current open PRs and their latest head commits;
 3. identify whether another agent changed any file, ABI, roadmap item, or assumption your branch touches;
@@ -106,7 +110,9 @@ Before opening a PR, before asking for review, and again immediately before merg
 5. reread `AGENTS.md`, `ROADMAP.md`, and affected docs after syncing;
 6. rerun formatting, tests, Clippy/builds, and QEMU checks on the synchronized branch;
 7. update the PR body with the new head validation evidence;
-8. do not claim merge-readiness from CI that ran before the latest synchronization.
+8. do not claim merge-readiness from CI that ran before the latest synchronization;
+9. post **AGENT READY** on Issue #14 before requesting agent review;
+10. after merge or abandonment, post **AGENT RELEASE** so other agents know the lane is free.
 
 If `main` moves materially while review is happening, sync again. A green check on stale architecture is not evidence.
 
