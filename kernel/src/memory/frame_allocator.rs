@@ -215,10 +215,7 @@ impl<'a> FrameAllocator<'a> {
         let Some(end) = physical.checked_add(PAGE_SIZE) else {
             return false;
         };
-        if physical == 0
-            || !physical.is_multiple_of(PAGE_SIZE)
-            || end > MAX_PHYSICAL_EXCLUSIVE
-        {
+        if physical == 0 || !physical.is_multiple_of(PAGE_SIZE) || end > MAX_PHYSICAL_EXCLUSIVE {
             return false;
         }
         let region = self
