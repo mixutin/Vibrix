@@ -4,6 +4,7 @@
 //! before switching CR3. Its UEFI descriptors stay immutable after EBS.
 //! This intentionally does not claim a general SMP-safe allocator.
 pub mod frame_allocator;
+pub mod heap;
 
 use core::cell::UnsafeCell;
 use core::slice;

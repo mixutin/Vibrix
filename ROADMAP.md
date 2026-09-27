@@ -58,10 +58,12 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [x] Page-fault diagnostics
 - [x] Physical frame allocator
 - [ ] Virtual memory manager
-- [ ] Kernel heap
+- [x] Kernel heap
 - [ ] Local APIC + I/O APIC
 - [ ] Timer + interrupt routing
 - [x] Explicit unsafe-code boundaries
+
+**Verified M3 bounded early heap (PR #60):** [Actions run 36342588023](https://github.com/mixutin/Vibrix/actions/runs/36342588023) passed production heap host tests, formatting, target Clippy/builds and five QEMU boots (normal, virtual xHCI, panic, breakpoint and page fault). The real kernel allocates aligned spans, writes/reads their RAM backing, frees and reuses an allocation, and reports success independently over debugcon and COM1. This is a **64 KiB fixed-capacity early kernel heap** over reserved, already mapped BSS, with free/reuse. It is single-CPU/IRQs-off, has no global Rust allocator and cannot grow from physical frames. Virtual memory, general-purpose/SMP allocation and physical Target 001 tests remain separate work. See [early heap contract](docs/EARLY_HEAP.md).
 
 **Verified M3 early frame allocator (PR #54):** [Actions run
 36339836880](https://github.com/mixutin/Vibrix/actions/runs/36339836880)

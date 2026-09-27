@@ -128,6 +128,12 @@ jobs:
           rustc --edition=2024 --test kernel/src/arch/x86_64/pci.rs -o "$RUNNER_TEMP/vibrix-pci-tests"
           "$RUNNER_TEMP/vibrix-pci-tests"
 
+      - name: Test production early kernel heap on host
+        run: |
+          rustfmt --edition 2024 --check kernel/src/memory/heap.rs
+          rustc --edition=2024 --test kernel/src/memory/heap.rs -o "$RUNNER_TEMP/vibrix-heap-tests"
+          "$RUNNER_TEMP/vibrix-heap-tests"
+
       - name: Test CPUID discovery on host
         run: |
           rustc --edition=2024 --test kernel/src/arch/x86_64/cpuid.rs -o "$RUNNER_TEMP/vibrix-cpuid-tests"
