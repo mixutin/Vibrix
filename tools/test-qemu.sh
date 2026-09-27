@@ -92,7 +92,8 @@ for expected in \
   "VIBRIX: kernel PCI BARs parsed" \
   "VIBRIX: kernel virtual mappings verified" \
   "VIBRIX: kernel heap allocation and reuse verified" \
-  "VIBRIX: kernel framebuffer wrote pixels"; do
+  "VIBRIX: kernel framebuffer wrote pixels" \
+  "VIBRIX: kernel framebuffer status banner drawn"; do
   if ! grep -Fq "$expected" "$LOG"; then
     echo "[vibrix] missing smoke-test marker: $expected" >&2
     exit 1

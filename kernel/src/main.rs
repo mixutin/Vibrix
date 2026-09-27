@@ -183,10 +183,16 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     crate::println!("kernel heap: aligned allocations, RAM writes and reuse verified");
 
     // Physical GOP BAR is explicitly identity-mapped UC in the active PML4.
-    if unsafe { framebuffer::draw_boot_marker(&info) }.is_ok() {
-        debugcon::write("VIBRIX: kernel framebuffer wrote pixels\r\n");
-    } else {
-        debugcon::write("VIBRIX: kernel framebuffer rejected\r\n");
+    // The large display draws actual glyph pixels over the old UEFI splash,
+    // while the small or bitmask display retains the original minimal marker.
+    match unsafe { framebuffer::draw_boot_marker(&info) } {
+        Ok(banner) => {
+            debugcon::write("VIBRIX: kernel framebuffer wrote pixels\r\n");
+            if banner {
+                debugcon::write("VIBRIX: kernel framebuffer status banner drawn\r\n");
+            }
+        }
+        Err(()) => debugcon::write("VIBRIX: kernel framebuffer rejected\r\n"),
     }
 
     #[cfg(any(feature = "vm-write-probe", feature = "vm-unmap-probe"))]

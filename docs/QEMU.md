@@ -57,8 +57,12 @@ pre-exit UEFI console text at `VIBRIX: transition mappings verified`.
 That screen is **not** a reliable kernel progress indicator: after
 `ExitBootServices`, the loader stops calling firmware text output and
 the standalone kernel writes to two native logging channels instead.
-It currently draws only a tiny colored framebuffer marker, not a
-text console, window manager or interactive shell.
+It now overlays a **small, readable "VIBRIX / KERNEL LIVE" banner**
+on a sufficiently large RGB/BGR framebuffer after reaching the independent
+kernel. This is a bounded pixel/glyph status indicator—not a general
+text console, window manager or interactive shell. Small/bitmask GOP modes
+keep a minimal safe black/green marker. The banner is separate from native
+COM1/debugcon output, which remains the authoritative boot trace.
 
 `./tools/run-qemu.sh` now captures both channels *without hiding the
 graphical QEMU window*:
@@ -99,7 +103,7 @@ bash tools/test-qemu.sh
 
 The smoke test now verifies **real kernel execution after firmware exit**. Its
 QEMU debugcon log requires `ExitBootServices succeeded`, the standalone
-kernel entry and BootInfo v2 validation, GDT/TSS initialization, COM1 setup,
+kernel entry and BootInfo v3 validation, GDT/TSS initialization, COM1 setup,
 and pixel writes to the uncached GOP framebuffer. The distinct QEMU serial
 file must contain `Vibrix kernel started.`. This is not a native USB,
 filesystem, userspace or physical Target 001 test.
