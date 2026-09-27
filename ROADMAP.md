@@ -1,20 +1,22 @@
 # Vibrix Roadmap
 
-Vibrix is an independent Rust-native Unix-like operating system built from scratch as an experiment in how far AI-assisted engineering can go.
+Vibrix is an independent Rust-native Unix-like operating system that **lives on persistent USB storage**.
 
-A checkbox is completed only when functionality is implemented and demonstrated on its stated target.
+There is no internal-disk edition. A checkbox is completed only when functionality is implemented and demonstrated on its stated target.
 
 ## M0 — Bootstrap
 - [x] Project identity and independence policy
 - [x] Rust-native system policy
-- [x] Persistent portable + installed editions
+- [x] Define persistent USB-only product scope
 - [x] Repository structure
 - [x] Hardware inventory tooling
 - [x] Sanitized Target 001 profile
 - [x] AI/agent contribution policy
+- [x] GitHub Actions CI definition
+- [ ] CI green on loader + kernel + QEMU smoke test
 - [ ] Adopt project license
 - [ ] Architecture decision record process
-- [ ] Automated formatting/lint checks
+- [ ] Preserve executable bits for scripts
 
 ## M1 — First QEMU boot
 - [x] Rust UEFI application
@@ -22,11 +24,9 @@ A checkbox is completed only when functionality is implemented and demonstrated 
 - [x] OVMF/QEMU development environment
 - [x] First successful QEMU boot
 - [x] Separate Rust kernel crate
-- [x] Custom x86-64 kernel target
+- [x] Built-in bare-metal x86-64 Rust target
 - [x] Initial linker layout
 - [x] BootInfo v1 design
-- [ ] Reproducible loader + kernel CI build
-- [ ] Preserve executable bits for scripts
 
 ## M2 — Firmware-to-kernel handoff
 - [ ] Loader filesystem access
@@ -71,12 +71,12 @@ A checkbox is completed only when functionality is implemented and demonstrated 
 - [ ] Driver binding
 
 ### Target 001
-- [ ] Samsung NVMe 144d:a808
 - [ ] AMD xHCI 1022:43ee
 - [ ] AMD xHCI 1022:149c
-- [ ] AMD AHCI 1022:43eb
 - [ ] Realtek Ethernet 10ec:8168
 - [ ] Navi 23 GPU 1002:73ff
+- [ ] Samsung NVMe 144d:a808 as optional data device
+- [ ] AMD AHCI 1022:43eb as optional data device
 
 ## M5 — Processes and syscalls
 - [ ] Kernel threads
@@ -107,14 +107,19 @@ A checkbox is completed only when functionality is implemented and demonstrated 
 
 **Exit:** boot to an interactive Vibrix userspace shell.
 
-## M7 — USB and storage
+## M7 — USB platform
 - [ ] xHCI initialization
-- [ ] USB enumeration
-- [ ] USB HID keyboard/mouse
-- [ ] USB mass storage
+- [ ] USB device enumeration
+- [ ] USB hub support
+- [ ] USB HID keyboard
+- [ ] USB HID mouse
+- [ ] USB mass-storage transport
+- [ ] SCSI transparent command subset for mass storage
 - [ ] Block-device abstraction
-- [ ] NVMe initialization/queues/read/write
-- [ ] AHCI discovery + SATA I/O
+- [ ] Detect the boot USB device robustly
+- [ ] Read/write blocks on the Vibrix USB device
+
+**Exit:** Vibrix can access the same removable USB device it booted from after leaving firmware services.
 
 ## M8 — Vibrix filesystem
 - [ ] On-disk specification
@@ -124,35 +129,30 @@ A checkbox is completed only when functionality is implemented and demonstrated 
 - [ ] crash-consistency design
 - [ ] formatter + recovery tool
 - [ ] VFS driver
-- [ ] persistent root
+- [ ] persistent root mounted from USB
 
-**Exit:** files survive shutdown and reboot.
+**Exit:** files created under the Vibrix root filesystem survive shutdown and reboot.
 
-## M9 — Vibrix Portable
+## M9 — Persistent USB operating system
 - [ ] GPT tooling
-- [ ] EFI System Partition creation
-- [ ] Portable disk layout
-- [ ] Robust boot/root device identity
-- [ ] Persistent USB root + /home
-- [ ] RAM-backed volatile paths
+- [ ] EFI System Partition layout
+- [ ] Vibrix USB system partition layout
+- [ ] Persistent root
+- [ ] Persistent /home
+- [ ] Persistent package database
+- [ ] RAM-backed /tmp and runtime state
 - [ ] Flash-write reduction
-- [ ] Hardware rediscovery
-- [ ] Safe portable installer/imager
-- [ ] Target 001 USB boot
+- [ ] Hardware rediscovery every boot
+- [ ] Portable configuration policy
+- [ ] Safe USB provisioning/imaging tool
+- [ ] Recovery partition/environment
+- [ ] System update + rollback strategy
+- [ ] Target 001 real USB boot
+- [ ] Move the same USB drive between two compatible machines
 
-**Exit:** move/reboot the USB system and retain files, programs and configuration.
+**Exit:** boot from USB, modify files/configuration/apps, power off, move or reboot the drive, and retain all state without touching an internal system disk.
 
-## M10 — Installed edition
-- [ ] Safe disk enumeration
-- [ ] Destructive-action confirmations
-- [ ] GPT/filesystem creation
-- [ ] Install system + UEFI loader
-- [ ] NVMe installation
-- [ ] SATA installation
-- [ ] Recovery
-- [ ] Upgrade/rollback
-
-## M11 — Networking
+## M10 — Networking
 - [ ] NIC abstraction
 - [ ] RTL8168-family driver
 - [ ] Ethernet + ARP
@@ -164,7 +164,7 @@ A checkbox is completed only when functionality is implemented and demonstrated 
 - [ ] sockets
 - [ ] network utilities
 
-## M12 — Security and multi-user
+## M11 — Security and multi-user
 - [ ] users/groups/credentials
 - [ ] permissions
 - [ ] secure random
@@ -173,9 +173,9 @@ A checkbox is completed only when functionality is implemented and demonstrated 
 - [ ] stack protections
 - [ ] IOMMU
 - [ ] secure updates
-- [ ] optional disk-encryption design
+- [ ] optional USB system encryption design
 
-## M13 — SMP and performance
+## M12 — SMP and performance
 - [ ] CPU enumeration
 - [ ] AP startup
 - [ ] per-CPU structures
@@ -185,7 +185,7 @@ A checkbox is completed only when functionality is implemented and demonstrated 
 - [ ] profiling
 - [ ] Target 001 8C/16T validation
 
-## M14 — Audio and graphics
+## M13 — Audio and graphics
 - [ ] HDA + basic PCM
 - [ ] USB audio
 - [ ] graphics architecture
@@ -196,7 +196,7 @@ A checkbox is completed only when functionality is implemented and demonstrated 
 - [ ] acceleration
 - [ ] GUI toolkit
 
-## M15 — Packages and development
+## M14 — Packages and development
 - [ ] Package format/database/dependencies
 - [ ] package manager
 - [ ] signed repositories
@@ -204,12 +204,16 @@ A checkbox is completed only when functionality is implemented and demonstrated 
 - [ ] editor/developer tooling
 - [ ] compiler bootstrap plan
 
-## M16 — Self-hosting
+## M15 — Self-hosting
 - [ ] Compile a Rust userspace program on Vibrix
 - [ ] Toolchain usable on Vibrix
 - [ ] Build userspace on Vibrix
 - [ ] Build kernel on Vibrix
-- [ ] Produce a bootable Vibrix image from Vibrix
+- [ ] Produce a bootable Vibrix USB image from Vibrix
+
+## Optional later storage support
+
+Internal NVMe/SATA disks may be supported as user-accessible **data devices**. They are not Vibrix root/system installation targets.
 
 ## Future
 - [ ] aarch64 design
@@ -218,4 +222,4 @@ A checkbox is completed only when functionality is implemented and demonstrated 
 
 ## Early non-goals
 
-Do not prioritize desktop polish, browsers, GPU acceleration, broad hardware support, POSIX completeness or Linux binary compatibility before the kernel foundation is reliable.
+Do not prioritize internal-disk installation, desktop polish, browsers, GPU acceleration, broad hardware support, POSIX completeness or Linux binary compatibility before the USB-root kernel foundation is reliable.
