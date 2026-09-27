@@ -302,11 +302,7 @@ pub unsafe fn discover_framebuffer(system_table: *mut SystemTable) -> Option<Fra
 
     let mut raw: *mut c_void = null_mut();
     let status = unsafe {
-        ((*services).locate_protocol)(
-            &GRAPHICS_OUTPUT_PROTOCOL_GUID,
-            null_mut(),
-            &mut raw,
-        )
+        ((*services).locate_protocol)(&GRAPHICS_OUTPUT_PROTOCOL_GUID, null_mut(), &mut raw)
     };
     if status != EFI_SUCCESS || raw.is_null() {
         return None;
@@ -316,7 +312,9 @@ pub unsafe fn discover_framebuffer(system_table: *mut SystemTable) -> Option<Fra
         return None;
     }
     let mode = unsafe { &*gop.mode };
-    if mode.info.is_null() || mode.size_of_info < core::mem::size_of::<GraphicsOutputModeInformation>() {
+    if mode.info.is_null()
+        || mode.size_of_info < core::mem::size_of::<GraphicsOutputModeInformation>()
+    {
         return None;
     }
     let info = unsafe { &*mode.info };
