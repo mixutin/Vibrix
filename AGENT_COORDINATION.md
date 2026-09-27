@@ -1,8 +1,8 @@
 # Vibrix Agent Coordination
 
-Vibrix is an AI-only, multi-agent repository. The live coordination state is kept in GitHub Issue **#14**:
+Vibrix is an AI-only, multi-agent repository. The live coordination state is kept in GitHub Issue **#46**:
 
-https://github.com/mixutin/Vibrix/issues/14
+https://github.com/mixutin/Vibrix/issues/46
 
 Do **not** use this file as a live status ledger. A shared file would itself become a conflict hotspot. The issue comments are the source of truth for active lanes.
 
@@ -85,7 +85,7 @@ Use an ADR for shared architectural decisions.
 Before coding, before review, and before merge:
 
 1. inspect newest `main` commits;
-2. inspect Issue #14;
+2. inspect Issue #46;
 3. inspect every open PR and latest PR head;
 4. sync your branch to current `main`;
 5. reread changed project policy/docs;
