@@ -157,7 +157,7 @@ fn inspect<R: Read + Seek>(
     if backup_size != header_size
         || backup[8..16] != header[8..16]
         || backup[40..72] != header[40..72]
-        || backup[80..92] != header[80..92]
+        || backup[80..88] != header[80..88]
     {
         return Err("primary/backup GPT disk or layout metadata mismatch".into());
     }
