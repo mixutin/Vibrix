@@ -2,9 +2,7 @@ use core::ptr;
 use core::slice;
 
 use crate::elf::{ElfError, ElfInfo, LoadSegment};
-use crate::uefi::{
-    self, KernelFile, Status, SystemTable, EFI_LOAD_ERROR,
-};
+use crate::uefi::{self, EFI_LOAD_ERROR, KernelFile, Status, SystemTable};
 
 const PAGE_SIZE: u64 = 4096;
 const MAX_KERNEL_SPAN_BYTES: u64 = 256 * 1024 * 1024;
@@ -148,8 +146,7 @@ unsafe fn copy_segments(
 
         let source_start =
             usize::try_from(segment.file_offset).map_err(|_| LoadError::InvalidRange)?;
-        let source_len =
-            usize::try_from(segment.file_size).map_err(|_| LoadError::InvalidRange)?;
+        let source_len = usize::try_from(segment.file_size).map_err(|_| LoadError::InvalidRange)?;
         let source_end = source_start
             .checked_add(source_len)
             .ok_or(LoadError::InvalidRange)?;
@@ -212,9 +209,7 @@ fn verify_file_bytes(
         .ok_or(LoadError::InvalidRange)?;
     let destination_offset =
         usize::try_from(destination_offset).map_err(|_| LoadError::InvalidRange)?;
-    let staged = unsafe {
-        slice::from_raw_parts(destination.add(destination_offset), file_len)
-    };
+    let staged = unsafe { slice::from_raw_parts(destination.add(destination_offset), file_len) };
     if staged != source {
         return Err(LoadError::VerificationFailed);
     }
