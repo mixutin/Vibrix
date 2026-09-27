@@ -6,6 +6,7 @@ const EV_CURRENT: u8 = 1;
 const ET_EXEC: u16 = 2;
 const EM_X86_64: u16 = 62;
 const PT_LOAD: u32 = 1;
+const PF_X: u32 = 1;
 
 pub struct ElfInfo {
     pub entry: u64,
@@ -28,6 +29,7 @@ pub enum ElfError {
     ProgramHeaderTableOutOfBounds,
     InvalidLoadSegment,
     NoLoadSegments,
+    EntryNotExecutable,
 }
 
 impl ElfError {
@@ -48,6 +50,9 @@ impl ElfError {
             }
             Self::InvalidLoadSegment => "ELF error: invalid PT_LOAD segment\r\n",
             Self::NoLoadSegments => "ELF error: no PT_LOAD segments\r\n",
+            Self::EntryNotExecutable => {
+                "ELF error: entry outside file-backed executable PT_LOAD\r\n"
+            }
         }
     }
 }
@@ -109,6 +114,7 @@ pub fn validate(data: &[u8]) -> Result<ElfInfo, ElfError> {
     }
 
     let mut load_segments = 0u16;
+    let mut executable_entry = false;
     for index in 0..phnum as usize {
         let base = phoff + index * PROGRAM_HEADER_SIZE;
         let p_type = read_u32(data, base)?;
@@ -116,6 +122,7 @@ pub fn validate(data: &[u8]) -> Result<ElfInfo, ElfError> {
             continue;
         }
 
+        let p_flags = read_u32(data, base + 4)?;
         let p_offset = read_u64(data, base + 8)?;
         let p_vaddr = read_u64(data, base + 16)?;
         let p_filesz = read_u64(data, base + 32)?;
@@ -130,6 +137,9 @@ pub fn validate(data: &[u8]) -> Result<ElfInfo, ElfError> {
         if p_vaddr.checked_add(p_memsz).is_none() {
             return Err(ElfError::InvalidLoadSegment);
         }
+        let file_virtual_end = p_vaddr
+            .checked_add(p_filesz)
+            .ok_or(ElfError::InvalidLoadSegment)?;
 
         let file_start = usize::try_from(p_offset).map_err(|_| ElfError::InvalidLoadSegment)?;
         let file_len = usize::try_from(p_filesz).map_err(|_| ElfError::InvalidLoadSegment)?;
@@ -146,6 +156,11 @@ pub fn validate(data: &[u8]) -> Result<ElfInfo, ElfError> {
             return Err(ElfError::InvalidLoadSegment);
         }
 
+        // A future handoff must never jump to a non-executable or BSS-only address.
+        if p_flags & PF_X != 0 && (p_vaddr..file_virtual_end).contains(&entry) {
+            executable_entry = true;
+        }
+
         load_segments = load_segments
             .checked_add(1)
             .ok_or(ElfError::InvalidLoadSegment)?;
@@ -153,6 +168,9 @@ pub fn validate(data: &[u8]) -> Result<ElfInfo, ElfError> {
 
     if load_segments == 0 {
         return Err(ElfError::NoLoadSegments);
+    }
+    if !executable_entry {
+        return Err(ElfError::EntryNotExecutable);
     }
 
     Ok(ElfInfo {
@@ -202,6 +220,7 @@ mod tests {
 
         let ph = ELF_HEADER_SIZE;
         data[ph..ph + 4].copy_from_slice(&PT_LOAD.to_le_bytes());
+        data[ph + 4..ph + 8].copy_from_slice(&PF_X.to_le_bytes());
         data[ph + 8..ph + 16].copy_from_slice(&(PAYLOAD_OFFSET as u64).to_le_bytes());
         data[ph + 16..ph + 24].copy_from_slice(&0x1000u64.to_le_bytes());
         data[ph + 32..ph + 40].copy_from_slice(&4u64.to_le_bytes());
@@ -319,6 +338,34 @@ mod tests {
         let mut data = valid_elf();
         data[ELF_HEADER_SIZE + 48..ELF_HEADER_SIZE + 56].copy_from_slice(&4096u64.to_le_bytes());
         assert!(matches!(validate(&data), Err(ElfError::InvalidLoadSegment)));
+    }
+
+    #[test]
+    fn accepts_entry_inside_file_backed_executable_code() {
+        let mut data = valid_elf();
+        data[24..32].copy_from_slice(&0x1003u64.to_le_bytes());
+        assert!(validate(&data).is_ok());
+    }
+
+    #[test]
+    fn rejects_entry_outside_load_segments() {
+        let mut data = valid_elf();
+        data[24..32].copy_from_slice(&0x2000u64.to_le_bytes());
+        assert!(matches!(validate(&data), Err(ElfError::EntryNotExecutable)));
+    }
+
+    #[test]
+    fn rejects_entry_in_bss_even_if_segment_is_executable() {
+        let mut data = valid_elf();
+        data[24..32].copy_from_slice(&0x1004u64.to_le_bytes());
+        assert!(matches!(validate(&data), Err(ElfError::EntryNotExecutable)));
+    }
+
+    #[test]
+    fn rejects_entry_without_execute_permission() {
+        let mut data = valid_elf();
+        data[ELF_HEADER_SIZE + 4..ELF_HEADER_SIZE + 8].copy_from_slice(&4u32.to_le_bytes());
+        assert!(matches!(validate(&data), Err(ElfError::EntryNotExecutable)));
     }
 
     #[test]

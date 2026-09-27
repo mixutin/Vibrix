@@ -52,6 +52,13 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     console.write("VIBRIX: PT_LOAD parsed\r\n");
     console.write("VIBRIX: kernel validated\r\n");
 
+    // The physical address must eventually be forwarded in BootInfo.
+    let Some(_rsdp_address) = (unsafe { uefi::find_rsdp(system_table) }) else {
+        console.write("VIBRIX: ACPI RSDP not found or invalid\r\n");
+        return EFI_LOAD_ERROR;
+    };
+    console.write("VIBRIX: ACPI RSDP validated\r\n");
+
     let Some(framebuffer) = (unsafe { uefi::discover_framebuffer(system_table) }) else {
         console.write("VIBRIX: GOP framebuffer unavailable\r\n");
         return EFI_LOAD_ERROR;
