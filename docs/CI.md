@@ -47,6 +47,12 @@ The debug port is compiled only for QEMU builds. Bare-metal Vibrix builds do not
   `VIBRIX: kernel conventional frames allocated` markers during both normal
   and panic-probe boots. They prove issuance of two distinct conventional
   physical frame numbers; not mapping, zeroing, reuse, SMP or virtual memory.
+- **Native IDT and page-fault diagnostics:** [CI run 36340579141](https://github.com/mixutin/Vibrix/actions/runs/36340579141)
+  exercised normal/panic QEMU plus separate real `int3` and canonical
+  unmapped-memory #PF probes after firmware exit. A returning #BP logs
+  RIP; the non-returning #PF logs CR2 = `0x10000000000`, RIP, error code
+  and decoded P/W/U/RSVD/I flags on COM1. The IDT does not enable IF,
+  APIC IRQ routing, IST/RSP0 privilege stacks or SMP execution.
 - **Kernel panic:** [CI run 36337648665](https://github.com/mixutin/Vibrix/actions/runs/36337648665)
   additionally booted a separately built `panic-probe` kernel, which
   reached post-firmware execution and printed the real panic handler's
@@ -58,7 +64,7 @@ The debug port is compiled only for QEMU builds. Bare-metal Vibrix builds do not
 
 Neither the owner reproduction of the earlier loader-only code nor these
 QEMU CI results establish a native USB/xHCI driver, persistent USB root,
-IDT/interrupts, processes, userspace shell, or Target 001 bare-metal boot.
+hardware IRQ routing, processes, userspace shell, or Target 001 bare-metal boot.
 The older workstation report is historical and its deleted Issue #14
 source is no longer retrievable. The active coordination board is [#46](https://github.com/mixutin/Vibrix/issues/46). Do not generalize QEMU success to physical
 hardware or unrelated milestones.
