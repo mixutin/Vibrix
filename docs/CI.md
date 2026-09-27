@@ -13,7 +13,8 @@ The QEMU smoke test captures Vibrix's QEMU-only debug port and requires the boot
 3. validated ELF64 little-endian x86-64 metadata,
 4. parsed at least one valid `PT_LOAD` segment,
 5. accepted the kernel image,
-6. discovered an ACPI RSDP with valid firmware-provided checksum(s).
+6. discovered an ACPI RSDP with valid firmware-provided checksum(s),
+7. located a linear UEFI GOP framebuffer with sane mode and size metadata.
 
 Run the same smoke test locally:
 
