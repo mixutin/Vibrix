@@ -13,46 +13,170 @@ mod bootinfo;
 #[cfg(test)]
 use bootinfo::BootInfo;
 
-/// Draw a small green boot marker (or black with firmware's bitmask format).
-/// No heap, font, firmware protocol, system call or framebuffer cache alias.
+const BANNER_X: usize = 16;
+const BANNER_Y: usize = 16;
+const BANNER_WIDTH: usize = 352;
+const BANNER_HEIGHT: usize = 112;
+const GREEN: u32 = 0x0000_ff00;
+const WHITE: u32 = 0x00ff_ffff;
+const DARK: u32 = 0x0010_1517;
+
+/// This is not a font system: only glyphs for two hard-coded boot labels.
+/// Rows are five bits wide, most-significant pixel on the left.
+fn boot_glyph(ch: u8) -> [u8; 7] {
+    match ch {
+        b'V' => [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100],
+        b'I' => [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111],
+        b'B' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110],
+        b'R' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001],
+        b'X' => [0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001],
+        b'K' => [0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001],
+        b'E' => [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111],
+        b'N' => [0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001],
+        b'L' => [0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111],
+        b' ' => [0; 7],
+        _ => [0; 7],
+    }
+}
+
+struct PixelSurface {
+    base: usize,
+    size: usize,
+    width: usize,
+    height: usize,
+    stride: usize,
+}
+
+impl PixelSurface {
+    fn new(info: &BootInfo) -> Result<Self, ()> {
+        if info.validate().is_err() || !info.framebuffer_base.is_multiple_of(4) {
+            return Err(());
+        }
+        Ok(Self {
+            base: usize::try_from(info.framebuffer_base).map_err(|_| ())?,
+            size: usize::try_from(info.framebuffer_size).map_err(|_| ())?,
+            width: info.framebuffer_width as usize,
+            height: info.framebuffer_height as usize,
+            stride: info.framebuffer_stride as usize,
+        })
+    }
+
+    /// # Safety
+    /// The caller owns the mapped GOP MMIO range for a single boot CPU.
+    unsafe fn pixel(&self, x: usize, y: usize, color: u32) -> Result<(), ()> {
+        if x >= self.width || y >= self.height {
+            return Err(());
+        }
+        let offset = y
+            .checked_mul(self.stride)
+            .and_then(|row| row.checked_add(x))
+            .and_then(|pixel| pixel.checked_mul(4))
+            .ok_or(())?;
+        if offset.checked_add(4).is_none_or(|end| end > self.size) {
+            return Err(());
+        }
+        let address = self.base.checked_add(offset).ok_or(())?;
+        // SAFETY: lifetime/mapping is caller's invariant; metadata and
+        // checked byte arithmetic bound the volatile access to GOP backing.
+        unsafe { core::ptr::write_volatile(address as *mut u32, color) };
+        Ok(())
+    }
+}
+
+/// Draw a tiny self-contained kernel label on already mapped GOP pixels.
+///
+/// `text` contains only the boot glyphs above; no allocations or firmware
+/// calls occur after ExitBootServices.
 ///
 /// # Safety
-/// `framebuffer_base` must address the full loader-validated, identity-mapped
-/// writable MMIO region, and no other CPU/thread may concurrently access
-/// those pixels. The caller must have transferred under the kernel page tables.
-pub unsafe fn draw_boot_marker(info: &BootInfo) -> Result<(), ()> {
-    if info.validate().is_err() || !info.framebuffer_base.is_multiple_of(4) {
-        return Err(());
-    }
-    let width = info.framebuffer_width.min(48) as usize;
-    let height = info.framebuffer_height.min(16) as usize;
-    let stride = info.framebuffer_stride as usize;
-    let size = usize::try_from(info.framebuffer_size).map_err(|_| ())?;
-    let base = usize::try_from(info.framebuffer_base).map_err(|_| ())?;
-    let green = if info.framebuffer_format == 2 {
-        0 // PixelBitMask is not in the initial ABI: zero is universally black.
-    } else {
-        0x0000_ff00u32 // Green is byte-order agnostic for RGB/BGR 8:8:8.
-    };
-
-    for y in 0..height {
-        for x in 0..width {
-            let offset = y
-                .checked_mul(stride)
-                .and_then(|row| row.checked_add(x))
-                .and_then(|pixel| pixel.checked_mul(4))
-                .ok_or(())?;
-            let end = offset.checked_add(4).ok_or(())?;
-            if end > size {
-                return Err(());
+/// Caller supplies an exclusively writable and valid GOP MMIO mapping.
+unsafe fn draw_text(
+    pixels: &PixelSurface,
+    text: &[u8],
+    x: usize,
+    y: usize,
+    scale: usize,
+) -> Result<(), ()> {
+    for (character, &ch) in text.iter().enumerate() {
+        for (row, bits) in boot_glyph(ch).into_iter().enumerate() {
+            for column in 0..5 {
+                if bits & (1 << (4 - column)) == 0 {
+                    continue;
+                }
+                for dy in 0..scale {
+                    for dx in 0..scale {
+                        // SAFETY: bounded glyph slots are inside the
+                        // prevalidated banner dimensions and GOP mapping.
+                        unsafe {
+                            pixels.pixel(
+                                x + character * 6 * scale + column * scale + dx,
+                                y + row * scale + dy,
+                                WHITE,
+                            )?
+                        };
+                    }
+                }
             }
-            let address = base.checked_add(offset).ok_or(())?;
-            // SAFETY: the caller guarantees mapped live MMIO, metadata
-            // validation/bounds prove each 4-byte write stays inside it.
-            unsafe { core::ptr::write_volatile(address as *mut u32, green) };
         }
     }
     Ok(())
+}
+
+/// Draw the existing minimal 48x16 marker, then (on a sufficiently large
+/// linear RGB/BGR GOP) a readable "VIBRIX / KERNEL LIVE" status card.
+///
+/// Returns `Ok(true)` if the legible banner was painted; `Ok(false)`
+/// means the old bounded marker was painted on a small/bitmask display.
+///
+/// No heap, firmware protocol, system call, external font or cache alias.
+///
+/// # Safety
+/// `framebuffer_base` must address the full loader-validated,
+/// identity-mapped writable MMIO region, and no other CPU/thread may
+/// concurrently access those pixels under the kernel page tables.
+pub unsafe fn draw_boot_marker(info: &BootInfo) -> Result<bool, ()> {
+    let pixels = PixelSurface::new(info)?;
+    let marker_width = pixels.width.min(48);
+    let marker_height = pixels.height.min(16);
+    let green = if info.framebuffer_format == 2 { 0 } else { GREEN };
+    // PixelBitMask's masks are absent from the present BootInfo ABI:
+    // zero is unambiguously black; do not invent a white/green bit layout.
+    for y in 0..marker_height {
+        for x in 0..marker_width {
+            // SAFETY: validated complete MMIO backing and a bounded marker.
+            unsafe { pixels.pixel(x, y, green)? };
+        }
+    }
+
+    if info.framebuffer_format == 2
+        || pixels.width < BANNER_X + BANNER_WIDTH
+        || pixels.height < BANNER_Y + BANNER_HEIGHT
+    {
+        return Ok(false);
+    }
+
+    for y in 0..BANNER_HEIGHT {
+        for x in 0..BANNER_WIDTH {
+            let border = x < 3 || y < 3 || x >= BANNER_WIDTH - 3 || y >= BANNER_HEIGHT - 3;
+            // SAFETY: both coordinates lie inside the validated whole
+            // framebuffer; the banner never uses an unchecked raw pointer.
+            unsafe {
+                pixels.pixel(
+                    BANNER_X + x,
+                    BANNER_Y + y,
+                    if border { GREEN } else { DARK },
+                )?
+            };
+        }
+    }
+    // Both strings fit inside the bounded banner, including their last
+    // 5-pixel glyph: text width = number_of_chars * 6 * scale.
+    // SAFETY: the same mapped, owned GOP backing as the border above.
+    unsafe {
+        draw_text(&pixels, b"VIBRIX", BANNER_X + 68, BANNER_Y + 12, 6)?;
+        draw_text(&pixels, b"KERNEL LIVE", BANNER_X + 77, BANNER_Y + 72, 3)?;
+    }
+    Ok(true)
 }
 
 #[cfg(test)]
