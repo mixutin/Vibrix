@@ -35,7 +35,7 @@ impl PagingError {
             Self::InvalidPhysicalAddress => "VIBRIX: kernel mapping physical address invalid\r\n",
             Self::KernelSpanMismatch => "VIBRIX: kernel mapping exceeds staged span\r\n",
             Self::TooManyTablePages => "VIBRIX: kernel page-table allocation limit exceeded\r\n",
-            Self::Firmware(_) => "VIBRIX: firmware page-table allocation failed\r\n",
+            Self::Firmware(_) => "VIBRIX: firmware page-table allocation or release failed\r\n",
             Self::HugePageConflict => "VIBRIX: unexpected huge-page entry in new page tables\r\n",
             Self::MappingConflict => "VIBRIX: conflicting kernel page mapping\r\n",
             Self::VerificationFailed => "VIBRIX: kernel page-table verification failed\r\n",
@@ -57,15 +57,17 @@ pub struct KernelPageTables {
 }
 
 struct TableAllocator {
-    system_table: *mut SystemTable,
+    allocate: uefi::AllocatePages,
+    free: uefi::FreePages,
     pages: [u64; MAX_TABLE_PAGES],
     count: usize,
 }
 
 impl TableAllocator {
-    fn new(system_table: *mut SystemTable) -> Self {
+    fn new(allocate: uefi::AllocatePages, free: uefi::FreePages) -> Self {
         Self {
-            system_table,
+            allocate,
+            free,
             pages: [0; MAX_TABLE_PAGES],
             count: 0,
         }
@@ -76,36 +78,52 @@ impl TableAllocator {
             return Err(PagingError::TooManyTablePages);
         }
 
-        let physical = unsafe { uefi::allocate_loader_pages(self.system_table, 1) }
+        let physical = unsafe { uefi::allocate_pages_with(self.allocate, self.free, 1) }
             .map_err(PagingError::Firmware)?;
-        if !valid_physical_page(physical) {
-            unsafe { uefi::free_loader_pages(self.system_table, physical, 1) };
+        let slot = self.count;
+        self.pages[slot] = physical;
+        self.count += 1;
+        let address = usize::try_from(physical)
+            .ok()
+            .filter(|_| valid_physical_page(physical));
+        let Some(address) = address else {
+            unsafe { uefi::free_pages_with(self.free, physical, 1) }
+                .map_err(PagingError::Firmware)?;
+            self.pages[slot] = 0;
+            self.count -= 1;
             return Err(PagingError::InvalidPhysicalAddress);
-        }
-
-        let address = match usize::try_from(physical) {
-            Ok(address) => address,
-            Err(_) => {
-                unsafe { uefi::free_loader_pages(self.system_table, physical, 1) };
-                return Err(PagingError::InvalidPhysicalAddress);
-            }
         };
 
         unsafe {
             ptr::write_bytes(address as *mut u8, 0, PAGE_SIZE as usize);
         }
-        self.pages[self.count] = physical;
-        self.count += 1;
         Ok(physical)
     }
 
-    unsafe fn release_all(&mut self) {
-        while self.count != 0 {
-            self.count -= 1;
-            let physical = self.pages[self.count];
-            unsafe { uefi::free_loader_pages(self.system_table, physical, 1) };
-            self.pages[self.count] = 0;
+    // Reverse allocation order, attempt every page. The first release failure in
+    // that order wins. Clear only successful slots; compact failed ownership for
+    // inspection or an explicit retry. These tables are inactive throughout.
+    unsafe fn release_all(&mut self) -> Result<(), Status> {
+        let mut first_failure = None;
+        for slot in (0..self.count).rev() {
+            let physical = self.pages[slot];
+            match unsafe { uefi::free_pages_with(self.free, physical, 1) } {
+                Ok(()) => self.pages[slot] = 0,
+                Err(status) => {
+                    first_failure.get_or_insert(status);
+                }
+            }
         }
+        let mut retained = 0;
+        for slot in 0..self.count {
+            if self.pages[slot] != 0 {
+                self.pages[retained] = self.pages[slot];
+                retained += 1;
+            }
+        }
+        self.pages[retained..self.count].fill(0);
+        self.count = retained;
+        first_failure.map_or(Ok(()), Err)
     }
 }
 
@@ -129,8 +147,20 @@ pub unsafe fn build_kernel_page_tables(
 ) -> Result<KernelPageTables, PagingError> {
     validate_loaded_span(loaded)?;
 
-    let mut allocator = TableAllocator::new(system_table);
-    let result = unsafe { build_inner(&mut allocator, kernel_file.as_slice(), info, loaded) };
+    let (allocate, free) =
+        unsafe { uefi::page_services(system_table) }.map_err(PagingError::Firmware)?;
+    let mut allocator = TableAllocator::new(allocate, free);
+    unsafe { build_with_allocator(&mut allocator, kernel_file.as_slice(), info, loaded) }
+}
+
+// SAFETY: same live allocations/image invariants as the public entry point.
+unsafe fn build_with_allocator(
+    allocator: &mut TableAllocator,
+    data: &[u8],
+    info: &ElfInfo,
+    loaded: &LoadedKernel,
+) -> Result<KernelPageTables, PagingError> {
+    let result = unsafe { build_inner(allocator, data, info, loaded) };
 
     match result {
         Ok((root_physical, mapped_pages)) => Ok(KernelPageTables {
@@ -139,7 +169,10 @@ pub unsafe fn build_kernel_page_tables(
             mapped_pages,
         }),
         Err(error) => {
-            unsafe { allocator.release_all() };
+            // A failed rollback aborts boot. Tracking remains truthful while this
+            // allocator lives, but does not escape this function; this error does
+            // not promise full reclamation or a recoverable ownership transfer.
+            unsafe { allocator.release_all() }.map_err(PagingError::Firmware)?;
             Err(error)
         }
     }
@@ -429,4 +462,199 @@ fn align_up(address: u64) -> Option<u64> {
     address
         .checked_add(PAGE_SIZE - 1)
         .map(|value| value & !(PAGE_SIZE - 1))
+}
+
+#[cfg(test)]
+mod cleanup_tests {
+    use super::*;
+    use crate::test_support::*;
+    use crate::uefi::{EFI_INVALID_PARAMETER, EFI_OUT_OF_RESOURCES};
+
+    fn loaded() -> LoadedKernel {
+        LoadedKernel {
+            physical_base: 0x20_0000,
+            virtual_base: 0xffff_ffff_8000_0000,
+            span_bytes: 4096,
+            pages: 1,
+            entry: 0xffff_ffff_8000_0000,
+        }
+    }
+
+    #[test]
+    fn rollback_tries_every_page_preserves_failed_ownership_and_first_error() {
+        reset();
+        let mut allocator = TableAllocator::new(allocate, free);
+        let a = unsafe { allocator.allocate_zeroed() }
+            .map_err(|e| e.message())
+            .unwrap();
+        let b = unsafe { allocator.allocate_zeroed() }
+            .map_err(|e| e.message())
+            .unwrap();
+        let c = unsafe { allocator.allocate_zeroed() }
+            .map_err(|e| e.message())
+            .unwrap();
+        FW.with_borrow_mut(|fw| {
+            fw.failed_frees
+                .extend([(c, EFI_OUT_OF_RESOURCES), (a, EFI_INVALID_PARAMETER)])
+        });
+        assert_eq!(
+            unsafe { allocator.release_all() },
+            Err(EFI_OUT_OF_RESOURCES)
+        );
+        assert_eq!(allocator.count, 2);
+        assert_eq!(&allocator.pages[..3], &[a, c, 0]);
+        FW.with_borrow(|fw| {
+            assert_eq!(
+                &fw.calls[3..],
+                &[Call::Free(c, 1), Call::Free(b, 1), Call::Free(a, 1)]
+            )
+        });
+        FW.with_borrow_mut(|fw| fw.failed_frees.clear());
+        assert_eq!(unsafe { allocator.release_all() }, Ok(()));
+        assert_eq!(allocator.count, 0);
+        FW.with_borrow(|fw| {
+            assert_eq!(&fw.calls[6..], &[Call::Free(c, 1), Call::Free(a, 1)]);
+            assert!(fw.allocations.is_empty());
+        });
+    }
+
+    #[test]
+    fn rollback_compacts_one_high_failed_page_after_lower_pages_are_freed() {
+        reset();
+        let mut allocator = TableAllocator::new(allocate, free);
+        let low = unsafe { allocator.allocate_zeroed() }
+            .map_err(|e| e.message())
+            .unwrap();
+        let high = unsafe { allocator.allocate_zeroed() }
+            .map_err(|e| e.message())
+            .unwrap();
+        FW.with_borrow_mut(|fw| fw.failed_frees.push((high, EFI_OUT_OF_RESOURCES)));
+        assert_eq!(
+            unsafe { allocator.release_all() },
+            Err(EFI_OUT_OF_RESOURCES)
+        );
+        assert_eq!(allocator.count, 1);
+        assert_eq!(allocator.pages[0], high);
+        assert!(allocator.pages[1..].iter().all(|&page| page == 0));
+        FW.with_borrow(|fw| {
+            assert_eq!(&fw.calls[2..], &[Call::Free(high, 1), Call::Free(low, 1)]);
+            assert_eq!(fw.allocations.len(), 1);
+        });
+    }
+
+    #[test]
+    fn invalid_table_allocation_release_failure_keeps_owned_slot() {
+        for fail in [false, true] {
+            reset();
+            FW.with_borrow_mut(|fw| {
+                fw.next_base = Some(8);
+                if fail {
+                    fw.failed_frees.push((8, EFI_OUT_OF_RESOURCES));
+                }
+            });
+            let mut allocator = TableAllocator::new(allocate, free);
+            let result = unsafe { allocator.allocate_zeroed() };
+            assert!(matches!(
+                (fail, result),
+                (true, Err(PagingError::Firmware(EFI_OUT_OF_RESOURCES)))
+                    | (false, Err(PagingError::InvalidPhysicalAddress))
+            ));
+            assert_eq!(allocator.count, usize::from(fail));
+            assert_eq!(allocator.pages[0], if fail { 8 } else { 0 });
+            FW.with_borrow(|fw| assert_eq!(fw.calls, [Call::Allocate(8, 1), Call::Free(8, 1)]));
+        }
+    }
+
+    #[test]
+    fn failed_build_propagates_rollback_failure_and_retains_failed_root() {
+        for fail in [false, true] {
+            reset();
+            let (mut data, info) = image();
+            // Out-of-span virtual metadata fails after root allocation, before writes
+            // to any leaf, so build_with_allocator must roll back its root.
+            data[80..88].copy_from_slice(&0xffff_ffff_8000_2000u64.to_le_bytes());
+            extern "efiapi" fn allocate_failing_free(
+                kind: u32,
+                ty: u32,
+                pages: usize,
+                out: *mut u64,
+            ) -> Status {
+                let status = allocate(kind, ty, pages, out);
+                let base = unsafe { *out };
+                FW.with_borrow_mut(|fw| fw.failed_frees.push((base, EFI_OUT_OF_RESOURCES)));
+                status
+            }
+            let mut allocator = TableAllocator::new(
+                if fail {
+                    allocate_failing_free
+                } else {
+                    allocate
+                },
+                free,
+            );
+            let result = unsafe { build_with_allocator(&mut allocator, &data, &info, &loaded()) };
+            assert!(matches!(
+                (fail, result),
+                (true, Err(PagingError::Firmware(EFI_OUT_OF_RESOURCES)))
+                    | (false, Err(PagingError::KernelSpanMismatch))
+            ));
+            assert_eq!(allocator.count, usize::from(fail));
+            FW.with_borrow(|fw| {
+                let Call::Allocate(base, 1) = fw.calls[0] else {
+                    panic!("root missing")
+                };
+                assert_eq!(fw.calls, [Call::Allocate(base, 1), Call::Free(base, 1)]);
+                if fail {
+                    assert_eq!(allocator.pages[0], base);
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn table_allocation_failure_rolls_back_previously_allocated_pages() {
+        reset();
+        FW.with_borrow_mut(|fw| fw.fail_allocate_after = Some(2));
+        let (data, info) = image();
+        let mut allocator = TableAllocator::new(allocate, free);
+        let result = unsafe { build_with_allocator(&mut allocator, &data, &info, &loaded()) };
+        assert!(matches!(
+            result,
+            Err(PagingError::Firmware(EFI_OUT_OF_RESOURCES))
+        ));
+        assert_eq!(allocator.count, 0);
+        FW.with_borrow(|fw| {
+            let Call::Allocate(a, 1) = fw.calls[0] else {
+                panic!("root missing")
+            };
+            let Call::Allocate(b, 1) = fw.calls[1] else {
+                panic!("table missing")
+            };
+            assert_eq!(
+                &fw.calls[2..],
+                &[Call::AllocationFailed, Call::Free(b, 1), Call::Free(a, 1)]
+            );
+            assert!(fw.allocations.is_empty());
+        });
+    }
+
+    #[test]
+    fn successful_build_retains_all_tables_for_handoff() {
+        reset();
+        let (data, info) = image();
+        let mut allocator = TableAllocator::new(allocate, free);
+        let tables = unsafe { build_with_allocator(&mut allocator, &data, &info, &loaded()) }
+            .map_err(|e| e.message())
+            .unwrap();
+        assert_eq!(tables.table_pages, 4);
+        assert_eq!(tables.mapped_pages, 1);
+        FW.with_borrow(|fw| {
+            assert_eq!(fw.allocations.len(), 4);
+            assert!(
+                fw.calls
+                    .iter()
+                    .all(|call| matches!(call, Call::Allocate(_, 1)))
+            );
+        });
+    }
 }
