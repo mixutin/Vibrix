@@ -1,0 +1,46 @@
+name: Vibrix CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+
+      - name: Show Rust toolchain
+        run: |
+          rustup show active-toolchain
+          rustc --version
+          cargo --version
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint bootloader
+        run: cargo clippy -p vibrix-boot --features qemu-debugcon --target x86_64-unknown-uefi -- -D warnings
+
+      - name: Lint kernel
+        run: cargo clippy -p vibrix-kernel --target x86_64-unknown-none -- -D warnings
+
+      - name: Build Vibrix
+        run: bash tools/build-qemu.sh
+
+      - name: QEMU smoke test
+        env:
+          VIBRIX_SKIP_BUILD: "1"
+        run: bash tools/test-qemu.sh
