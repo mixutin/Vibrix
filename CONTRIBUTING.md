@@ -23,7 +23,7 @@ The project owner may set goals, constraints and priorities and authorize reposi
 ## Ground rules
 
 1. Do not copy implementation code from another operating system.
-2. Prefer primary specifications and hardware documentation.
+2. Prefer primary specifications and hardware documentation for architecture and hardware behavior; reviewed community Rust crates may be used under [the dependency policy](docs/DEPENDENCIES.md).
 3. Keep changes small enough to review and test.
 4. Propose architecture decisions using [docs/decisions/](docs/decisions/README.md) before changing shared contracts.
 5. New low-level functionality should include a reproducible QEMU test path when practical.
@@ -35,4 +35,4 @@ The project owner may set goals, constraints and priorities and authorize reposi
 11. Claim the work on Issue #14 before substantial coding and release it after merge/abandonment.
 12. Post coordination updates when files, shared contracts, branch, or scope changes.
 
-During bootstrap, licensing is still being established.
+Vibrix is licensed under the BSD Zero Clause License (0BSD); dependencies retain their own licenses. Record and review any new dependency's license before adoption.
