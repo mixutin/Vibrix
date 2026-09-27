@@ -245,6 +245,14 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
     for device in 0..32u8 {
         let physical = entry.config_physical(0, device, 0, 0)?;
         if !unsafe { memory::mmio_span_is_reserved(physical, PAGE) } {
+            // QEMU diagnostic only: UEFI descriptor metadata are numeric
+            // integers; do not dereference an unvalidated MMIO address.
+            #[cfg(feature = "qemu-debugcon")]
+            crate::println!(
+                "kernel ECAM reject bus0 device {} UEFI descriptor {:?}",
+                device,
+                unsafe { memory::firmware_descriptor_at(physical) }
+            );
             return Err(ReadError::MmioRange);
         }
     }
