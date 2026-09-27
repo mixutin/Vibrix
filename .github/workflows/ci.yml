@@ -39,6 +39,44 @@ jobs:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+      - name: Verify committed dependency lockfile
+        run: |
+          test -f Cargo.lock
+          before="$(sha256sum Cargo.lock)"
+          cargo generate-lockfile --locked
+          after="$(sha256sum Cargo.lock)"
+          test "$before" = "$after"
+
+      - name: Enforce documented unsafe boundaries
+        run: bash tools/check-unsafe-boundaries.sh
+
+      - name: Check website and documentation links
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, sys
+          roots = [Path("README.md"), Path("ROADMAP.md"), *Path("docs").rglob("*.md")]
+          bad=[]
+          for p in roots:
+              text=p.read_text(errors="replace")
+              for target in re.findall(r'\[[^\]]*\]\(([^)]+)\)', text):
+                  target=target.split("#",1)[0]
+                  if not target or "://" in target or target.startswith(("mailto:","/")):
+                      continue
+                  q=(p.parent/target).resolve()
+                  if not q.exists(): bad.append(f"{p}: {target}")
+          if bad:
+              print("Broken local documentation links:\n" + "\n".join(bad))
+              sys.exit(1)
+          for required in ["site/index.html","site/robots.txt","site/sitemap.xml"]:
+              if not Path(required).is_file():
+                  raise SystemExit(f"missing website artifact: {required}")
+          html=Path("site/index.html").read_text()
+          for token in ['rel="canonical"','name="description"','<h1']:
+              if token not in html: raise SystemExit(f"site/index.html missing {token}")
+          print("Documentation/site structural checks passed")
+          PY
+
       - name: Check development script modes and syntax
         run: |
           for script in tools/*.sh; do
@@ -252,3 +290,4 @@ jobs:
           VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
           grep -Fq "kernel #PF cr2=0xffffc00000000000" build/qemu/serial.log
           grep -Fq "present=false write=false user=false reserved=false exec=false" build/qemu/serial.log
+
