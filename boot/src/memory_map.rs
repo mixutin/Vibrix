@@ -151,7 +151,10 @@ unsafe fn capture_with_services(
         let Some(address) = address else {
             // This successful allocation will not escape: return exactly the
             // physical base and page count supplied by AllocatePages, even at 0.
-            free(physical_base, pages);
+            let free_status = free(physical_base, pages);
+            if free_status != EFI_SUCCESS {
+                return Err(free_status);
+            }
             return Err(EFI_LOAD_ERROR);
         };
         // The x86-64 UEFI address space identity-maps these allocated pages.
@@ -225,6 +228,8 @@ mod tests {
         version: Option<u32>,
         map_error: Option<Status>,
         allocation_error: bool,
+        allocation_base: Option<u64>,
+        free_error: bool,
         sizing_success: bool,
     }
 
@@ -251,7 +256,7 @@ mod tests {
             let mut backing = backing.into_boxed_slice();
             // SAFETY: caller provides a live output pointer. Each mock page is
             // 4096-byte aligned; backing remains live until FreePages/test reset.
-            unsafe { *output = backing.as_mut_ptr() as u64 };
+            unsafe { *output = fw.allocation_base.unwrap_or(backing.as_mut_ptr() as u64) };
             fw.buffers.push(backing);
             EFI_SUCCESS
         })
@@ -260,13 +265,23 @@ mod tests {
     extern "efiapi" fn free(physical_base: u64, pages: usize) -> Status {
         FW.with_borrow_mut(|fw| {
             fw.calls.push("free");
-            let owned = fw.buffers.pop().expect("free requires an owned allocation");
-            assert_eq!(owned.as_ptr() as u64, physical_base);
+            let owned = fw
+                .buffers
+                .last()
+                .expect("free requires an owned allocation");
+            assert_eq!(
+                fw.allocation_base.unwrap_or(owned.as_ptr() as u64),
+                physical_base
+            );
             assert_eq!(
                 owned.len(),
                 pages,
                 "free must cover the exact owned page range"
             );
+            if fw.free_error {
+                return EFI_OUT_OF_RESOURCES;
+            }
+            fw.buffers.pop();
             EFI_SUCCESS
         })
     }
@@ -445,6 +460,33 @@ mod tests {
             EFI_INVALID_PARAMETER
         );
         FW.with_borrow(|fw| assert!(fw.buffers.is_empty()));
+    }
+
+    #[test]
+    fn invalid_allocated_base_releases_exact_pages_and_propagates_release_failure() {
+        // Invalid firmware outputs must never reach memory initialization/GetMemoryMap.
+        for base in [0, 8, u64::MAX & !(PAGE_SIZE as u64 - 1)] {
+            for free_error in [false, true] {
+                let status = run(Firmware {
+                    allocation_base: Some(base),
+                    free_error,
+                    ..Firmware::default()
+                })
+                .unwrap_err();
+                assert_eq!(
+                    status,
+                    if free_error {
+                        EFI_OUT_OF_RESOURCES
+                    } else {
+                        EFI_LOAD_ERROR
+                    }
+                );
+                FW.with_borrow(|fw| {
+                    assert_eq!(fw.calls, ["size", "allocate", "free"]);
+                    assert_eq!(fw.buffers.len(), usize::from(free_error));
+                });
+            }
+        }
     }
 
     #[test]
