@@ -98,6 +98,7 @@ for expected in \
   "VIBRIX: kernel framebuffer status banner drawn"; do
   if ! grep -Fq "$expected" "$LOG"; then
     echo "[vibrix] missing smoke-test marker: $expected" >&2
+    [[ -f "$SERIAL_LOG" ]] && cat "$SERIAL_LOG"
     exit 1
   fi
 done
