@@ -231,9 +231,9 @@ impl Gdt {
     /// Get the kernel data segment selector.
     pub const KERNEL_DATA_SELECTOR: u16 = 0x10;
     /// Get the user code segment selector.
-    pub const USER_CODE_SELECTOR: u16 = 0x18;
+    pub const USER_CODE_SELECTOR: u16 = 0x1b; // descriptor 0x18 | ring-3 RPL
     /// Get the user data segment selector.
-    pub const USER_DATA_SELECTOR: u16 = 0x20;
+    pub const USER_DATA_SELECTOR: u16 = 0x23; // descriptor 0x20 | ring-3 RPL
     /// Get the TSS segment selector (the offset of the actual 16-byte descriptor).
     pub const TSS_SELECTOR: u16 = core::mem::offset_of!(Self, tss_descriptor) as u16;
 }
@@ -249,10 +249,16 @@ pub struct GdtPointer {
 ///
 /// # Safety
 ///
-/// The GDT must be valid and remain loaded for the lifetime of the kernel.
-/// This function is typically called once during early kernel initialization.
-pub unsafe fn load_gdt(gdt: &Gdt) {
-    let ptr = gdt.pointer();
+/// `gdt` must point to permanently allocated, mapped, writable, valid GDT
+/// storage; descriptor loads may set Accessed bits and LTR sets the TSS busy
+/// bit in this memory. Do not keep an immutable Rust reference to the GDT
+/// across hardware descriptor accesses. Call only once on the boot CPU with
+/// interrupts disabled, before other CPUs and privilege transitions.
+pub unsafe fn load_gdt(gdt: *mut Gdt) {
+    let ptr = GdtPointer {
+        limit: (core::mem::size_of::<Gdt>() - 1) as u16,
+        base: gdt as u64,
+    };
 
     unsafe {
         // Load the GDT
@@ -290,7 +296,9 @@ pub unsafe fn load_gdt(gdt: &Gdt) {
 ///
 /// # Safety
 ///
-/// The TSS must be valid and remain loaded for the lifetime of the kernel.
+/// The TSS and GDT must remain permanently mapped. LTR writes the TSS busy
+/// bit into the writable GDT descriptor; caller must have initialized the
+/// descriptor's base/limit and disabled interrupts/other CPUs before loading.
 pub unsafe fn load_tss() {
     unsafe {
         asm!("ltr ax", in("ax") Gdt::TSS_SELECTOR, options(nostack));
@@ -299,12 +307,15 @@ pub unsafe fn load_tss() {
 
 /// Kernel-lifetime storage for the TSS and GDT, independent of init()'s stack.
 /// UnsafeCell is needed for one-time initialization; after LGDT/LTR these
-/// objects may not be moved or mutated. This is a single-CPU bootstrap contract.
+/// objects may not move or be mutated by uncoordinated software. The CPU may
+/// set descriptor Accessed/busy bits in GDT storage, so it stays writable.
+/// This is a single-CPU bootstrap contract.
 struct StaticTss(UnsafeCell<Tss>);
 struct StaticGdt(UnsafeCell<Gdt>);
 
 // SAFETY: init() is called once with interrupts disabled, before other CPUs or
-// privilege transitions, and no mutable access occurs after descriptors load.
+// privilege transitions; only the CPU's descriptor bit writes are allowed
+// after init, until a future explicitly synchronized update protocol exists.
 unsafe impl Sync for StaticTss {}
 // SAFETY: identical single-writer/one-time initialization invariant as StaticTss.
 unsafe impl Sync for StaticGdt {}
@@ -316,7 +327,9 @@ static GDT: StaticGdt = StaticGdt(UnsafeCell::new(Gdt::EMPTY));
 ///
 /// # Safety
 /// Must be called exactly once on the boot CPU before interrupts, other CPUs,
-/// or ring-3 entry; GDT/TSS stay at fixed addresses for the kernel lifetime.
+/// or ring-3 entry. GDT/TSS must stay mapped and writable at fixed addresses
+/// for the kernel lifetime. This function is *not* proof that future RSP0 or
+/// IST stacks have been configured for interrupts or ring-3 transitions.
 /// RSP0/IST are zero and MUST be initialized before any privilege transition
 /// or interrupt gate which selects an IST stack.
 pub unsafe fn init() {
@@ -328,7 +341,8 @@ pub unsafe fn init() {
     unsafe {
         core::ptr::write(tss, Tss::new());
         core::ptr::write(gdt, Gdt::new(&*tss));
-        load_gdt(&*gdt);
+        // Pass a raw pointer: LGDT/LTR may change GDT Accessed/busy bits.
+        load_gdt(gdt);
         load_tss();
     }
 }
@@ -348,8 +362,8 @@ mod tests {
         assert_eq!(Gdt::TSS_SELECTOR, 0x28);
         assert_eq!(Gdt::KERNEL_CODE_SELECTOR, 0x08);
         assert_eq!(Gdt::KERNEL_DATA_SELECTOR, 0x10);
-        assert_eq!(Gdt::USER_CODE_SELECTOR, 0x18);
-        assert_eq!(Gdt::USER_DATA_SELECTOR, 0x20);
+        assert_eq!(Gdt::USER_CODE_SELECTOR, 0x1b);
+        assert_eq!(Gdt::USER_DATA_SELECTOR, 0x23);
     }
 
     #[test]
