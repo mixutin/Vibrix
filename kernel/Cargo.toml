@@ -6,4 +6,9 @@ publish = false
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+qemu-debugcon = []
+panic-probe = []
+
 [dependencies]

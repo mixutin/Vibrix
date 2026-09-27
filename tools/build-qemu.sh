@@ -23,7 +23,7 @@ echo "[vibrix] building UEFI loader"
 cargo build   -p vibrix-boot   --features qemu-debugcon   --target x86_64-unknown-uefi
 
 echo "[vibrix] building kernel"
-cargo rustc   -p vibrix-kernel   --target x86_64-unknown-none   --   -C code-model=kernel   -C no-redzone=yes   -C relocation-model=static   -C link-arg=-no-pie   -C link-arg=-Tkernel/linker.ld
+cargo rustc   -p vibrix-kernel   --features "${VIBRIX_KERNEL_FEATURES:-qemu-debugcon}"   --target x86_64-unknown-none   --   -C code-model=kernel   -C no-redzone=yes   -C relocation-model=static   -C link-arg=-no-pie   -C link-arg=-Tkernel/linker.ld
 
 OUT="$ROOT/build/qemu"
 ESP="$OUT/esp"

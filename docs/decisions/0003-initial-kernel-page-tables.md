@@ -123,3 +123,12 @@ bare-metal behavior.
 - Intel 64 and IA-32 SDM, 4-level paging and page-table entry permissions
 - System V ELF PT_LOAD flags
 - Vibrix ADR 0001 and ADR 0002
+
+## Later activation — PR #49
+
+The original construction-only scope above remains historical. The subsequent
+[ADR 0006](0006-transition-mappings.md) adds verified narrow identity
+mappings and [ADR 0007](0007-uefi-exit-kernel-entry.md) activates the hierarchy
+and enters the standalone kernel. [QEMU CI 36337520346](https://github.com/mixutin/Vibrix/actions/runs/36337520346)
+proves the later firmware exit and kernel-side serial/BootInfo/GOP behavior;
+physical Target 001 operation is still untested.

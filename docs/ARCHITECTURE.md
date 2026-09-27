@@ -91,6 +91,6 @@ Development/test tools such as QEMU and OVMF are external infrastructure and are
 
 The kernel enumerates one CPU with the official Rust `core::arch::x86_64::__cpuid_count` intrinsic on entry. The snapshot includes the 12-byte vendor string and APIC, x2APIC, NX, SMEP and SMAP feature bits. Optional leaves are queried only if their basic or extended maximum permits them. Discovery does **not** enable those features and does not persist CPU-specific choices to the removable USB.
 
-The isolated decoder has host-side synthetic CPUID tests and a basic host CPU smoke test in CI. The current QEMU smoke test validates the UEFI loader's ELF parsing only; CPUID execution in the Vibrix kernel cannot be claimed boot-tested until the firmware-to-kernel handoff works.
+The decoder has synthetic host-side tests and is now also executed during the standalone kernel's real post-ExitBootServices QEMU entry path, before the kernel GDT/TSS success marker. This establishes one-CPU QEMU discovery, not physical Target 001 or SMP validation.
 
 Primary references: [Rust core x86-64 CPUID intrinsic](https://doc.rust-lang.org/core/arch/x86_64/fn.__cpuid_count.html), Intel 64 and IA-32 SDM CPUID instruction and extended feature enumeration, AMD64 Architecture Programmer's Manual volume 3.

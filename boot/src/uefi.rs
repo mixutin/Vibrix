@@ -585,6 +585,24 @@ pub unsafe fn loader_image_range(
     Ok((base, image.image_size))
 }
 
+/// Cache ExitBootServices' firmware ABI function pointer while boot services
+/// are live. After the first exit attempt call **only** GetMemoryMap on retry.
+///
+/// # Safety
+/// The system table must point to live firmware before the first EBS call.
+pub unsafe fn exit_boot_services_service(
+    system_table: *mut SystemTable,
+) -> Result<ExitBootServices, Status> {
+    if system_table.is_null() {
+        return Err(EFI_INVALID_PARAMETER);
+    }
+    let services = unsafe { (*system_table).boot_services };
+    if services.is_null() {
+        return Err(EFI_LOAD_ERROR);
+    }
+    Ok(unsafe { (*services).exit_boot_services })
+}
+
 pub unsafe fn load_kernel(
     image_handle: Handle,
     system_table: *mut SystemTable,
