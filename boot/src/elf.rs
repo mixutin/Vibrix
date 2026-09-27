@@ -135,10 +135,10 @@ pub fn validate(data: &[u8]) -> Result<ElfInfo, ElfError> {
             return Err(ElfError::InvalidLoadSegment);
         }
 
-        if p_align > 1 {
-            if !p_align.is_power_of_two() || (p_vaddr % p_align) != (p_offset % p_align) {
-                return Err(ElfError::InvalidLoadSegment);
-            }
+        if p_align > 1
+            && (!p_align.is_power_of_two() || (p_vaddr % p_align) != (p_offset % p_align))
+        {
+            return Err(ElfError::InvalidLoadSegment);
         }
 
         load_segments = load_segments
