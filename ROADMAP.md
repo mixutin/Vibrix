@@ -136,7 +136,18 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 **Exit:** files created under the Vibrix root filesystem survive shutdown and reboot.
 
 ## M9 — Persistent USB operating system
-- [ ] GPT tooling
+- [x] GPT tooling
+
+**GPT tooling evidence (host only):** The read-only `tools/inspect-gpt.rs`
+validates both GPT copies, metadata, unique GUIDs and overlaps. The
+new `tools/create-usb-image.rs` creates only a fresh **regular-file**
+protective-MBR + reciprocal GPT image with distinct disk/partition GUIDs,
+blank ESP and data partition placeholders, and no existing-file overwrite.
+CI tests both 512/4096-byte sectors by passing each generated image through
+the independent inspector. This checkbox means **offline GPT tooling**,
+not a bootable ESP, formatted root, USB device provisioning or QEMU native
+USB persistence. Those remain separate unchecked M9/M7 tasks.
+
 - [ ] EFI System Partition layout
 - [ ] Vibrix USB system partition layout
 - [ ] Persistent root
