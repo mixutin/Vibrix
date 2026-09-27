@@ -20,6 +20,17 @@ multifunction probing and valid configuration-address encoding.
 The QEMU gate additionally requires `VIBRIX: kernel PCI BARs parsed` after
 the real scan finds assigned BARs without malformed entries.
 
+## QEMU evidence
+
+[Exact-head Actions run 36341931987](https://github.com/mixutin/Vibrix/actions/runs/36341931987)
+passed format, host PCI/ACPI/IDT/frame tests, kernel/UEFI Clippy and builds,
+and normal, panic, breakpoint and page-fault QEMU probes. The native
+**post-firmware kernel** printed `Vibrix PCI segment0: 6 devices, 9
+assigned BARs, 0 xHCI` on the default q35 machine and emitted both
+independent PCI debug markers. This virtual-machine configuration does
+**not** provide an xHCI controller; it needs a separately configured
+USB controller/device and native driver before any M7 USB task can pass.
+
 ## Invariants and non-goals
 
 - **No device-config writes:** the CPU writes only the 32-bit address
