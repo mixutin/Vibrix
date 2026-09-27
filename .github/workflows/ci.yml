@@ -54,6 +54,11 @@ jobs:
           "$RUNNER_TEMP/vibrix-gpt-tests"
           rustc --edition=2024 -D warnings tools/inspect-gpt.rs -o "$RUNNER_TEMP/vibrix-inspect-gpt"
 
+      - name: Test UEFI memory-map acquisition on host
+        run: |
+          rustc --edition=2024 --test boot/src/memory_map.rs -o "$RUNNER_TEMP/vibrix-memory-map-tests"
+          "$RUNNER_TEMP/vibrix-memory-map-tests"
+
       - name: Lint bootloader
         run: cargo clippy -p vibrix-boot --features qemu-debugcon --target x86_64-unknown-uefi -- -D warnings
 
