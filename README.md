@@ -78,7 +78,7 @@ Vibrix does **not** intend to ship a traditional C libc as its native system int
 
 ## Current status
 
-Vibrix now boots its standalone higher-half Rust kernel in QEMU/OVMF: the loader stages kernel ELF segments, builds and activates page tables, constructs BootInfo v2, exits UEFI boot services and transfers to kernel entry. QEMU verifies independent kernel COM1 serial output, uncached framebuffer writes and a separate kernel panic test. This is not yet a bootable persistent USB operating system: native USB storage, IDT, memory allocator, filesystem, userspace and Target 001 physical boot remain work in progress.
+Vibrix now boots its standalone higher-half Rust kernel in QEMU/OVMF: the loader stages kernel ELF segments, builds and activates page tables, constructs BootInfo v2, exits UEFI boot services and transfers to kernel entry. QEMU verifies independent kernel COM1 serial output, uncached framebuffer writes and a separate kernel panic test. This is not yet a bootable persistent USB operating system: the kernel now has a QEMU-tested synchronous IDT, page-fault diagnostics and a monotonic single-CPU conventional physical-frame allocator, but still needs virtual memory, a heap, hardware interrupt routing, native PCI/xHCI and USB storage, a persistent root filesystem, userspace and Target 001 physical boot.
 
 See ROADMAP.md, docs/ARCHITECTURE.md, and docs/USB_MODEL.md.
 
