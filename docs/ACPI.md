@@ -78,7 +78,11 @@ The next M4 increment extends the existing MCFG parser to select only its
 segment-zero allocation containing bus zero, verifies PAT index 3 is UC,
 and checks every prospective function-zero 4 KiB ECAM page against the
 retained final UEFI map. Only non-runtime, UC-capable
-`EfiMemoryMappedIO` pages are eligible. A one-page read-only/NX
+`EfiReservedMemoryType` or `EfiMemoryMappedIO` pages are eligible;
+QEMU/OVMF's actual ECAM region was observed as reserved type 0, attribute
+`EFI_MEMORY_UC`, so accepting only type 11 would incorrectly reject it.
+The validated MCFG allocation additionally supplies the PCIe aperture
+identity and bounds; normal RAM types remain forbidden. A one-page read-only/NX
 supervisor mapping with PCD+PWT is installed only for each volatile
 32-bit vendor/class register read, then unmapped. These reads are not
 PCI device register writes, BAR MMIO accesses, extended configuration
