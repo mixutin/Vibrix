@@ -37,6 +37,31 @@ unsafe fn read_boot_info(raw: *const BootInfo) -> Result<BootInfo, ()> {
     Ok(info)
 }
 
+/// Read only the firmware-validated RSDP prefix/window under the explicit
+/// identity mappings established for the post-ExitBootServices kernel.
+///
+/// # Safety
+/// `info.rsdp` must identify the RSDP discovered/validated by the loader;
+/// ADR 0006 maps the 4096-byte window spanning that physical address as
+/// readable. ACPI 2.0+ firmware validated at least 36 bytes before handoff.
+unsafe fn parse_boot_rsdp(info: &BootInfo) -> Result<arch::x86_64::acpi::Rsdp, ()> {
+    let base = usize::try_from(info.rsdp).map_err(|_| ())?;
+    if base == 0 || base.checked_add(36).is_none() {
+        return Err(());
+    }
+    // SAFETY: mapped and firmware-validated legacy 20-byte RSDP prefix.
+    let prefix = unsafe { core::slice::from_raw_parts(base as *const u8, 20) };
+    let bytes = if prefix[15] >= 2 {
+        // SAFETY: loader verified the ACPI 2.0+ extension and mapped both
+        // pages when an RSDP crosses a 4-KiB page boundary. Fail closed for
+        // future firmware reporting more than the 36 readable bytes here.
+        unsafe { core::slice::from_raw_parts(base as *const u8, 36) }
+    } else {
+        prefix
+    };
+    arch::x86_64::acpi::parse_rsdp(bytes).map_err(|_| ())
+}
+
 /// Enter after firmware services are terminated and the loader has
 /// activated verified PML4 and a dedicated 16-byte-aligned entry stack.
 ///
@@ -71,6 +96,14 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     arch::x86_64::serial::init();
     crate::println!("Vibrix kernel started.");
     debugcon::write("VIBRIX: kernel serial initialized\r\n");
+
+    // A kernel-side ACPI read after ExitBootServices, not a loader marker.
+    // The XSDT/MCFG table pages are NOT mapped yet: consume RSDP metadata
+    // only and leave all subsequent physical addresses as integers.
+    match unsafe { parse_boot_rsdp(&info) } {
+        Ok(_rsdp) => debugcon::write("VIBRIX: kernel ACPI RSDP parsed\r\n"),
+        Err(()) => debugcon::write("VIBRIX: kernel ACPI RSDP rejected\r\n"),
+    }
 
     // Physical GOP BAR is explicitly identity-mapped UC in the active PML4.
     if unsafe { framebuffer::draw_boot_marker(&info) }.is_ok() {

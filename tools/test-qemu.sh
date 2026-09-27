@@ -78,6 +78,7 @@ for expected in \
   "VIBRIX: kernel BootInfo v2 validated" \
   "VIBRIX: kernel GDT/TSS loaded" \
   "VIBRIX: kernel serial initialized" \
+  "VIBRIX: kernel ACPI RSDP parsed" \
   "VIBRIX: kernel framebuffer wrote pixels"; do
   if ! grep -Fq "$expected" "$LOG"; then
     echo "[vibrix] missing smoke-test marker: $expected" >&2
