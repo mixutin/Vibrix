@@ -183,11 +183,17 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         unsafe { arch::x86_64::acpi_runtime::inspect(&info, &rsdp) }.map_err(|_| ())
     });
     match acpi_mcfg {
-        Ok(count) => {
-            crate::println!("kernel ACPI: {} validated MCFG allocations", count);
+        Ok(discovery) => {
+            crate::println!("kernel ACPI: {} validated MCFG allocations", discovery.allocations);
+            crate::println!(
+                "Vibrix ECAM segment0 bus0: {} devices, {} xHCI",
+                discovery.ecam.devices,
+                discovery.ecam.xhci_controllers
+            );
             debugcon::write("VIBRIX: kernel ACPI XSDT and MCFG mapped and parsed\r\n");
+            debugcon::write("VIBRIX: kernel PCI ECAM bus0 read\r\n");
         }
-        Err(()) => debugcon::write("VIBRIX: kernel ACPI SDT mapping rejected\r\n"),
+        Err(()) => debugcon::write("VIBRIX: kernel ACPI or ECAM discovery rejected\r\n"),
     }
 
     // Static BSS backing is already supervisor RW/NX in the loader mappings.
