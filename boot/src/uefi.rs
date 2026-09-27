@@ -112,13 +112,13 @@ pub struct SimpleTextOutputProtocol {
     pub mode: usize,
 }
 
-type AllocatePages = extern "efiapi" fn(
+pub type AllocatePages = extern "efiapi" fn(
     allocation_type: u32,
     memory_type: u32,
     pages: usize,
     memory: *mut u64,
 ) -> Status;
-type FreePages = extern "efiapi" fn(memory: u64, pages: usize) -> Status;
+pub type FreePages = extern "efiapi" fn(memory: u64, pages: usize) -> Status;
 /// UEFI 2.10 section 7.2.3. Firmware may return a larger descriptor stride.
 #[repr(C)]
 pub struct MemoryDescriptor {
@@ -136,9 +136,9 @@ pub type GetMemoryMap = unsafe extern "efiapi" fn(
     descriptor_size: *mut usize,
     descriptor_version: *mut u32,
 ) -> Status;
-pub type AllocatePool =
+type AllocatePool =
     extern "efiapi" fn(memory_type: u32, size: usize, buffer: *mut *mut c_void) -> Status;
-pub type FreePool = extern "efiapi" fn(buffer: *mut c_void) -> Status;
+type FreePool = extern "efiapi" fn(buffer: *mut c_void) -> Status;
 type HandleProtocol = extern "efiapi" fn(
     handle: Handle,
     protocol: *const Guid,
@@ -441,7 +441,7 @@ pub unsafe fn discover_framebuffer(system_table: *mut SystemTable) -> Option<Fra
     })
 }
 
-const ALLOCATE_ANY_PAGES: u32 = 0;
+pub const ALLOCATE_ANY_PAGES: u32 = 0;
 
 /// Allocate loader-owned physical pages that intentionally survive the firmware handoff.
 ///

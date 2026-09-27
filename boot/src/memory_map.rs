@@ -1,4 +1,4 @@
-//! GetMemoryMap-only foundation, from UEFI 2.10 sections 7.2.3–7.2.5.
+//! GetMemoryMap-only foundation, from UEFI 2.10 sections 7.2.1–7.2.3.
 //! No descriptor interpretation, BootInfo population, or ExitBootServices.
 //! Host tests: `rustc --edition=2024 --test boot/src/memory_map.rs -o /tmp/map-tests`.
 
@@ -9,28 +9,32 @@
 mod uefi;
 
 use crate::uefi::{
-    AllocatePool, EFI_BUFFER_TOO_SMALL, EFI_INVALID_PARAMETER, EFI_LOAD_ERROR, EFI_LOADER_DATA,
-    EFI_OUT_OF_RESOURCES, EFI_SUCCESS, FreePool, GetMemoryMap, MemoryDescriptor, Status,
-    SystemTable,
+    ALLOCATE_ANY_PAGES, AllocatePages, EFI_BUFFER_TOO_SMALL, EFI_INVALID_PARAMETER, EFI_LOAD_ERROR,
+    EFI_LOADER_DATA, EFI_OUT_OF_RESOURCES, EFI_SUCCESS, FreePages, GetMemoryMap, MemoryDescriptor,
+    Status, SystemTable,
 };
 use core::mem::{align_of, size_of};
 use core::ptr;
 
 // Policy limits, not firmware guarantees. Growth beyond the headroom is retried
 // before any map/key is returned. Bound both memory use and firmware retries.
+const PAGE_SIZE: usize = 4096;
 const HEADROOM_DESCRIPTORS: usize = 8;
 const MAX_MAP_BYTES: usize = 16 * 1024 * 1024;
 const MAX_ATTEMPTS: usize = 4;
 
-/// Owns a retained EfiLoaderData pool allocation in the current firmware mapping.
-/// Not Clone/Copy; no Drop that could silently call FreePool and invalidate a key.
+/// Owns a contiguous, page-exclusive EfiLoaderData allocation (ADR 0001).
+/// Not Clone/Copy; no Drop that could silently call FreePages and invalidate a key.
 /// The successful allocation is intentionally retained for the remainder of boot.
-/// A future handoff must reserve this buffer until the kernel has consumed it.
+/// A future handoff must reserve all `pages` starting at `physical_base` until consumed.
+/// `capacity` includes page rounding; the complete range belongs to this map.
 /// `buffer` is a firmware-address-space pointer, not yet a kernel virtual address.
 /// Bytes beyond `byte_len` are capacity, not memory-map descriptors.
 #[derive(Debug)]
 pub struct CapturedMemoryMap {
     pub buffer: *mut MemoryDescriptor,
+    pub physical_base: u64,
+    pub pages: usize,
     pub capacity: usize,
     pub byte_len: usize,
     pub map_key: usize,
@@ -50,7 +54,7 @@ pub struct CapturedMemoryMap {
 /// `system_table` must be aligned, readable and valid, with live Boot Services
 /// obeying the UEFI ABI and buffer bounds. Run at TPL_APPLICATION, with no other
 /// loader thread mutating the map. Firmware allocations must be uniquely owned,
-/// writable, eight-byte aligned and mapped in this address space. Do not free or
+/// writable, 4096-byte aligned and mapped in this address space. Do not free or
 /// repurpose the returned allocation while its descriptors are in use.
 pub unsafe fn capture(system_table: *mut SystemTable) -> Result<CapturedMemoryMap, Status> {
     if system_table.is_null() {
@@ -65,8 +69,8 @@ pub unsafe fn capture(system_table: *mut SystemTable) -> Result<CapturedMemoryMa
     let (get_map, allocate, free) = unsafe {
         (
             (*services).get_memory_map,
-            (*services).allocate_pool,
-            (*services).free_pool,
+            (*services).allocate_pages,
+            (*services).free_pages,
         )
     };
     // SAFETY: the same live-firmware and allocation invariants apply to these services.
@@ -84,14 +88,14 @@ fn buffer_capacity(required: usize, stride: usize) -> Result<usize, Status> {
     stride
         .checked_mul(HEADROOM_DESCRIPTORS)
         .and_then(|extra| required.checked_add(extra))
+        .and_then(|bytes| bytes.checked_add(PAGE_SIZE - 1))
+        .map(|bytes| bytes & !(PAGE_SIZE - 1))
         .filter(|&bytes| bytes <= MAX_MAP_BYTES && bytes <= isize::MAX as usize)
         .ok_or(EFI_OUT_OF_RESOURCES)
 }
 
 fn valid_buffer(address: usize, capacity: usize) -> bool {
-    address != 0
-        && address.is_multiple_of(align_of::<MemoryDescriptor>())
-        && address.checked_add(capacity).is_some()
+    address != 0 && address.is_multiple_of(PAGE_SIZE) && address.checked_add(capacity).is_some()
 }
 
 fn valid_map(byte_len: usize, capacity: usize, stride: usize) -> bool {
@@ -103,8 +107,8 @@ fn valid_map(byte_len: usize, capacity: usize, stride: usize) -> bool {
 // GetMemoryMap never writing beyond the supplied capacity (even on error).
 unsafe fn capture_with_services(
     get_map: GetMemoryMap,
-    allocate: AllocatePool,
-    free: FreePool,
+    allocate: AllocatePages,
+    free: FreePages,
 ) -> Result<CapturedMemoryMap, Status> {
     let mut required = 0;
     let mut key = 0;
@@ -130,18 +134,28 @@ unsafe fn capture_with_services(
 
     for _ in 0..MAX_ATTEMPTS {
         let capacity = buffer_capacity(required, stride)?;
-        let mut buffer = ptr::null_mut();
-        let status = allocate(EFI_LOADER_DATA, capacity, &mut buffer);
+        let pages = capacity / PAGE_SIZE;
+        let mut physical_base = 0;
+        let status = allocate(
+            ALLOCATE_ANY_PAGES,
+            EFI_LOADER_DATA,
+            pages,
+            &mut physical_base,
+        );
         if status != EFI_SUCCESS {
             return Err(status);
         }
-        if !valid_buffer(buffer as usize, capacity) {
-            // Null cannot be passed to FreePool; no valid allocation is exposed.
-            if !buffer.is_null() {
-                free(buffer);
-            }
+        let address = usize::try_from(physical_base)
+            .ok()
+            .filter(|&address| valid_buffer(address, capacity));
+        let Some(address) = address else {
+            // This successful allocation will not escape: return exactly the
+            // physical base and page count supplied by AllocatePages, even at 0.
+            free(physical_base, pages);
             return Err(EFI_LOAD_ERROR);
-        }
+        };
+        // The x86-64 UEFI address space identity-maps these allocated pages.
+        let buffer = address as *mut u8;
         // SAFETY: the checked region is uniquely allocated and writable. Initialize
         // padding/extension bytes as well; only byte_len will be part of the map.
         unsafe { ptr::write_bytes(buffer.cast::<u8>(), 0, capacity) };
@@ -163,6 +177,8 @@ unsafe fn capture_with_services(
             // No firmware calls or destructors beyond this successful boundary.
             return Ok(CapturedMemoryMap {
                 buffer: buffer.cast(),
+                physical_base,
+                pages,
                 capacity,
                 byte_len,
                 map_key: key,
@@ -172,7 +188,7 @@ unsafe fn capture_with_services(
         }
         // No usable map/key will escape this path. Free before another allocation
         // and acquisition so that a later successful map includes all our changes.
-        let free_status = free(buffer);
+        let free_status = free(physical_base, pages);
         if free_status != EFI_SUCCESS {
             return Err(free_status);
         }
@@ -194,13 +210,15 @@ unsafe fn capture_with_services(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::ffi::c_void;
     use std::cell::RefCell;
+
+    #[repr(C, align(4096))]
+    struct Page([u8; PAGE_SIZE]);
 
     #[derive(Default)]
     struct Firmware {
         calls: Vec<&'static str>,
-        buffers: Vec<Box<[u64]>>,
+        buffers: Vec<Box<[Page]>>,
         grow: usize,
         final_stride: Option<usize>,
         final_len: Option<usize>,
@@ -214,27 +232,41 @@ mod tests {
         static FW: RefCell<Firmware> = RefCell::new(Firmware::default());
     }
 
-    extern "efiapi" fn allocate(kind: u32, bytes: usize, output: *mut *mut c_void) -> Status {
+    extern "efiapi" fn allocate(
+        allocation: u32,
+        kind: u32,
+        pages: usize,
+        output: *mut u64,
+    ) -> Status {
         FW.with_borrow_mut(|fw| {
             fw.calls.push("allocate");
+            assert_eq!(allocation, ALLOCATE_ANY_PAGES);
             assert_eq!(kind, EFI_LOADER_DATA);
+            assert!(pages > 0);
             if fw.allocation_error {
                 return EFI_OUT_OF_RESOURCES;
             }
-            let mut backing = vec![0u64; bytes.div_ceil(8)].into_boxed_slice();
-            // SAFETY: production caller provides a live output pointer. Box backing
-            // is eight-byte aligned and retained until mock FreePool (or test reset).
-            unsafe { *output = backing.as_mut_ptr().cast() };
+            let mut backing = Vec::new();
+            backing.resize_with(pages, || Page([0; PAGE_SIZE]));
+            let mut backing = backing.into_boxed_slice();
+            // SAFETY: caller provides a live output pointer. Each mock page is
+            // 4096-byte aligned; backing remains live until FreePages/test reset.
+            unsafe { *output = backing.as_mut_ptr() as u64 };
             fw.buffers.push(backing);
             EFI_SUCCESS
         })
     }
 
-    extern "efiapi" fn free(buffer: *mut c_void) -> Status {
+    extern "efiapi" fn free(physical_base: u64, pages: usize) -> Status {
         FW.with_borrow_mut(|fw| {
             fw.calls.push("free");
             let owned = fw.buffers.pop().expect("free requires an owned allocation");
-            assert_eq!(owned.as_ptr() as *mut c_void, buffer);
+            assert_eq!(owned.as_ptr() as u64, physical_base);
+            assert_eq!(
+                owned.len(),
+                pages,
+                "free must cover the exact owned page range"
+            );
             EFI_SUCCESS
         })
     }
@@ -268,7 +300,7 @@ mod tests {
                 assert!(capacity >= 96 + 8 * 48);
                 if fw.grow > 0 {
                     fw.grow -= 1;
-                    *len = capacity + 48;
+                    *len = capacity.div_ceil(48) * 48 + 48;
                     *stride = 48;
                     return EFI_BUFFER_TOO_SMALL;
                 }
@@ -304,7 +336,10 @@ mod tests {
             ),
             (96, 22, 48, 7)
         );
-        assert_eq!(map.capacity, 480);
+        assert_eq!(map.capacity, PAGE_SIZE);
+        assert_eq!(map.pages, 1);
+        assert_eq!(map.physical_base, map.buffer as u64);
+        assert_eq!(map.physical_base % PAGE_SIZE as u64, 0);
         // SAFETY: mock retains the allocation; map byte_len was validated.
         let bytes = unsafe { core::slice::from_raw_parts(map.buffer.cast::<u8>(), map.byte_len) };
         assert!(bytes.iter().all(|&byte| byte == 0x5a));
@@ -321,7 +356,8 @@ mod tests {
             ..Firmware::default()
         })
         .unwrap();
-        assert_eq!(map.capacity, 912);
+        assert_eq!(map.capacity, 2 * PAGE_SIZE);
+        assert_eq!(map.pages, 2);
         assert_eq!(map.map_key, 22);
         FW.with_borrow(|fw| {
             assert_eq!(
@@ -353,7 +389,14 @@ mod tests {
 
     #[test]
     fn malformed_final_metadata_is_rejected_and_freed() {
-        for (len, stride) in [(0, 48), (96, 0), (96, 32), (96, 41), (95, 48), (528, 48)] {
+        for (len, stride) in [
+            (0, 48),
+            (96, 0),
+            (96, 32),
+            (96, 41),
+            (95, 48),
+            (PAGE_SIZE + 32, 48),
+        ] {
             assert_eq!(
                 run(Firmware {
                     final_len: Some(len),
@@ -419,7 +462,11 @@ mod tests {
 
     #[test]
     fn capacity_validation_checks_stride_size_and_arithmetic() {
-        assert_eq!(buffer_capacity(80, 40), Ok(400));
+        assert_eq!(buffer_capacity(80, 40), Ok(PAGE_SIZE));
+        // Required map fits one page, but descriptor headroom crosses its end.
+        assert_eq!(buffer_capacity(4032, 48), Ok(2 * PAGE_SIZE));
+        // Headroom ending exactly on a page boundary must not add another page.
+        assert_eq!(buffer_capacity(3584, 64), Ok(PAGE_SIZE));
         for (required, stride) in [(0, 40), (80, 0), (80, 32), (80, 41), (81, 40)] {
             assert_eq!(buffer_capacity(required, stride), Err(EFI_LOAD_ERROR));
         }
@@ -432,6 +479,8 @@ mod tests {
         assert!(!valid_buffer(usize::MAX & !7, 480));
         assert!(!valid_buffer(0, 480));
         assert!(!valid_buffer(3, 480));
+        assert!(!valid_buffer(8, PAGE_SIZE));
+        assert!(valid_buffer(PAGE_SIZE, PAGE_SIZE));
     }
 
     #[test]
@@ -441,6 +490,8 @@ mod tests {
         assert_eq!(align_of::<MemoryDescriptor>(), 8);
         assert_eq!(offset_of!(MemoryDescriptor, physical_start), 8);
         assert_eq!(offset_of!(MemoryDescriptor, attribute), 32);
+        assert_eq!(offset_of!(uefi::BootServices, allocate_pages), 40);
+        assert_eq!(offset_of!(uefi::BootServices, free_pages), 48);
         assert_eq!(offset_of!(uefi::BootServices, get_memory_map), 56);
         assert_eq!(offset_of!(uefi::BootServices, allocate_pool), 64);
         assert_eq!(offset_of!(uefi::BootServices, free_pool), 72);

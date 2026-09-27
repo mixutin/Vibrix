@@ -120,10 +120,12 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     };
     // Future consumption boundary: retain the entire tuple from the same final
     // call. No BootInfo population or ExitBootServices yet. Do not use Console
-    // here: firmware output could allocate and invalidate the key. The map's pool
-    // has no Drop, and remains allocated while this checkpoint spins.
+    // here: firmware output could allocate and invalidate the key. The map's
+    // page allocation has no Drop and remains owned while this checkpoint spins.
     let _ = (
         memory_map.buffer,
+        memory_map.physical_base,
+        memory_map.pages,
         memory_map.capacity,
         memory_map.byte_len,
         memory_map.map_key,
