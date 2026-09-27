@@ -1,7 +1,8 @@
-#![no_std]
-#![no_main]
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
 
-use core::panic::PanicInfo;
+#[allow(dead_code)]
+mod elf;
 
 type Handle = *mut core::ffi::c_void;
 type Status = usize;
@@ -48,19 +49,77 @@ pub struct SystemTable {
 }
 
 static MESSAGE: &[u16] = &[
-    'V' as u16, 'i' as u16, 'b' as u16, 'r' as u16, 'i' as u16, 'x' as u16,
-    ' ' as u16, 'b' as u16, 'o' as u16, 'o' as u16, 't' as u16, 'l' as u16,
-    'o' as u16, 'a' as u16, 'd' as u16, 'e' as u16, 'r' as u16, ' ' as u16,
-    'v' as u16, '0' as u16, '.' as u16, '0' as u16, '.' as u16, '1' as u16,
-    '\r' as u16, '\n' as u16,
-    'R' as u16, 'u' as u16, 's' as u16, 't' as u16, '-' as u16, 'n' as u16,
-    'a' as u16, 't' as u16, 'i' as u16, 'v' as u16, 'e' as u16, '.' as u16,
-    ' ' as u16, 'I' as u16, 'n' as u16, 'd' as u16, 'e' as u16, 'p' as u16,
-    'e' as u16, 'n' as u16, 'd' as u16, 'e' as u16, 'n' as u16, 't' as u16,
-    '.' as u16, '\r' as u16, '\n' as u16,
-    'H' as u16, 'e' as u16, 'l' as u16, 'l' as u16, 'o' as u16, ' ' as u16,
-    'f' as u16, 'r' as u16, 'o' as u16, 'm' as u16, ' ' as u16, 'U' as u16,
-    'E' as u16, 'F' as u16, 'I' as u16, '.' as u16, '\r' as u16, '\n' as u16,
+    'V' as u16,
+    'i' as u16,
+    'b' as u16,
+    'r' as u16,
+    'i' as u16,
+    'x' as u16,
+    ' ' as u16,
+    'b' as u16,
+    'o' as u16,
+    'o' as u16,
+    't' as u16,
+    'l' as u16,
+    'o' as u16,
+    'a' as u16,
+    'd' as u16,
+    'e' as u16,
+    'r' as u16,
+    ' ' as u16,
+    'v' as u16,
+    '0' as u16,
+    '.' as u16,
+    '0' as u16,
+    '.' as u16,
+    '1' as u16,
+    '\r' as u16,
+    '\n' as u16,
+    'R' as u16,
+    'u' as u16,
+    's' as u16,
+    't' as u16,
+    '-' as u16,
+    'n' as u16,
+    'a' as u16,
+    't' as u16,
+    'i' as u16,
+    'v' as u16,
+    'e' as u16,
+    '.' as u16,
+    ' ' as u16,
+    'I' as u16,
+    'n' as u16,
+    'd' as u16,
+    'e' as u16,
+    'p' as u16,
+    'e' as u16,
+    'n' as u16,
+    'd' as u16,
+    'e' as u16,
+    'n' as u16,
+    't' as u16,
+    '.' as u16,
+    '\r' as u16,
+    '\n' as u16,
+    'H' as u16,
+    'e' as u16,
+    'l' as u16,
+    'l' as u16,
+    'o' as u16,
+    ' ' as u16,
+    'f' as u16,
+    'r' as u16,
+    'o' as u16,
+    'm' as u16,
+    ' ' as u16,
+    'U' as u16,
+    'E' as u16,
+    'F' as u16,
+    'I' as u16,
+    '.' as u16,
+    '\r' as u16,
+    '\n' as u16,
     0,
 ];
 
@@ -83,8 +142,9 @@ pub extern "efiapi" fn efi_main(_image: Handle, system_table: *mut SystemTable) 
     }
 }
 
+#[cfg(not(test))]
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
+fn panic(_info: &core::panic::PanicInfo) -> ! {
     loop {
         core::hint::spin_loop();
     }
