@@ -37,8 +37,14 @@ unsafe fn read_boot_info(raw: *const BootInfo) -> Result<BootInfo, ()> {
     Ok(info)
 }
 
+/// Enter after firmware services are terminated and the loader has
+/// activated verified PML4 and a dedicated 16-byte-aligned entry stack.
+///
+/// # Safety
+/// BootInfo must point to one loader-owned, aligned, mapped and readable v2
+/// page retained until this function copies and validates the object.
 #[unsafe(no_mangle)]
-pub extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
+pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     // This marker is executed from the *kernel*, after successful firmware
     // exit and the assembly CR3/stack switch, never by the UEFI loader.
     debugcon::write("VIBRIX: kernel entry after ExitBootServices\r\n");
