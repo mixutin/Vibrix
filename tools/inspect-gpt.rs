@@ -443,11 +443,9 @@ mod tests {
             image[sector_size * 127 + 72..sector_size * 127 + 80]
                 .copy_from_slice(&93u64.to_le_bytes());
             reset_backup_header_crc(&mut image, sector_size);
-            assert!(
-                check(image, sector_size as u64)
-                    .unwrap_err()
-                    .contains("backup GPT entry array overlaps")
-            );
+            assert!(check(image, sector_size as u64)
+                .unwrap_err()
+                .contains("backup GPT entry array overlaps"));
         }
     }
 
