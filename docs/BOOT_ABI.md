@@ -22,6 +22,17 @@ The initial structure carries:
 
 The kernel must treat all pointers as untrusted boot-time inputs until validated.
 
+## Accepted address-space semantics
+
+[ADR 0001](decisions/0001-bootinfo-address-spaces.md) defines physical
+addresses for the framebuffer, ACPI RSDP and final memory-map copy, but
+a virtual pointer for the entry argument `*const BootInfo` under the
+active page tables. Loader-owned handoff buffers use `EfiLoaderData`;
+Vibrix must reserve those physical pages until consumed or copied.
+The ADR also defines map-key retry and descriptor-stride constraints.
+This **accepted design is not implemented handoff**; no Rust ABI layout
+change or successful post-`ExitBootServices` kernel entry is implied.
+
 ## Handoff
 
 The intended sequence is:
