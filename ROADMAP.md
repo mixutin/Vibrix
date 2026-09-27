@@ -38,14 +38,14 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [ ] Establish initial kernel mappings
 - [x] Discover GOP framebuffer
 - [x] Discover ACPI RSDP
-- [ ] Capture final UEFI memory map
+- [x] Capture final UEFI memory map
 - [ ] Populate BootInfo
 - [ ] ExitBootServices
 - [ ] Transfer to vibrix_kernel_entry
 - [ ] Kernel framebuffer output without UEFI
 - [ ] Kernel panic output
 
-**Current verified checkpoint:** GitHub Actions builds loader + kernel and boots QEMU far enough to validate the kernel ELF, discover ACPI/GOP, allocate loader-owned physical backing, zero the kernel image span, copy validated PT_LOAD bytes, verify BSS is zero, and emit `VIBRIX: kernel segments staged`. Higher-half mappings and kernel execution are not yet demonstrated.
+**Current verified checkpoint (main `4085dc2`, GitHub Actions run `36332949657`):** The QEMU smoke test builds loader + kernel, validates the kernel ELF, discovers ACPI/GOP, stages and verifies PT_LOAD bytes/BSS, software-verifies **inactive** higher-half kernel page tables, and emits `VIBRIX: final memory map captured` after a successful UEFI GetMemoryMap acquisition. The new page tables have not been activated (CR3); BootInfo population, ExitBootServices and kernel execution remain unimplemented/unverified.
 
 **Exit:** standalone kernel prints after ExitBootServices without firmware boot services.
 
