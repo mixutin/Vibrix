@@ -4,6 +4,12 @@
 
 ## Design
 
+## Coordination
+
+- Agent Coordination Board claim/comment:
+- Current lane/task:
+- Overlapping agents/PRs:
+
 ## Synchronization
 
 - Main commit synchronized from:
