@@ -52,7 +52,7 @@ impl ElfError {
             Self::NoLoadSegments => "ELF error: no PT_LOAD segments\r\n",
             Self::EntryNotExecutable => {
                 "ELF error: entry outside file-backed executable PT_LOAD\r\n"
-            },
+            }
         }
     }
 }
@@ -351,31 +351,21 @@ mod tests {
     fn rejects_entry_outside_load_segments() {
         let mut data = valid_elf();
         data[24..32].copy_from_slice(&0x2000u64.to_le_bytes());
-        assert!(matches!(
-            validate(&data),
-            Err(ElfError::EntryNotExecutable)
-        ));
+        assert!(matches!(validate(&data), Err(ElfError::EntryNotExecutable)));
     }
 
     #[test]
     fn rejects_entry_in_bss_even_if_segment_is_executable() {
         let mut data = valid_elf();
         data[24..32].copy_from_slice(&0x1004u64.to_le_bytes());
-        assert!(matches!(
-            validate(&data),
-            Err(ElfError::EntryNotExecutable)
-        ));
+        assert!(matches!(validate(&data), Err(ElfError::EntryNotExecutable)));
     }
 
     #[test]
     fn rejects_entry_without_execute_permission() {
         let mut data = valid_elf();
-        data[ELF_HEADER_SIZE + 4..ELF_HEADER_SIZE + 8]
-            .copy_from_slice(&4u32.to_le_bytes());
-        assert!(matches!(
-            validate(&data),
-            Err(ElfError::EntryNotExecutable)
-        ));
+        data[ELF_HEADER_SIZE + 4..ELF_HEADER_SIZE + 8].copy_from_slice(&4u32.to_le_bytes());
+        assert!(matches!(validate(&data), Err(ElfError::EntryNotExecutable)));
     }
 
     #[test]
