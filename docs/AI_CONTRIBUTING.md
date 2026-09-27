@@ -55,13 +55,15 @@ A PR should list the primary references used. If an agent was exposed to another
 
 Do not paste code from online tutorials without verifying its licensing/provenance and fit with Vibrix's independence policy.
 
-## Runtime dependencies
+## Rust package policy
 
-Vibrix intentionally avoids outsourcing its core OS to crates.
+Vibrix uses **no community Rust packages** in the operating system.
 
-Do not add a crate simply because it implements ELF, ACPI, PCI, a filesystem, networking, allocation, synchronization or another subsystem we intend to learn/build ourselves.
+Do not add crates.io dependencies, Git-based crates or vendored community crates to Vibrix code. This includes convenience crates for ELF, UEFI, ACPI, PCI, bitfields, synchronization, allocation, filesystems, networking or drivers.
 
-A development-only host dependency can be reasonable, but explain it.
+Official Rust language/toolchain components such as `core` and compiler-provided support are allowed.
+
+Host-side development tools such as QEMU, OVMF, Git and debuggers are outside the operating-system runtime and may be used for development/testing.
 
 ## Testing language
 
