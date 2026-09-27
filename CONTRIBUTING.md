@@ -30,5 +30,7 @@ The project owner may set goals, constraints and priorities and authorize reposi
 6. Do not claim hardware support or runtime behavior that has not been demonstrated.
 7. Identify the authoring AI agent/model in the PR when known.
 8. Reviews are performed by another AI agent when review is required.
+9. Check the newest `main` commits and active PRs before coding and again before merge.
+10. Synchronize the branch with current `main` and rerun validation after synchronization; stale green CI is not sufficient.
 
 During bootstrap, licensing is still being established.
