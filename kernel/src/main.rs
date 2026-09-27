@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![feature(abi_x86_interrupt)]
 
 mod arch;
 mod debugcon;
@@ -72,11 +73,36 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     crate::println!("Vibrix kernel started.");
     debugcon::write("VIBRIX: kernel serial initialized\r\n");
 
+    // Install only synchronous exception vectors; IF stays cleared until
+    // the IRQ routing model and TSS privilege/IST stacks are ready.
+    unsafe { arch::x86_64::idt::init() };
+    debugcon::write("VIBRIX: kernel IDT installed\r\n");
+
     // Physical GOP BAR is explicitly identity-mapped UC in the active PML4.
     if unsafe { framebuffer::draw_boot_marker(&info) }.is_ok() {
         debugcon::write("VIBRIX: kernel framebuffer wrote pixels\r\n");
     } else {
         debugcon::write("VIBRIX: kernel framebuffer rejected\r\n");
+    }
+
+    // QEMU-only probes exercise *actual CPU traps* through the production
+    // IDT and print diagnostics over the independent kernel COM1 console.
+    #[cfg(feature = "breakpoint-probe")]
+    unsafe {
+        core::arch::asm!("int3", options(nomem, nostack));
+    }
+
+    #[cfg(feature = "page-fault-probe")]
+    unsafe {
+        // Canonical 1 TiB low address lies outside the loader's narrow
+        // identity regions and the linked higher-half PT_LOAD mappings.
+        // No Rust reference/pointer dereference is constructed here.
+        core::arch::asm!(
+            "mov rax, qword ptr [rdx]",
+            in("rdx") 0x100_0000_0000u64,
+            out("rax") _,
+            options(nostack, readonly)
+        );
     }
 
     // Separate QEMU-only smoke configuration exercises the *real* kernel
