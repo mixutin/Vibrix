@@ -30,7 +30,7 @@ struct SimpleTextOutputProtocol {
 }
 
 #[repr(C)]
-struct SystemTable {
+pub struct SystemTable {
     header: TableHeader,
     firmware_vendor: *const u16,
     firmware_revision: u32,
