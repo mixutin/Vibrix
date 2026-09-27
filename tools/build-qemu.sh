@@ -20,7 +20,7 @@ for target in x86_64-unknown-uefi x86_64-unknown-none; do
 done
 
 echo "[vibrix] building UEFI loader"
-cargo build -p vibrix-boot --target x86_64-unknown-uefi
+cargo build -p vibrix-boot --features qemu-debugcon --target x86_64-unknown-uefi
 
 echo "[vibrix] building kernel"
 cargo rustc -p vibrix-kernel   --target x86_64-unknown-none   --   -C code-model=kernel   -C no-redzone=yes   -C link-arg=-Tkernel/linker.ld
