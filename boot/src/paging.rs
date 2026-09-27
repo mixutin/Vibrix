@@ -637,16 +637,38 @@ mod identity_tests {
         let mut allocator = TableAllocator::new(allocate, free);
         let root = unsafe { allocator.allocate_zeroed() }.unwrap();
         assert!(
-            unsafe { map_page_with_cache(&mut allocator, root, 0xe000_0000, 0xe000_0000, true, false, true) }
-                .unwrap()
+            unsafe {
+                map_page_with_cache(
+                    &mut allocator,
+                    root,
+                    0xe000_0000,
+                    0xe000_0000,
+                    true,
+                    false,
+                    true,
+                )
+            }
+            .unwrap()
         );
         let leaf = unsafe { walk_leaf(root, 0xe000_0000) }.unwrap();
         assert_eq!(leaf & ADDRESS_MASK, 0xe000_0000);
-        assert_eq!(leaf & (UNCACHED | NO_EXECUTE | WRITABLE | PRESENT),
-            UNCACHED | NO_EXECUTE | WRITABLE | PRESENT);
+        assert_eq!(
+            leaf & (UNCACHED | NO_EXECUTE | WRITABLE | PRESENT),
+            UNCACHED | NO_EXECUTE | WRITABLE | PRESENT
+        );
         assert_eq!(leaf & USER, 0);
         assert!(matches!(
-            unsafe { map_page_with_cache(&mut allocator, root, 0xe000_0000, 0xe000_0000, true, false, false) },
+            unsafe {
+                map_page_with_cache(
+                    &mut allocator,
+                    root,
+                    0xe000_0000,
+                    0xe000_0000,
+                    true,
+                    false,
+                    false,
+                )
+            },
             Err(PagingError::MappingConflict)
         ));
     }
