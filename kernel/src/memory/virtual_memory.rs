@@ -310,10 +310,7 @@ mod tests {
             unsafe { vm.map_mmio_readonly(1, 0xe000_0000) },
             Ok(window::BASE + 4096)
         );
-        assert_eq!(
-            table[1],
-            0xe000_0000 | PRESENT | NX | PWT | PCD
-        );
+        assert_eq!(table[1], 0xe000_0000 | PRESENT | NX | PWT | PCD);
         assert_eq!(vm.translation(1), Ok(Some((0xe000_0000, false))));
         assert_eq!(
             unsafe { vm.map_mmio_readonly(1, 0xe000_1000) },
