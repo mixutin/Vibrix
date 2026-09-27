@@ -22,9 +22,7 @@ pub struct PhysicalRegion {
 /// or if a reserved handoff region exceeds the CPU physical-address width.
 pub fn preflight(regions: &[PhysicalRegion]) -> Result<(), Status> {
     let extended = __cpuid_count(0x8000_0000, 0).eax;
-    if extended < 0x8000_0001
-        || __cpuid_count(0x8000_0001, 0).edx & (1 << 20) == 0
-    {
+    if extended < 0x8000_0001 || __cpuid_count(0x8000_0001, 0).edx & (1 << 20) == 0 {
         return Err(EFI_LOAD_ERROR);
     }
     let physical_bits = if extended >= 0x8000_0008 {
@@ -66,12 +64,7 @@ fn valid_regions(regions: &[PhysicalRegion], physical_bits: u8) -> bool {
 /// addresses; `entry` must be the staged ELF executable entry at its linked
 /// virtual address. No Rust execution may occur on the old stack after
 /// replacing CR3. The kernel entry never returns.
-pub unsafe fn enter_kernel(
-    root: u64,
-    stack_top: u64,
-    bootinfo_virtual: u64,
-    entry: u64,
-) -> ! {
+pub unsafe fn enter_kernel(root: u64, stack_top: u64, bootinfo_virtual: u64, entry: u64) -> ! {
     let efer_lo: u32;
     let efer_hi: u32;
     // SAFETY: CPU NX support and 4-level paging were checked before firmware
