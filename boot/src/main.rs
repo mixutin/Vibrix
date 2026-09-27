@@ -59,7 +59,7 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     console.write("VIBRIX: PT_LOAD parsed\r\n");
     console.write("VIBRIX: kernel validated\r\n");
 
-    // The physical address must eventually be forwarded in BootInfo.
+    // Capture only a physical address; it is not a dereferenceable kernel pointer.
     let Some(rsdp_address) = (unsafe { uefi::find_rsdp(system_table) }) else {
         console.write("VIBRIX: ACPI RSDP not found or invalid\r\n");
         return EFI_LOAD_ERROR;
@@ -129,10 +129,9 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
             return status;
         }
     };
-    // Future consumption boundary: retain the entire tuple from the same final
-    // call. No BootInfo population or ExitBootServices yet. Do not use Console
-    // here: firmware output could allocate and invalidate the key. The map's
-    // page allocation has no Drop and remains owned while this checkpoint spins.
+    // Retain the complete final tuple from one successful call. Do not use
+    // Console here: firmware output could allocate and invalidate the map key.
+    // The map's page allocation has no Drop and stays owned while we spin.
     let _ = (
         memory_map.buffer,
         memory_map.physical_base,
