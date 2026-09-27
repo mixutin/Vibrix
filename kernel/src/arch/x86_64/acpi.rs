@@ -241,6 +241,38 @@ impl McfgEntry {
     }
 }
 
+/// Bounded ECAM probe for segment zero's first bus (function zero only).
+/// This is only discovery: never enables devices, sizes BARs or writes config.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EcamSummary {
+    pub devices: u32,
+    pub xhci_controllers: u32,
+}
+
+pub fn scan_ecam_bus_zero(
+    entry: McfgEntry,
+    mut read: impl FnMut(u64) -> Result<u32, AcpiError>,
+) -> Result<EcamSummary, AcpiError> {
+    if entry.segment != 0 || entry.bus_start != 0 {
+        return Err(AcpiError::InvalidAllocation);
+    }
+    let mut summary = EcamSummary::default();
+    for device in 0..32u8 {
+        let vendor_address = entry.config_physical(0, device, 0, 0)?;
+        let identity = read(vendor_address)?;
+        if !matches!(identity as u16, 1..=0xfffe) {
+            continue;
+        }
+        summary.devices += 1;
+        let class_address = entry.config_physical(0, device, 0, 8)?;
+        let class = read(class_address)?;
+        if class >> 8 & 0x00ff_ffff == 0x000c_0330 {
+            summary.xhci_controllers += 1;
+        }
+    }
+    Ok(summary)
+}
+
 pub struct McfgEntries<'a> {
     entries: &'a [u8],
 }
@@ -429,6 +461,42 @@ mod tests {
         assert_eq!(
             entry.config_physical(0x20, 0, 0, 4096),
             Err(AcpiError::InvalidAllocation)
+        );
+    }
+
+    #[test]
+    fn scans_ecam_bus_zero_without_out_of_range_or_write_access() {
+        let entry = McfgEntry {
+            ecam_base: 0xe000_0000,
+            segment: 0,
+            bus_start: 0,
+            bus_end: 0,
+        };
+        let mut reads = 0usize;
+        let summary = scan_ecam_bus_zero(entry, |addr| {
+            reads += 1;
+            let offset = addr - entry.ecam_base;
+            assert!(offset < 32 * 32768);
+            assert!(matches!(offset % 32768, 0 | 8));
+            Ok(match offset {
+                0 => 0x1234_8086,
+                8 => 0x0600_0000,
+                0x8000 => 0x1000_1b36,
+                0x8008 => 0x0c03_3001,
+                _ => u32::MAX,
+            })
+        })
+        .unwrap();
+        assert_eq!(summary.devices, 2);
+        assert_eq!(summary.xhci_controllers, 1);
+        assert_eq!(reads, 34);
+        assert_eq!(
+            scan_ecam_bus_zero(McfgEntry { bus_start: 1, ..entry }, |_| Ok(0)),
+            Err(AcpiError::InvalidAllocation)
+        );
+        assert_eq!(
+            scan_ecam_bus_zero(entry, |_| Err(AcpiError::Truncated)),
+            Err(AcpiError::Truncated)
         );
     }
 
