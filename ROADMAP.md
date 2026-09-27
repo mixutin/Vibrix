@@ -14,7 +14,7 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [x] AI/agent contribution policy
 - [x] GitHub Actions CI definition
 - [x] CI green on loader + kernel + QEMU smoke test
-- [ ] Adopt project license
+- [x] Adopt project license
 - [x] Architecture decision record process
 - [x] Preserve executable bits for scripts
 
@@ -34,7 +34,7 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [x] Vibrix-owned ELF64 parser
 - [x] Validate ELF class/machine/endianness
 - [x] Parse PT_LOAD headers
-- [ ] Allocate/copy kernel segments and zero BSS
+- [x] Allocate/copy kernel segments and zero BSS
 - [ ] Establish initial kernel mappings
 - [x] Discover GOP framebuffer
 - [x] Discover ACPI RSDP
@@ -45,7 +45,7 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [ ] Kernel framebuffer output without UEFI
 - [ ] Kernel panic output
 
-**Current verified checkpoint:** GitHub Actions builds loader + kernel and boots QEMU far enough to load and validate /vibrix/kernel.elf and parse PT_LOAD headers.
+**Current verified checkpoint:** GitHub Actions builds loader + kernel and boots QEMU far enough to validate the kernel ELF, discover ACPI/GOP, allocate loader-owned physical backing, zero the kernel image span, copy validated PT_LOAD bytes, verify BSS is zero, and emit `VIBRIX: kernel segments staged`. Higher-half mappings and kernel execution are not yet demonstrated.
 
 **Exit:** standalone kernel prints after ExitBootServices without firmware boot services.
 
