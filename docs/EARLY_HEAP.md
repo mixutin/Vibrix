@@ -31,7 +31,11 @@ checks first-fit reuse, writes the reused memory, checks the other allocation
 remains intact, and frees both. QEMU requires the success marker on debugcon
 and COM1 in normal, panic, breakpoint and page-fault builds.
 
-Validation is pending until the exact commit's CI result is recorded. This
+[Actions run 36342588023](https://github.com/mixutin/Vibrix/actions/runs/36342588023)
+passed on commit `c608870d0ad45d7e402feb65f18672959e92a3bd`: production host
+heap tests, formatting, Clippy, builds and five QEMU configurations (normal,
+virtual xHCI, panic, breakpoint and page fault). Every boot observed both
+heap success channels. This
 early heap does not imply dynamic growth, a virtual-memory manager, user
 address spaces, SMP safety or physical-machine validation. The broader
 roadmap remains open until its corresponding behavior is demonstrated.
