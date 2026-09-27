@@ -66,6 +66,24 @@ jobs:
           rustc --edition=2024 --test shared/bootinfo.rs -o "$RUNNER_TEMP/vibrix-bootinfo-tests"
           "$RUNNER_TEMP/vibrix-bootinfo-tests"
 
+      - name: Test safe GPT image creation and inspect both copies
+        run: |
+          rustfmt --edition 2024 --check tools/create-usb-image.rs
+          rustc --edition=2024 --test tools/create-usb-image.rs -o "$RUNNER_TEMP/vibrix-create-image-tests"
+          "$RUNNER_TEMP/vibrix-create-image-tests"
+          rustc --edition=2024 -D warnings tools/create-usb-image.rs -o "$RUNNER_TEMP/vibrix-create-usb-image"
+          for sector in 512 4096; do
+            image="$RUNNER_TEMP/vibrix-blank-${sector}.img"
+            "$RUNNER_TEMP/vibrix-create-usb-image" "$image" 64 "$sector"
+            "$RUNNER_TEMP/vibrix-inspect-gpt" "$image" "$sector" | tee "$RUNNER_TEMP/vibrix-blank-${sector}.report"
+            grep -Fq 'partitions=2 efi_system_partitions=1' "$RUNNER_TEMP/vibrix-blank-${sector}.report"
+            if "$RUNNER_TEMP/vibrix-create-usb-image" "$image" 64 "$sector"; then
+              echo "unsafe overwrite of existing image was accepted"
+              exit 1
+            fi
+            "$RUNNER_TEMP/vibrix-inspect-gpt" "$image" "$sector" >/dev/null
+          done
+
       - name: Test UEFI memory-map acquisition on host
         run: |
           rustc --edition=2024 --test boot/src/memory_map.rs -o "$RUNNER_TEMP/vibrix-memory-map-tests"
