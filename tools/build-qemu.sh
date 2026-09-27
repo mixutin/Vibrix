@@ -12,16 +12,18 @@ fi
 echo "[vibrix] syncing pinned Rust toolchain"
 rustup show active-toolchain >/dev/null
 
-if ! rustup target list --installed | grep -qx 'x86_64-unknown-uefi'; then
-  echo "[vibrix] installing Rust target x86_64-unknown-uefi"
-  rustup target add x86_64-unknown-uefi
-fi
+for target in x86_64-unknown-uefi x86_64-unknown-none; do
+  if ! rustup target list --installed | grep -qx "$target"; then
+    echo "[vibrix] installing Rust target $target"
+    rustup target add "$target"
+  fi
+done
 
 echo "[vibrix] building UEFI loader"
 cargo build -p vibrix-boot --target x86_64-unknown-uefi
 
 echo "[vibrix] building kernel"
-cargo -Zjson-target-spec -Zbuild-std=core,compiler_builtins -Zbuild-std-features=compiler-builtins-mem rustc -p vibrix-kernel --target kernel/x86_64-vibrix.json -- -C link-arg=-Tkernel/linker.ld
+cargo rustc -p vibrix-kernel   --target x86_64-unknown-none   --   -C code-model=kernel   -C no-redzone=yes   -C link-arg=-Tkernel/linker.ld
 
 OUT="$ROOT/build/qemu"
 ESP="$OUT/esp"
@@ -30,9 +32,9 @@ mkdir -p "$ESP/EFI/BOOT" "$ESP/vibrix"
 
 cp target/x86_64-unknown-uefi/debug/vibrix-boot.efi "$ESP/EFI/BOOT/BOOTX64.EFI"
 
-KERNEL="$(find target/x86_64-vibrix/debug -maxdepth 1 -type f -name 'vibrix-kernel' | head -n1)"
-if [[ -z "$KERNEL" ]]; then
-  echo "[vibrix] kernel artifact not found" >&2
+KERNEL="$ROOT/target/x86_64-unknown-none/debug/vibrix-kernel"
+if [[ ! -f "$KERNEL" ]]; then
+  echo "[vibrix] kernel artifact not found: $KERNEL" >&2
   exit 1
 fi
 
