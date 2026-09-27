@@ -22,14 +22,18 @@ the real scan finds assigned BARs without malformed entries.
 
 ## QEMU evidence
 
-[Exact-head Actions run 36341931987](https://github.com/mixutin/Vibrix/actions/runs/36341931987)
+[Exact-head Actions run 36342144203](https://github.com/mixutin/Vibrix/actions/runs/36342144203)
 passed format, host PCI/ACPI/IDT/frame tests, kernel/UEFI Clippy and builds,
 and normal, panic, breakpoint and page-fault QEMU probes. The native
 **post-firmware kernel** printed `Vibrix PCI segment0: 6 devices, 9
 assigned BARs, 0 xHCI` on the default q35 machine and emitted both
-independent PCI debug markers. This virtual-machine configuration does
-**not** provide an xHCI controller; it needs a separately configured
-USB controller/device and native driver before any M7 USB task can pass.
+independent PCI debug markers. A **separate QEMU smoke run** set
+`VIBRIX_QEMU_XHCI=1` to attach `-device qemu-xhci`, proving the exact
+same native kernel scanner recognized `7 devices, 10 assigned BARs, 1
+xHCI` over COM1. The default virtual machine does not include an xHCI
+controller; neither machine configuration connects a proven persistent USB
+root nor initializes the controller or a driver. PCI visibility alone cannot
+satisfy M7 native USB milestones.
 
 ## Invariants and non-goals
 
