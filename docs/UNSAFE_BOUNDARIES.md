@@ -1,6 +1,6 @@
 # Current unsafe boundaries
 
-This inventory records the merged staging baseline and the QEMU-verified post-firmware PR #49 handoff. It records invariants and remaining trust at the actual raw-pointer, firmware, assembly and hardware boundaries; it does not assert those invariants are independently proven by Rust types or the smoke test. `#[unsafe(no_mangle)]` exports symbols and does not by itself dereference a pointer.
+This inventory records the QEMU-verified post-firmware PR #49 handoff, live RSDP parsing in #51 and early physical frame allocation in #54. It records invariants and remaining trust at the actual raw-pointer, firmware, assembly and hardware boundaries; it does not assert those invariants are independently proven by Rust types or the smoke test. `#[unsafe(no_mangle)]` exports symbols and does not by itself dereference a pointer.
 
 ## Loader: firmware ABI, protocols and physical resources
 
@@ -41,7 +41,15 @@ Memory-map capture's standalone host tests use the production acquisition helper
 | --- | --- | --- |
 | `kernel/src/arch/x86_64/gdt.rs::init` / `load_gdt` / `load_tss` | Early single-core/interrupts-disabled, one-time init; immutable addresses of dedicated static `UnsafeCell` GDT/TSS backing; writable mapped GDT for CPU-set descriptor accessed/TSS busy bits. `lgdt`, segment reload via stack-using far return and `ltr` need valid selectors/descriptor base/limit and a live stack. | Real GDT's TSS selector equals descriptor offset `0x28`; 104-byte TSS uses inclusive limit 103 and I/O bitmap offset 104; user selectors include RPL3. `push/push/retfq` does **not** claim `nostack`. `unsafe impl Sync` relies on one boot-CPU writer and no uncoordinated later accesses. RSP0/IST stacks remain zero/unconfigured: no privilege-changing interrupts/user entry are safe merely because descriptors are defined. |
 | `kernel/src/arch/x86_64/serial.rs::outb` / `inb` | Port-I/O assembly requires accessible COM1 registers at ring 0. Initialization clears inherited DLAB before disabling IER, then configures divisor/8N1/FIFO; TX polling is bounded and reports timeout. | Immutable `SerialPort`/`SerialConsole` avoids unnecessary Rust `UnsafeCell`/manual Sync. Hardware transactions are not serialized: coherent early output assumes one CPU/interrupts disabled until a future lock. Production host tests and QEMU's separate COM1 serial capture prove single-core kernel output after firmware exit; Target 001 and interrupt-concurrent output remain untested. |
-| `kernel/src/main.rs::vibrix_kernel_entry`, `read_boot_info` | Unsafe exported kernel entry requires an aligned live, identity-mapped, loader-owned 88-byte v2 BootInfo page. Read v1 common prefix/version **before** any v2-tail access, then copy and validate the full object; physical framebuffer/map/RSDP addresses are not Rust references. | QEMU observes separate `kernel entry after ExitBootServices` and `kernel BootInfo v2 validated` markers. The map and framebuffer are mapped; full ACPI SDT graph and physical memory allocator are not. |
+| `kernel/src/main.rs::vibrix_kernel_entry`, `read_boot_info` | Unsafe exported kernel entry requires an aligned live, identity-mapped, loader-owned 88-byte v2 BootInfo page. Read v1 common prefix/version **before** any v2-tail access, then copy and validate the full object; physical framebuffer/map/RSDP addresses are not Rust references. | QEMU observes separate `kernel entry after ExitBootServices` and `kernel BootInfo v2 validated` markers. The map and framebuffer are mapped; M3 early conventional physical-frame allocation is now live in QEMU, but new-frame mapping/zeroing and full ACPI SDT traversal are not. |
+
+## Kernel: post-firmware ACPI and early physical frame ownership (PRs #51 and #54)
+
+| Production owner | Unsafe operation and required invariant | Validation and residual limitation |
+| --- | --- | --- |
+| `kernel/src/main.rs::parse_boot_rsdp` | Turn the loader-validated physical RSDP number into readable `&[u8]` via `from_raw_parts`. ADR 0006 must identity-map the entire 20-/36-byte window (including a boundary-crossing RSDP); immutable firmware table bytes must remain present after exit. | Kernel-only `VIBRIX: kernel ACPI RSDP parsed` passes on QEMU (PR #51). The parser rejects bad signatures, checksums and extended length; only the fixed validated 36-byte ACPI 2.0+ window is read. Root SDTs and MCFG remain **unmapped**; an RSDP physical integer is not a pointer to its child tables. |
+| `kernel/src/memory/mod.rs::init_from_boot_info` | Convert the loader-owned physical map base and checked length into a `&'static [u8]` under the active identity-mapped PML4. Firmware must not mutate it after EBS; the EfiLoaderData map backing stays reserved for this early allocator's lifetime. The shared BootInfo v2 is scalar-validated before the conversion. | The production frame allocator bounds map size and descriptor count, validates stride/overlap/extent before issuance, and returns only conventional type-7 page **numbers**. QEMU after EBS observes the two frame-allocator markers. No freshly issued physical page is dereferenced, mapped or zeroed by this API. |
+| `kernel/src/memory/mod.rs::EarlyFrameState`, `init_from_boot_info`, `allocate_frame` | A sole mutable `UnsafeCell<Option<EarlyAllocator>>` and `unsafe impl Sync` are justified **only while one boot CPU executes with interrupts disabled**; both APIs are unsafe and require this. The one-time holder prevents separate frame allocators from issuing the same page; the map, RSDP and GOP ranges are explicitly rounded up and excluded even if firmware types are surprising. | [QEMU run 36339966455](https://github.com/mixutin/Vibrix/actions/runs/36339966455) observes two distinct nonzero 4-KiB conventional frames claimed after EBS. This is a monotonic allocator with no free/reuse or synchronization. Must replace `UnsafeCell` access with interrupt-safe multi-CPU ownership before IDT-driven allocation, IF=1 or SMP access; compiling an IDT alone does **not** make this safe in handlers. |
 
 ## Activation, framebuffer and panic: new unsafe boundaries in PR #49
 
@@ -61,10 +69,15 @@ exercised final memory-map refresh, ExitBootServices, NX/CR3/stack switch,
 kernel BootInfo v2 validation, CPUID, GDT/TSS, COM1 and framebuffer writes.
 [Separate panic QEMU run 36337648665](https://github.com/mixutin/Vibrix/actions/runs/36337648665)
 also exercised the standalone kernel panic handler on debugcon and COM1.
-Neither demonstrates Target 001 real hardware, IDT/interrupt delivery,
-frame allocation, whole-ACPI parsing, USB-storage reacquisition,
-persistent filesystem or userspace execution. The loader-owned physical
-pages remain reserved pending a deliberate kernel allocator and teardown.
+[ACPI QEMU run 36338546382](https://github.com/mixutin/Vibrix/actions/runs/36338546382)
+observed kernel-side RSDP validation, and
+[early frame allocator run 36339966455](https://github.com/mixutin/Vibrix/actions/runs/36339966455)
+observed two conventional physical frame claims by the real post-firmware
+kernel. None of those establishes Target 001 real hardware, IDT/interrupt
+delivery, whole-ACPI parsing, freshly mapped/zeroed frames, USB-storage
+reacquisition, a persistent filesystem or userspace execution. The
+loader-owned physical pages remain reserved under the type-7-only
+allocator; any later reclaim requires an explicit ownership transfer.
 
 New unsafe code must record alignment, allocation extent, provenance,
 ownership, lifetime, mapping, cache policy and synchronization at the

@@ -1,6 +1,6 @@
 # ADR 0006: Narrow identity mappings for the firmware-to-kernel transition
 
-- **Status:** Implemented staging; activation pending
+- **Status:** Implemented and activated in QEMU (PR #49, ADR 0007)
 - **Date:** 2026-09-27
 - **Roadmap:** M2 — Establish initial kernel mappings / ExitBootServices
 - **Depends on:** ADRs 0001, 0002, 0003 and 0004
@@ -43,19 +43,21 @@ only after those allocations complete; `refresh` updates key/byte length,
 descriptor stride and descriptor version as one tuple on success, preserves
 the prior tuple on failure and never allocates or frees memory.
 
-The loader constructs BootInfo v2 using the newly refreshed tuple. A future
-`ExitBootServices` step must immediately use that key, and if firmware
-rejects it as stale, refresh the same preallocated buffer rather than
-allocating new pages or using stale metadata.
+The initial staging PR constructed BootInfo v2 using the refreshed tuple.
+PR #49 subsequently implemented `ExitBootServices` with that exact key and
+a bounded stale-key retry that refreshes the same preallocated buffer,
+rebuilds BootInfo and avoids allocations. The kernel's own QEMU markers
+prove successful handoff on that measured path.
 
-## Current validation boundary
+## Historical staging-only validation boundary (PR #48)
 
-The QEMU smoke marker `VIBRIX: transition mappings verified` is emitted
-only after software leaf walks. `VIBRIX: final memory map captured` follows
-the in-place refresh. The page tables are **still inactive** and the loader
-still spins without `ExitBootServices`. Neither mapping, marker nor host
-tests prove post-firmware kernel execution; the M2 checkbox stays open
-until a real CR3 transition and kernel entry are observed.
+At the time of PR #48, the QEMU smoke marker
+`VIBRIX: transition mappings verified` followed software leaf walks;
+`VIBRIX: final memory map captured` followed the in-place refresh.
+That **earlier staging checkpoint** did not activate the page tables or
+call `ExitBootServices`. The subsequent PR #49 and ADR 0007 supersede
+this historical completion boundary, with an independently observed
+post-firmware kernel marker and checked M2 items.
 
 ## Primary references
 
