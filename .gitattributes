@@ -1,0 +1,19 @@
+# Preserve executable bits for shell scripts across all platforms
+# This ensures tools/*.sh remain executable on checkout, even on
+# filesystems that don't preserve POSIX permissions (e.g., Windows NTFS,
+# some CI environments).
+
+*.sh text eol=lf exec
+tools/*.sh text eol=lf exec
+
+# Common non-executable text files
+*.md text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.rs text eol=lf
+*.ld text eol=lf
+
+# Binary formats — no translation
+*.png binary
+*.jpg binary
+*.ico binary
