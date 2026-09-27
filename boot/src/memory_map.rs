@@ -553,7 +553,12 @@ mod tests {
         // SAFETY: mock retains the uniquely owned mapped buffer/callback.
         unsafe { refresh(&mut map) }.unwrap();
         assert_eq!(
-            (map.byte_len, map.map_key, map.descriptor_size, map.descriptor_version),
+            (
+                map.byte_len,
+                map.map_key,
+                map.descriptor_size,
+                map.descriptor_version
+            ),
             (144, 22, 48, 1)
         );
         FW.with_borrow(|fw| {
@@ -565,7 +570,12 @@ mod tests {
     #[test]
     fn refresh_failure_never_publishes_a_partial_stale_tuple() {
         let mut map = run(Firmware::default()).unwrap();
-        let old = (map.byte_len, map.map_key, map.descriptor_size, map.descriptor_version);
+        let old = (
+            map.byte_len,
+            map.map_key,
+            map.descriptor_size,
+            map.descriptor_version,
+        );
         FW.with_borrow_mut(|fw| {
             fw.grow = 1;
             fw.calls.clear();
