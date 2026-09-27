@@ -4,7 +4,7 @@
 
 > How far can vibe coding go?
 
-Vibrix is an experiment in building a complete operating system from first principles through **AI-only engineering**. It is **not a Linux distribution**, does not use the Linux or BSD kernels, and is designed as a Rust-native system from bootloader to userspace.
+Vibrix is an experiment in building an independent operating system through **AI-only engineering**, using original Vibrix architecture and appropriately licensed Rust crates where useful. It is **not a Linux distribution**, does not use the Linux or BSD kernels, and is designed as a Rust-native system from bootloader to userspace.
 
 ## AI-only engineering
 
@@ -63,8 +63,8 @@ Vibrix does **not** intend to ship a traditional C libc as its native system int
 ## Principles
 
 - Rust-native kernel and userspace
-- Independent implementation from boot to applications
-- No community or third-party Rust crates in Vibrix; only official Rust language/toolchain components
+- Independent operating-system architecture from boot to applications
+- Community Rust crates are permitted when reviewed for license, security and target compatibility
 - Specifications, hardware manuals and development tools are allowed
 - x86-64 and UEFI first
 - QEMU first, then removable-media bare-metal boot
@@ -100,7 +100,7 @@ Vibrix may be developed using existing compilers, assemblers, emulators, debugge
 
 Code from Linux, BSD, GNU, third-party bootloaders, third-party libc implementations, BusyBox or other operating systems must not be copied into or shipped with Vibrix.
 
-Vibrix also does **not** use crates.io/community packages in the bootloader, kernel, drivers, system libraries or first-party userspace. The only Rust runtime/foundation code allowed is code provided as part of the official Rust toolchain itself, such as core and Rust compiler support.
+Vibrix **allows community Rust crates** in the bootloader, kernel, drivers, system libraries, tooling and first-party userspace. Dependencies must be appropriately licensed and compatible with the actual build target (including `no_std` when required). See [dependency policy](docs/DEPENDENCIES.md) and [independence policy](docs/INDEPENDENCE.md).
 
 ## Mascot
 
