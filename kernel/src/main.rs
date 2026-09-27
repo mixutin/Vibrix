@@ -174,6 +174,22 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     debugcon::write("VIBRIX: kernel virtual mappings verified\r\n");
     crate::println!("kernel VM: map, protect, unmap and remap verified");
 
+    // Actual retained firmware SDTs are not identity mapped. Read only
+    // ACPI-type WB pages via the now-empty temporary v3 mapping window,
+    // unmapping all leaves before later kernel facilities use that window.
+    let acpi_mcfg = unsafe { parse_boot_rsdp(&info) }.and_then(|rsdp| {
+        // SAFETY: sole boot CPU, IF=0, physical allocator initialized and
+        // mapping-window smoke test has unmapped every temporary leaf.
+        unsafe { arch::x86_64::acpi_runtime::inspect(&info, &rsdp) }.map_err(|_| ())
+    });
+    match acpi_mcfg {
+        Ok(count) => {
+            crate::println!("kernel ACPI: {} validated MCFG allocations", count);
+            debugcon::write("VIBRIX: kernel ACPI XSDT and MCFG mapped and parsed\r\n");
+        }
+        Err(()) => debugcon::write("VIBRIX: kernel ACPI SDT mapping rejected\r\n"),
+    }
+
     // Static BSS backing is already supervisor RW/NX in the loader mappings.
     // SAFETY: sole boot CPU, IF=0, no interrupt or reentrant heap users.
     if unsafe { memory::heap::smoke_test() }.is_err() {

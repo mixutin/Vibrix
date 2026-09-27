@@ -30,20 +30,44 @@ marker in both normal and panic-probe boots. Firmware-specific RSDP
 extensions beyond the 36-byte currently mapped/validated window fail
 closed rather than being read from an unknown extent.
 
-**Limits:** Passing the kernel RSDP marker and host SDT/MCFG fixtures do
-not prove that the kernel has mapped or parsed the real firmware XSDT/MCFG
-pages, discovered actual PCI devices, or accessed native MMIO on QEMU
-or Target 001. Kernel
-call sites must first establish mapped, readable memory covering the
-advertised length, copy it into owned bounded storage if lifetime requires,
-and then call these slice parsers. Do not create an unchecked
-`slice::from_raw_parts` from an RSDP/XSDT/MCFG physical number. MCFG
-MMIO must be deliberately mapped and the relevant memory types chosen
-before accessing the returned config-space address. M4 ACPI/MCFG/PCI
-roadmap checkboxes remain unchecked until real runtime behavior is
-demonstrated.
+**Pre-integration limit (PR #51):** The original RSDP-only kernel
+marker and host SDT/MCFG fixtures did not establish real firmware XSDT/MCFG
+access. That gap is now addressed for a bounded x86-64 SDT reader below.
+ACPI byte-slice parsers still require mapped, readable backing covering
+their validated lengths. Never construct a slice from an arbitrary firmware
+physical number. MCFG ECAM MMIO requires separate mapping and memory-type
+verification before access; this work has not enabled PCIe extended
+configuration space, APIC interrupts or userspace.
 
 Primary specifications: [ACPI 6.5, §5.2 tables](https://uefi.org/specs/ACPI/6.5/05_ACPI_Software_Programming_Model.html)
 and [PCI Firmware Specification](https://pcisig.com/specification-overview/pci-firmware),
 section 4, MCFG. No third-party OS implementation source was used; no
 community crate was needed for this bounded firmware metadata decoder.
+
+## Mapped real-table checkpoint (QEMU verified — PR #64)
+
+The M4 integration adds a bounded, one-table-at-a-time reader
+using BootInfo v3's reserved 2 MiB leaf window. The kernel checks every
+mapped page against its validated final UEFI memory map, accepting only
+WB-capable EfiACPIReclaimMemory/EfiACPIMemoryNVS, never runtime or
+conventional allocations. It reads the SDT header first, limits the full
+length to 1 MiB, then maps the complete table read-only and NX; it
+validates root entries and reads actual MCFG allocation descriptors.
+Every temporary leaf is unmapped even on error, and untrusted physical
+addresses never become direct identity pointers. The early mapper is
+boot-CPU/IRQs-off only, with no concurrent reclamation of ACPI pages.
+
+The QEMU smoke suite now demands a separate **kernel-origin** real-XSDT/
+MCFG success marker after the existing RSDP and virtual-mapping markers.
+This is still not ECAM MMIO access, MSI setup, hardware interrupt routing,
+full general ACPI namespace interpretation, or Target 001 confirmation.
+Do not check MCFG/ECAM or other driver checkboxes from table parsing alone.
+[Actions run 36344773356](https://github.com/mixutin/Vibrix/actions/runs/36344773356)
+passed formatting, host tests including ACPI region ownership and both
+target builds/Clippy plus seven QEMU boots. In each configuration the
+real kernel's independent debugcon reported
+`VIBRIX: kernel ACPI XSDT and MCFG mapped and parsed`; COM1 reported
+`kernel ACPI: 1 validated MCFG allocations`. This verifies actual
+post-firmware SDT parsing on QEMU q35, not Target 001 or any ECAM MMIO
+read. The M4 ACPI parser checkbox records this limited table foundation;
+MCFG/ECAM, interrupt routing, full AML and hardware drivers remain open.
