@@ -2,6 +2,8 @@
 
 These instructions apply to every AI coding agent working in this repository.
 
+Vibrix is an **AI-only engineering project**. Code, technical documentation, pull requests, reviews and architecture discussion are produced by AI agents. The project owner may provide direction and authorize actions, but there is no human-review gate.
+
 ## Mission
 
 Build Vibrix: an independent, Rust-native Unix-like OS implemented from scratch that lives persistently on a removable USB drive. Vibrix is also an experiment in how far AI-assisted engineering can go while remaining understandable, testable and technically honest.
@@ -159,9 +161,12 @@ State:
 - unsafe code added/changed
 - dependencies added
 - primary specifications/references used
-- AI agent/model used, when known
+- authoring AI agent/model used, when known
+- reviewing AI agent/model, when reviewed
 
 Boot screenshots/logs are encouraged.
+
+PR review is agent-to-agent. Do not request or require "human review" as a completion condition. If review is needed, request another AI agent and identify that reviewing agent in the PR discussion.
 
 ## Never
 
