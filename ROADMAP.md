@@ -45,7 +45,7 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [ ] Kernel framebuffer output without UEFI
 - [ ] Kernel panic output
 
-**Current verified checkpoint (main `4085dc2`, GitHub Actions run `36332949657`):** The QEMU smoke test builds loader + kernel, validates the kernel ELF, discovers ACPI/GOP, stages and verifies PT_LOAD bytes/BSS, software-verifies **inactive** higher-half kernel page tables, and emits `VIBRIX: final memory map captured` after a successful UEFI GetMemoryMap acquisition. The new page tables have not been activated (CR3); BootInfo population, ExitBootServices and kernel execution remain unimplemented/unverified.
+**M2 staging checkpoint:** The QEMU smoke gate software-verifies **inactive** higher-half PT_LOAD and narrow identity transition mappings (loader image, stack, BootInfo, map buffer, RSDP and UC GOP). After the final paging allocations it refreshes the owned UEFI memory-map buffer in place, then populates validated BootInfo v2. CR3 activation, ExitBootServices, actual kernel-side BootInfo consumption and kernel execution are still unimplemented/unverified. The mapping and BootInfo checkboxes stay open until the standalone kernel uses them after firmware exit.
 
 **Exit:** standalone kernel prints after ExitBootServices without firmware boot services.
 
