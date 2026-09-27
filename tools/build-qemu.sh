@@ -21,7 +21,7 @@ echo "[vibrix] building UEFI loader"
 cargo build -p vibrix-boot --target x86_64-unknown-uefi
 
 echo "[vibrix] building kernel"
-cargo -Z build-std=core,compiler_builtins   -Z build-std-features=compiler-builtins-mem   rustc -p vibrix-kernel   --target kernel/x86_64-vibrix.json   --   -C link-arg=-Tkernel/linker.ld
+cargo -Zjson-target-spec -Zbuild-std=core,compiler_builtins -Zbuild-std-features=compiler-builtins-mem rustc -p vibrix-kernel --target kernel/x86_64-vibrix.json -- -C link-arg=-Tkernel/linker.ld
 
 OUT="$ROOT/build/qemu"
 ESP="$OUT/esp"
