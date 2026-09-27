@@ -54,8 +54,8 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [x] CPUID discovery
 - [x] Serial/debug console
 - [x] GDT + TSS
-- [ ] IDT + exception handlers
-- [ ] Page-fault diagnostics
+- [x] IDT + exception handlers
+- [x] Page-fault diagnostics
 - [x] Physical frame allocator
 - [ ] Virtual memory manager
 - [ ] Kernel heap
@@ -75,6 +75,20 @@ single-boot-CPU and interrupts-disabled. **This checkbox does not imply**
 new physical frames are identity-mapped, zeroed, releasable, SMP-safe, or
 available to a heap/userspace: those are separate uncompleted memory tasks.
 
+
+**Verified M3 early exception handling (PR #52):**
+[QEMU run 36340579141](https://github.com/mixutin/Vibrix/actions/runs/36340579141)
+synchronized the IDT work with the real kernel's M2 handoff, RSDP and
+physical-frame allocator and exercised four separate QEMU builds:
+normal kernel, native panic probe, actual CPU `int3` breakpoint
+(returning from #BP), and an actual unmapped page read triggering #PF.
+The real kernel recorded CR2 = `0x10000000000`, RIP, raw error code and
+decoded P/W/U/RSVD/I bits on independent COM1 output, with separate
+debugcon proof. The permanent 256-gate IDT handles synchronous #BP,
+#DF, #GP and #PF; only #BP and #PF were fault-injected in QEMU.
+**Interrupt flag remains cleared** and unconfigured IRQ vectors, APIC,
+double-fault IST/privilege stacks, ring-3 exceptions, timer routing
+and SMP handling are separate unchecked work. Target 001 is untested.
 
 ## M4 — Device discovery
 - [ ] ACPI parser

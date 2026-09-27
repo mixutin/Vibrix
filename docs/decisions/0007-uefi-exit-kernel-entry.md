@@ -54,13 +54,15 @@ output. That feature is for QEMU smoke only, not the default kernel build.
 
 ## Known limits
 
-The initial memory-map ownership is retained but **no kernel physical-frame
-allocator has reclaimed anything yet**. The temporary identity alias of
+The initial memory-map ownership is retained. A later M3 QEMU-tested
+monotonic frame allocator now issues conventional physical pages, but
+does **not** reclaim loader-owned page tables, the stack, BootInfo or map. The temporary identity alias of
 the writable+executable UEFI PE image is retained; W^X, teardown and
 firmware-runtime-memory policy require later work. Only the RSDP entry
 window and framebuffer are mapped; the whole ACPI table graph is not yet
-mapped or parsed. The TSS does not have RSP0/IST stacks, and interrupts
-remain disabled; IDT and scheduling are not implemented. Early output is
+mapped or parsed. The TSS does not have RSP0/IST stacks; the later ADR 0008 installs
+a synchronous-exception IDT and QEMU-tests #BP/#PF, but interrupts remain
+disabled and IRQ routing and scheduling are not implemented. Early output is
 single-core only. PixelBitMask GOP format draws black until its pixel masks
 are represented in a future ABI. No native USB driver, persistent root,
 userspace or Target 001 physical evidence is implied.

@@ -51,6 +51,14 @@ Memory-map capture's standalone host tests use the production acquisition helper
 | `kernel/src/memory/mod.rs::init_from_boot_info` | Convert the loader-owned physical map base and checked length into a `&'static [u8]` under the active identity-mapped PML4. Firmware must not mutate it after EBS; the EfiLoaderData map backing stays reserved for this early allocator's lifetime. The shared BootInfo v2 is scalar-validated before the conversion. | The production frame allocator bounds map size and descriptor count, validates stride/overlap/extent before issuance, and returns only conventional type-7 page **numbers**. QEMU after EBS observes the two frame-allocator markers. No freshly issued physical page is dereferenced, mapped or zeroed by this API. |
 | `kernel/src/memory/mod.rs::EarlyFrameState`, `init_from_boot_info`, `allocate_frame` | A sole mutable `UnsafeCell<Option<EarlyAllocator>>` and `unsafe impl Sync` are justified **only while one boot CPU executes with interrupts disabled**; both APIs are unsafe and require this. The one-time holder prevents separate frame allocators from issuing the same page; the map, RSDP and GOP ranges are explicitly rounded up and excluded even if firmware types are surprising. | [QEMU run 36339966455](https://github.com/mixutin/Vibrix/actions/runs/36339966455) observes two distinct nonzero 4-KiB conventional frames claimed after EBS. This is a monotonic allocator with no free/reuse or synchronization. Must replace `UnsafeCell` access with interrupt-safe multi-CPU ownership before IDT-driven allocation, IF=1 or SMP access; compiling an IDT alone does **not** make this safe in handlers. |
 
+## Kernel: installed synchronous IDT and fault capture (PR #52)
+
+| Production owner | Unsafe operation and required invariant | Validation and residual limitation |
+| --- | --- | --- |
+| `kernel/src/arch/x86_64/idt.rs::PermanentIdt`, `init` | An `UnsafeCell<IdtTable>` and manual `Sync` hold the 256-gate, 4096-byte permanent static IDT. Only the boot CPU initializes it **once** with IF clear, after GDT/TSS and kernel COM1 are installed. `lidt` receives a 10-byte IDTR pointing to permanently mapped and initialized kernel storage; installed selectors must match the current 64-bit code segment. | Production and host gate-layout tests plus exact-head [QEMU run 36340579141](https://github.com/mixutin/Vibrix/actions/runs/36340579141) observe kernel-only `VIBRIX: kernel IDT installed` and real #BP/#PF delivery after EBS. Most vectors stay not present. No IF=1/IRQ, IST, RSP0 ring-3 stack, SMP/parallel mutation or Target 001 guarantees. |
+| `kernel/src/arch/x86_64/idt.rs` exception handlers, `page_fault_handler` | Nightly Rust `extern "x86-interrupt"` ABI must produce the CPU-compatible stack-frame and IRETQ handling for returning #BP; #DF/#GP/#PF are deliberately non-returning. The page-fault handler reads CR2 **before** any logging might disturb it, then decodes the hardware error bits without dereferencing the faulting address. Debug output assumes one CPU and a live COM1. | Separate real QEMU `int3` and unmapped read probes report returning breakpoint RIP and #PF CR2=`0x10000000000` with P/W/U/RSVD/I bits on native serial, not just unit-test fixtures. #DF/#GP gates are installed but not fault-injected; #DF has **no IST emergency stack** and must not be advertised as safe for stack exhaustion. |
+| `kernel/src/main.rs` optional `breakpoint-probe`, `page-fault-probe` inline assembly | Only explicitly selected QEMU test builds execute INT3 or load from a canonical unmapped address. The default production boot must not intentionally fault; the probe uses registers/asm rather than constructing an invalid Rust reference. | CI checks the real kernel's independent debugcon and COM1 logs, after all merged ACPI/frame allocator startup markers. Probe success is not timer delivery, a native driver or hardware fault recovery. |
+
 ## Activation, framebuffer and panic: new unsafe boundaries in PR #49
 
 | Production owner | Required safety invariant | Validation and limitation |
@@ -73,9 +81,12 @@ also exercised the standalone kernel panic handler on debugcon and COM1.
 observed kernel-side RSDP validation, and
 [early frame allocator run 36339966455](https://github.com/mixutin/Vibrix/actions/runs/36339966455)
 observed two conventional physical frame claims by the real post-firmware
-kernel. None of those establishes Target 001 real hardware, IDT/interrupt
-delivery, whole-ACPI parsing, freshly mapped/zeroed frames, USB-storage
-reacquisition, a persistent filesystem or userspace execution. The
+kernel. [Synchronized IDT QEMU run 36340579141](https://github.com/mixutin/Vibrix/actions/runs/36340579141)
+additionally observed native #BP and #PF delivery after the earlier
+kernel ACPI/frame checks. None of those establishes Target 001 real
+hardware, **hardware IRQ routing/IST**, whole-ACPI parsing, freshly
+mapped/zeroed frames, USB-storage reacquisition, a persistent filesystem
+or userspace execution. The
 loader-owned physical pages remain reserved under the type-7-only
 allocator; any later reclaim requires an explicit ownership transfer.
 

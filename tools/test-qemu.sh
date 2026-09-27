@@ -78,6 +78,7 @@ for expected in \
   "VIBRIX: kernel BootInfo v2 validated" \
   "VIBRIX: kernel GDT/TSS loaded" \
   "VIBRIX: kernel serial initialized" \
+  "VIBRIX: kernel IDT installed" \
   "VIBRIX: kernel ACPI RSDP parsed" \
   "VIBRIX: kernel frame allocator initialized" \
   "VIBRIX: kernel conventional frames allocated" \
