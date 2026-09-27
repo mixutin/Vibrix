@@ -66,5 +66,5 @@ call ExitBootServices, or execute the standalone kernel.
 
 OVMF is development firmware supplied to the virtual machine, not part of
 Vibrix. QEMU is development/testing infrastructure, not shipped as the
-Vibrix runtime. Rust package policy is documented in
-[DEPENDENCIES.md](DEPENDENCIES.md).
+Vibrix runtime. Rust package policy is documented in [AGENTS.md](../AGENTS.md) and
+[INDEPENDENCE.md](INDEPENDENCE.md).
