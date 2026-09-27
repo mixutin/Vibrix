@@ -180,7 +180,9 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     let acpi_mcfg = unsafe { parse_boot_rsdp(&info) }.and_then(|rsdp| {
         // SAFETY: sole boot CPU, IF=0, physical allocator initialized and
         // mapping-window smoke test has unmapped every temporary leaf.
-        unsafe { arch::x86_64::acpi_runtime::inspect(&info, &rsdp) }.map_err(|_| ())
+        unsafe { arch::x86_64::acpi_runtime::inspect(&info, &rsdp) }.map_err(|error| {
+            crate::println!("kernel ACPI/ECAM validation failed: {:?}", error);
+        })
     });
     match acpi_mcfg {
         Ok(discovery) => {
