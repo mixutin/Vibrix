@@ -9,6 +9,7 @@ const SDT_HEADER_LEN: usize = 36;
 const MAX_TABLE_LEN: usize = 1024 * 1024;
 const MCFG_HEADER_LEN: usize = 44;
 const MCFG_ENTRY_LEN: usize = 16;
+const MADT_HEADER_LEN: usize = 44;
 const ECAM_BUS_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,6 +22,7 @@ pub enum AcpiError {
     InvalidEntry,
     InvalidAllocation,
     AddressOverflow,
+    UnsupportedEntry,
 }
 
 fn u16_at(data: &[u8], offset: usize) -> Result<u16, AcpiError> {
@@ -151,6 +153,72 @@ impl<'a> Sdt<'a> {
         Ok(RootEntries { entries, stride })
     }
 
+    pub fn madt_entries(&self) -> Result<Madt<'a>, AcpiError> {
+        if &self.signature != b"APIC" {
+            return Err(AcpiError::InvalidSignature);
+        }
+        if self.bytes.len() < MADT_HEADER_LEN {
+            return Err(AcpiError::InvalidLength);
+        }
+        let mut lapic_address = u64::from(u32_at(self.bytes, 36)?);
+        if lapic_address == 0 || !lapic_address.is_multiple_of(4096) {
+            return Err(AcpiError::InvalidAllocation);
+        }
+        let flags = u32_at(self.bytes, 40)?;
+        let entries = &self.bytes[MADT_HEADER_LEN..];
+        let mut offset = 0usize;
+        let mut ioapics = 0usize;
+        while offset < entries.len() {
+            let header = entries.get(offset..offset + 2).ok_or(AcpiError::Truncated)?;
+            let length = usize::from(header[1]);
+            if length < 2 || offset.checked_add(length).is_none_or(|end| end > entries.len()) {
+                return Err(AcpiError::InvalidEntry);
+            }
+            let entry = &entries[offset..offset + length];
+            match entry[0] {
+                0 if length == 8 => {
+                    let apic_flags = u32_at(entry, 4)?;
+                    if apic_flags & !0b11 != 0 {
+                        return Err(AcpiError::InvalidEntry);
+                    }
+                }
+                1 if length == 12 => {
+                    if entry[3] != 0 {
+                        return Err(AcpiError::InvalidEntry);
+                    }
+                    let address = u64::from(u32_at(entry, 4)?);
+                    if address == 0 || !address.is_multiple_of(4096) {
+                        return Err(AcpiError::InvalidAllocation);
+                    }
+                    ioapics = ioapics.checked_add(1).ok_or(AcpiError::InvalidEntry)?;
+                }
+                2 if length == 10 => {}
+                5 if length == 12 => {
+                    if entry[2..4] != [0; 2] {
+                        return Err(AcpiError::InvalidEntry);
+                    }
+                    let address = u64_at(entry, 4)?;
+                    if address == 0 || !address.is_multiple_of(4096) {
+                        return Err(AcpiError::InvalidAllocation);
+                    }
+                    lapic_address = address;
+                }
+                9 if length == 16 => {}
+                _ => {}
+            }
+            offset += length;
+        }
+        if ioapics == 0 {
+            return Err(AcpiError::InvalidAllocation);
+        }
+        Ok(Madt {
+            lapic_address,
+            flags,
+            entries,
+            ioapics,
+        })
+    }
+
     pub fn mcfg_entries(&self) -> Result<McfgEntries<'a>, AcpiError> {
         if &self.signature != b"MCFG" {
             return Err(AcpiError::InvalidSignature);
@@ -177,6 +245,57 @@ impl<'a> Sdt<'a> {
             }
         }
         Ok(result)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IoApic {
+    pub id: u8,
+    pub address: u64,
+    pub gsi_base: u32,
+}
+
+pub struct Madt<'a> {
+    pub lapic_address: u64,
+    pub flags: u32,
+    entries: &'a [u8],
+    ioapics: usize,
+}
+
+impl Madt<'_> {
+    pub fn ioapic_count(&self) -> usize {
+        self.ioapics
+    }
+
+    pub fn ioapics(&self) -> impl Iterator<Item = Result<IoApic, AcpiError>> + '_ {
+        let mut offset = 0usize;
+        core::iter::from_fn(move || {
+            while offset < self.entries.len() {
+                let header = self.entries.get(offset..offset + 2)?;
+                let length = usize::from(header[1]);
+                let end = offset.checked_add(length)?;
+                let entry = self.entries.get(offset..end)?;
+                offset = end;
+                if entry[0] != 1 {
+                    continue;
+                }
+                return Some((|| {
+                    if length != 12 || entry[3] != 0 {
+                        return Err(AcpiError::InvalidEntry);
+                    }
+                    let address = u64::from(u32_at(entry, 4)?);
+                    if address == 0 || !address.is_multiple_of(4096) {
+                        return Err(AcpiError::InvalidAllocation);
+                    }
+                    Ok(IoApic {
+                        id: entry[2],
+                        address,
+                        gsi_base: u32_at(entry, 8)?,
+                    })
+                })());
+            }
+            None
+        })
     }
 }
 
@@ -431,6 +550,65 @@ mod tests {
         bytes[10] = start;
         bytes[11] = end;
         bytes
+    }
+
+    #[test]
+    fn madt_validates_lapic_override_and_ioapic_entries() {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&0xfee0_0000u32.to_le_bytes());
+        payload.extend_from_slice(&1u32.to_le_bytes());
+        payload.extend_from_slice(&[0, 8, 0, 1]);
+        payload.extend_from_slice(&1u32.to_le_bytes());
+        payload.extend_from_slice(&[1, 12, 2, 0]);
+        payload.extend_from_slice(&0xfec0_0000u32.to_le_bytes());
+        payload.extend_from_slice(&0u32.to_le_bytes());
+        payload.extend_from_slice(&[5, 12, 0, 0]);
+        payload.extend_from_slice(&0xfee0_1000u64.to_le_bytes());
+        let raw = table(b"APIC", &payload);
+        let table = Sdt::parse(&raw).unwrap();
+        let madt = table.madt_entries().unwrap();
+        assert_eq!(madt.lapic_address, 0xfee0_1000);
+        assert_eq!(madt.flags, 1);
+        assert_eq!(madt.ioapic_count(), 1);
+        assert_eq!(
+            madt.ioapics().next().unwrap().unwrap(),
+            IoApic {
+                id: 2,
+                address: 0xfec0_0000,
+                gsi_base: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn madt_rejects_missing_ioapic_bad_lengths_and_unaligned_mmio() {
+        let mut no_ioapic = Vec::new();
+        no_ioapic.extend_from_slice(&0xfee0_0000u32.to_le_bytes());
+        no_ioapic.extend_from_slice(&1u32.to_le_bytes());
+        let raw = table(b"APIC", &no_ioapic);
+        assert!(matches!(
+            Sdt::parse(&raw).unwrap().madt_entries(),
+            Err(AcpiError::InvalidAllocation)
+        ));
+
+        let mut bad = no_ioapic.clone();
+        bad.extend_from_slice(&[1, 11]);
+        bad.extend_from_slice(&[0; 9]);
+        let raw = table(b"APIC", &bad);
+        assert!(matches!(
+            Sdt::parse(&raw).unwrap().madt_entries(),
+            Err(AcpiError::InvalidEntry)
+        ));
+
+        let mut unaligned = no_ioapic;
+        unaligned.extend_from_slice(&[1, 12, 1, 0]);
+        unaligned.extend_from_slice(&0xfec0_0001u32.to_le_bytes());
+        unaligned.extend_from_slice(&0u32.to_le_bytes());
+        let raw = table(b"APIC", &unaligned);
+        assert!(matches!(
+            Sdt::parse(&raw).unwrap().madt_entries(),
+            Err(AcpiError::InvalidAllocation)
+        ));
     }
 
     #[test]
