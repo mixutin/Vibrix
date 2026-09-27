@@ -76,10 +76,7 @@ impl ReservedFrames {
             .checked_mul(PAGE_SIZE)
             .and_then(|bytes| start.checked_add(bytes))
             .ok_or(FrameError::InvalidExclusion)?;
-        if pages == 0
-            || !start.is_multiple_of(PAGE_SIZE)
-            || end > MAX_PHYSICAL_EXCLUSIVE
-        {
+        if pages == 0 || !start.is_multiple_of(PAGE_SIZE) || end > MAX_PHYSICAL_EXCLUSIVE {
             return Err(FrameError::InvalidExclusion);
         }
         Ok(Self { start, end })
@@ -146,7 +143,10 @@ impl<'a> FrameAllocator<'a> {
     pub fn allocate_frame(&mut self, exclusions: &[ReservedFrames]) -> Option<u64> {
         loop {
             while self.next_frame >= self.end_frame {
-                let raw = self.map.chunks_exact(self.stride).nth(self.next_descriptor)?;
+                let raw = self
+                    .map
+                    .chunks_exact(self.stride)
+                    .nth(self.next_descriptor)?;
                 self.next_descriptor += 1;
                 // Validated at initialization; none of the map is mutable.
                 let entry = descriptor(raw).ok()?;
@@ -159,7 +159,10 @@ impl<'a> FrameAllocator<'a> {
             }
             let candidate = self.next_frame;
             self.next_frame += PAGE_SIZE; // validated <= 2^52, no overflow
-            if exclusions.iter().all(|reserved| !reserved.contains(candidate)) {
+            if exclusions
+                .iter()
+                .all(|reserved| !reserved.contains(candidate))
+            {
                 return Some(candidate);
             }
         }
@@ -181,8 +184,12 @@ mod tests {
     }
 
     fn sample() -> Vec<u8> {
-        [raw(2, 0x1000, 2, 0), raw(7, 0x3000, 3, 0), raw(7, 0x8000, 2, 0)]
-            .concat()
+        [
+            raw(2, 0x1000, 2, 0),
+            raw(7, 0x3000, 3, 0),
+            raw(7, 0x8000, 2, 0),
+        ]
+        .concat()
     }
 
     #[test]
@@ -249,10 +256,7 @@ mod tests {
 
     #[test]
     fn rejects_bad_exclusion_bounds() {
-        assert_eq!(
-            ReservedFrames::new(1, 2),
-            Err(FrameError::InvalidExclusion)
-        );
+        assert_eq!(ReservedFrames::new(1, 2), Err(FrameError::InvalidExclusion));
         assert_eq!(
             ReservedFrames::new(0x1000, 0),
             Err(FrameError::InvalidExclusion)
