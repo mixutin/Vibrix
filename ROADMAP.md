@@ -35,25 +35,25 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [x] Validate ELF class/machine/endianness
 - [x] Parse PT_LOAD headers
 - [x] Allocate/copy kernel segments and zero BSS
-- [ ] Establish initial kernel mappings
+- [x] Establish initial kernel mappings
 - [x] Discover GOP framebuffer
 - [x] Discover ACPI RSDP
 - [x] Capture final UEFI memory map
-- [ ] Populate BootInfo
-- [ ] ExitBootServices
-- [ ] Transfer to vibrix_kernel_entry
-- [ ] Kernel framebuffer output without UEFI
-- [ ] Kernel panic output
+- [x] Populate BootInfo
+- [x] ExitBootServices
+- [x] Transfer to vibrix_kernel_entry
+- [x] Kernel framebuffer output without UEFI
+- [x] Kernel panic output
 
-**M2 staging checkpoint:** The QEMU smoke gate software-verifies **inactive** higher-half PT_LOAD and narrow identity transition mappings (loader image, stack, BootInfo, map buffer, RSDP and UC GOP). After the final paging allocations it refreshes the owned UEFI memory-map buffer in place, then populates validated BootInfo v2. CR3 activation, ExitBootServices, actual kernel-side BootInfo consumption and kernel execution are still unimplemented/unverified. The mapping and BootInfo checkboxes stay open until the standalone kernel uses them after firmware exit.
+**Verified M2 QEMU/OVMF handoff (PR #49):** [Actions run 36337520346](https://github.com/mixutin/Vibrix/actions/runs/36337520346) executed the UEFI loader, refreshed the final map, populated BootInfo v2, successfully exited boot services, switched to verified kernel mappings and dedicated stack, and entered the standalone higher-half kernel. The **kernel's own** debugcon markers confirm BootInfo validation, GDT/TSS initialization, native COM1 output and uncached GOP framebuffer pixel writes; the separate QEMU serial log contains `Vibrix kernel started.`. [Run 36337648665](https://github.com/mixutin/Vibrix/actions/runs/36337648665) also booted an optional panic-probe kernel and observed real post-firmware panic messages over QEMU debugcon **and** COM1. These are QEMU observations, not Target 001 physical boot or a native USB storage/filesystem/interrupts/userspace milestone. Kernel page allocator, full ACPI table mappings, IDT, removable USB reacquisition and persistence are still pending.
 
 **Exit:** standalone kernel prints after ExitBootServices without firmware boot services.
 
 ## M3 — x86-64 kernel foundations
-- [ ] Architecture module layout
-- [ ] CPUID discovery
-- [ ] Serial/debug console
-- [ ] GDT + TSS
+- [x] Architecture module layout
+- [x] CPUID discovery
+- [x] Serial/debug console
+- [x] GDT + TSS
 - [ ] IDT + exception handlers
 - [ ] Page-fault diagnostics
 - [ ] Physical frame allocator
@@ -61,7 +61,7 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [ ] Kernel heap
 - [ ] Local APIC + I/O APIC
 - [ ] Timer + interrupt routing
-- [ ] Explicit unsafe-code boundaries
+- [x] Explicit unsafe-code boundaries
 
 ## M4 — Device discovery
 - [ ] ACPI parser
