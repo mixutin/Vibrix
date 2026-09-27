@@ -151,12 +151,7 @@ impl<'a> FrameAllocator<'a> {
     /// No physical memory is dereferenced here. The caller still needs a
     /// separate, temporary read-only mapping and must not reclaim these pages.
     /// Padding pages at either end are also required to have ACPI ownership.
-    fn covers_pages(
-        &self,
-        start: u64,
-        len: u64,
-        allowed: impl Fn(Descriptor) -> bool,
-    ) -> bool {
+    fn covers_pages(&self, start: u64, len: u64, allowed: impl Fn(Descriptor) -> bool) -> bool {
         let Some(end) = start.checked_add(len) else {
             return false;
         };
