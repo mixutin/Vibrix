@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["boot"]
+members = ["boot", "kernel"]
 
 [profile.dev]
 panic = "abort"
