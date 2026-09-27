@@ -203,6 +203,40 @@ impl<'a> FrameAllocator<'a> {
         })
     }
 
+    /// Safety predicate for one page whose device identity comes from an
+    /// independent hardware table/register rather than the UEFI memory map.
+    ///
+    /// Some firmware (including QEMU OVMF) omits architectural APIC MMIO
+    /// pages from GetMemoryMap. Absence is therefore allowed, but a present
+    /// descriptor must positively be non-runtime UC reserved/MMIO memory.
+    /// This is only a *non-RAM/conflicting-type* check: it never proves that
+    /// an arbitrary absent physical page belongs to a device.
+    pub fn permits_external_mmio_page(&self, physical: u64) -> bool {
+        let Some(end) = physical.checked_add(PAGE_SIZE) else {
+            return false;
+        };
+        if physical == 0
+            || !physical.is_multiple_of(PAGE_SIZE)
+            || end > MAX_PHYSICAL_EXCLUSIVE
+        {
+            return false;
+        }
+        let region = self
+            .map
+            .chunks_exact(self.stride)
+            .filter_map(|bytes| descriptor(bytes).ok())
+            .find(|region| region.start <= physical && physical < region.end);
+        match region {
+            None => true,
+            Some(region) => {
+                region.end >= end
+                    && matches!(region.kind, EFI_RESERVED_MEMORY | EFI_MEMORY_MAPPED_IO)
+                    && region.attr & EFI_MEMORY_UC != 0
+                    && region.attr & EFI_MEMORY_RUNTIME == 0
+            }
+        }
+    }
+
     /// Diagnostic value only: never dereferences a physical address.
     pub fn descriptor_at(&self, physical: u64) -> Option<(u32, u64)> {
         self.map
@@ -396,6 +430,35 @@ mod tests {
             let invalid = raw(kind, 0xe000_0000, 1, attrs);
             let owner = FrameAllocator::from_memory_map(&invalid, 48, 1).unwrap();
             assert!(!owner.covers_mmio_bytes(0xe000_0000, 4));
+        }
+    }
+
+    #[test]
+    fn externally_identified_mmio_may_be_unlisted_but_never_ram_or_runtime() {
+        let ram = raw(7, 0x1000, 1, EFI_MEMORY_WB);
+        let frames = FrameAllocator::from_memory_map(&ram, 48, 1).unwrap();
+        assert!(frames.permits_external_mmio_page(0xfec0_0000));
+        assert!(!frames.permits_external_mmio_page(0x1000));
+        assert!(!frames.permits_external_mmio_page(0));
+        assert!(!frames.permits_external_mmio_page(0xfec0_0001));
+        assert!(!frames.permits_external_mmio_page(u64::MAX & !(PAGE_SIZE - 1)));
+
+        for (kind, attrs, expected) in [
+            (0, EFI_MEMORY_UC, true),
+            (11, EFI_MEMORY_UC, true),
+            (0, EFI_MEMORY_UC | EFI_MEMORY_RUNTIME, false),
+            (11, EFI_MEMORY_WB, false),
+            (9, EFI_MEMORY_WB, false),
+            (2, EFI_MEMORY_UC, false),
+            (7, EFI_MEMORY_UC, false),
+        ] {
+            let raw = raw(kind, 0xfec0_0000, 1, attrs);
+            let owner = FrameAllocator::from_memory_map(&raw, 48, 1).unwrap();
+            assert_eq!(
+                owner.permits_external_mmio_page(0xfec0_0000),
+                expected,
+                "kind={kind} attrs={attrs:#x}"
+            );
         }
     }
 
