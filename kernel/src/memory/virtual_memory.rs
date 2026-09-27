@@ -122,6 +122,32 @@ impl Window {
         Ok(address)
     }
 
+    /// Map one page of writable device MMIO as supervisor NX and UC.
+    /// Use only for architecturally defined control registers whose writes
+    /// are explicitly bounded by the caller; never for ordinary RAM.
+    ///
+    /// # Safety
+    /// Sole boot CPU, IF=0, validated device MMIO ownership, no conflicting
+    /// cache aliases, and no Rust reference may outlive unmap().
+    pub unsafe fn map_mmio_writable(
+        &mut self,
+        index: usize,
+        physical: u64,
+    ) -> Result<u64, MapError> {
+        let address = page_address(index)?;
+        let entry = leaf(physical, self.physical_bits, true)? | PWT | PCD;
+        // SAFETY: exclusive PT ownership; UC writable leaf for device MMIO.
+        unsafe {
+            let slot = self.table.add(index);
+            if slot.read_volatile() != 0 {
+                return Err(MapError::Occupied);
+            }
+            slot.write_volatile(entry);
+            (self.invalidate)(address);
+        }
+        Ok(address)
+    }
+
     /// # Safety
     /// Sole CPU, IRQs off; no references/accesses may outlive this mapping.
     /// The returned physical frame remains owned and is not automatically freed.
@@ -326,6 +352,22 @@ mod tests {
             unsafe { vm.map_mmio_readonly(0, 0xe000_0001) },
             Err(MapError::InvalidAddress)
         );
+    }
+
+    #[test]
+    fn writable_mmio_mapping_sets_write_and_uc_bits() {
+        let mut table = [0u64; 512];
+        let mut vm = unsafe { Window::from_table(table.as_mut_ptr(), 48, no_flush) }.unwrap();
+        assert_eq!(
+            unsafe { vm.map_mmio_writable(2, 0xfec0_0000) },
+            Ok(window::BASE + 2 * 4096)
+        );
+        assert_eq!(
+            table[2],
+            0xfec0_0000 | PRESENT | WRITE | NX | PWT | PCD
+        );
+        assert_eq!(vm.translation(2), Ok(Some((0xfec0_0000, true))));
+        assert_eq!(unsafe { vm.unmap(2) }, Ok(0xfec0_0000));
     }
 
     #[test]
