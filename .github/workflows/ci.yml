@@ -122,6 +122,12 @@ jobs:
           rustc --edition=2024 --test kernel/src/memory/frame_allocator.rs -o "$RUNNER_TEMP/vibrix-frame-tests"
           "$RUNNER_TEMP/vibrix-frame-tests"
 
+      - name: Test native PCI enumeration and BAR parsing on host
+        run: |
+          rustfmt --edition 2024 --check kernel/src/arch/x86_64/pci.rs
+          rustc --edition=2024 --test kernel/src/arch/x86_64/pci.rs -o "$RUNNER_TEMP/vibrix-pci-tests"
+          "$RUNNER_TEMP/vibrix-pci-tests"
+
       - name: Test production early kernel heap on host
         run: |
           rustfmt --edition 2024 --check kernel/src/memory/heap.rs
@@ -175,6 +181,14 @@ jobs:
           VIBRIX_SKIP_BUILD: "1"
         run: bash tools/test-qemu.sh
 
+      - name: QEMU native PCI scan with virtual xHCI controller
+        env:
+          VIBRIX_SKIP_BUILD: "1"
+          VIBRIX_QEMU_XHCI: "1"
+        run: |
+          bash tools/test-qemu.sh
+          grep -Eq 'Vibrix PCI segment0: [1-9][0-9]* devices, [1-9][0-9]* assigned BARs, [1-9][0-9]* xHCI' build/qemu/serial.log
+
       - name: QEMU post-firmware kernel panic test
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,panic-probe bash tools/build-qemu.sh
@@ -196,4 +210,3 @@ jobs:
           grep -Fq "VIBRIX: kernel page fault diagnostic" build/qemu/debugcon.log
           grep -Fq "kernel #PF cr2=0x10000000000" build/qemu/serial.log
           grep -Fq "present=false write=false user=false reserved=false exec=false" build/qemu/serial.log
-

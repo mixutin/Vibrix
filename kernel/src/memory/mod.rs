@@ -133,4 +133,3 @@ pub unsafe fn smoke_claim_two_frames() -> Result<(u64, u64), EarlyFrameError> {
     }
     Ok((first, second))
 }
-
