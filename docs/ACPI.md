@@ -23,9 +23,17 @@ RSDT/XSDT entry lengths, overlapping MCFG bus ranges, reserved bytes,
 ECAM overflow and PCI bounds. CI also compiles this module as part of the
 bare-metal kernel.
 
-**Limits:** Passing host parsing fixtures and compiling a module do not
-prove that the kernel has mapped the firmware XSDT/MCFG pages, discovered
-actual PCI devices, or accessed native MMIO in QEMU or Target 001. Kernel
+The production kernel now invokes `parse_rsdp` **after ExitBootServices**
+on the loader-validated RSDP bytes mapped under ADR 0006. The QEMU
+smoke test requires the **kernel-only** `VIBRIX: kernel ACPI RSDP parsed`
+marker in both normal and panic-probe boots. Firmware-specific RSDP
+extensions beyond the 36-byte currently mapped/validated window fail
+closed rather than being read from an unknown extent.
+
+**Limits:** Passing the kernel RSDP marker and host SDT/MCFG fixtures do
+not prove that the kernel has mapped or parsed the real firmware XSDT/MCFG
+pages, discovered actual PCI devices, or accessed native MMIO on QEMU
+or Target 001. Kernel
 call sites must first establish mapped, readable memory covering the
 advertised length, copy it into owned bounded storage if lifetime requires,
 and then call these slice parsers. Do not create an unchecked
