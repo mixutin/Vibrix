@@ -93,6 +93,7 @@ for expected in \
   "VIBRIX: kernel virtual mappings verified" \
   "VIBRIX: kernel ACPI XSDT and MCFG mapped and parsed" \
   "VIBRIX: kernel PCI ECAM bus0 read" \
+  "VIBRIX: kernel LAPIC and IOAPIC registers read" \
   "VIBRIX: kernel heap allocation and reuse verified" \
   "VIBRIX: kernel framebuffer wrote pixels" \
   "VIBRIX: kernel framebuffer status banner drawn"; do
@@ -110,6 +111,7 @@ if [[ ! -f "$SERIAL_LOG" ]] || ! grep -Fq "Vibrix kernel started." "$SERIAL_LOG"
 fi
 grep -Fq "kernel VM: map, protect, unmap and remap verified" "$SERIAL_LOG"
 grep -Eq 'Vibrix ECAM segment0 bus0: [1-9][0-9]* devices, [0-9]+ xHCI' "$SERIAL_LOG"
+grep -Eq 'Vibrix APIC: LAPIC id=[0-9]+ version=0x[0-9a-f]+ max_lvt=[1-9][0-9]*, IOAPIC id=[0-9]+ version=0x[0-9a-f]+ max_redir=[1-9][0-9]*' "$SERIAL_LOG"
 if [[ "${VIBRIX_QEMU_XHCI:-0}" == "1" ]]; then
   grep -Eq 'Vibrix ECAM segment0 bus0: [1-9][0-9]* devices, [1-9][0-9]* xHCI' "$SERIAL_LOG"
 fi
