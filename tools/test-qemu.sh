@@ -77,6 +77,7 @@ while time.monotonic() < deadline:
                 client.sendall(b"sendkey h\n")
                 time.sleep(0.3)
                 client.sendall(b"sendkey ret\n")
+                time.sleep(0.6)  # keep HMP alive through key delivery/release
                 break
         except OSError:
             pass
@@ -164,8 +165,9 @@ grep -Fq "kernel heap: aligned allocations, RAM writes and reuse verified" "$SER
 if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" ]]; then
   grep -Fq "VIBRIX: kernel PS2 polling ready" "$LOG"
   grep -Fq "VIBRIX: kernel PS2 ASCII accepted" "$LOG"
-  grep -Fq "kernel PS2 ascii 104" "$SERIAL_LOG" # 'h' made it into the kernel
-  grep -Fq "kernel PS2 ascii 10" "$SERIAL_LOG"  # Return key
+  # Exact complete lines: ASCII 104 must NOT pass the ASCII 10 check.
+  tr -d '\r' < "$SERIAL_LOG" | grep -Fxq "kernel PS2 ascii 104"
+  tr -d '\r' < "$SERIAL_LOG" | grep -Fxq "kernel PS2 ascii 10"
 fi
 cat "$SERIAL_LOG"
 
