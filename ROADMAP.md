@@ -1,5 +1,7 @@
 # Vibrix Roadmap
 
+> **Security develops in parallel with functionality.** See [SECURITY_ROADMAP.md](SECURITY_ROADMAP.md) for the security gates covering supply chain, kernel memory protection, interrupts, userspace isolation, DMA/drivers, persistent storage, networking, packages and verified boot. Functional completion does not imply a security property unless the corresponding security gate has evidence.
+
 Vibrix is an independent Rust-native Unix-like operating system that **lives on persistent USB storage**.
 
 There is no internal-disk edition. A checkbox is completed only when functionality is implemented and demonstrated on its stated target.
