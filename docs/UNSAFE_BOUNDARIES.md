@@ -59,6 +59,12 @@ Memory-map capture's standalone host tests use the production acquisition helper
 | `kernel/src/arch/x86_64/idt.rs` exception handlers, `page_fault_handler` | Nightly Rust `extern "x86-interrupt"` ABI must produce the CPU-compatible stack-frame and IRETQ handling for returning #BP; #DF/#GP/#PF are deliberately non-returning. The page-fault handler reads CR2 **before** any logging might disturb it, then decodes the hardware error bits without dereferencing the faulting address. Debug output assumes one CPU and a live COM1. | Separate real QEMU `int3` and unmapped read probes report returning breakpoint RIP and #PF CR2=`0x10000000000` with P/W/U/RSVD/I bits on native serial, not just unit-test fixtures. #DF/#GP gates are installed but not fault-injected; #DF has **no IST emergency stack** and must not be advertised as safe for stack exhaustion. |
 | `kernel/src/main.rs` optional `breakpoint-probe`, `page-fault-probe` inline assembly | Only explicitly selected QEMU test builds execute INT3 or load from a canonical unmapped address. The default production boot must not intentionally fault; the probe uses registers/asm rather than constructing an invalid Rust reference. | CI checks the real kernel's independent debugcon and COM1 logs, after all merged ACPI/frame allocator startup markers. Probe success is not timer delivery, a native driver or hardware fault recovery. |
 
+## Kernel: native PCI configuration I/O (segment zero)
+
+| Production owner | Unsafe operation and required invariant | Validation and residual limitation |
+| --- | --- | --- |
+| `kernel/src/arch/x86_64/pci.rs::read_legacy_dword` and `discover_legacy_segment_zero` | Ring-zero x86 I/O access to the shared PCI legacy configuration address/data pair (CF8/CFC) while one boot CPU runs with IF=0. Hardware config selection must not race a second CPU or interrupt handler. Only CF8 receives a selector write; CFC is read-only and no PCI device register or disk is written. | The pure address generator rejects out-of-range BDF functions/register alignment; the kernel scans all 256 legacy segment-zero buses and decodes only supported type-0/type-1 BAR layouts. Exact-head QEMU smoke requires separate kernel-originated PCI enumeration and assigned-BAR markers plus native COM1 summary. No segment >0, ACPI MCFG/ECAM, resource sizing, BAR MMIO mapping, bus-master setup, driver binding, xHCI activation or persistent boot USB is claimed. |
+
 ## Activation, framebuffer and panic: new unsafe boundaries in PR #49
 
 | Production owner | Required safety invariant | Validation and limitation |
@@ -95,3 +101,29 @@ ownership, lifetime, mapping, cache policy and synchronization at the
 actual operation. See [ADR 0007](decisions/0007-uefi-exit-kernel-entry.md),
 [ADR 0006](decisions/0006-transition-mappings.md) and
 [UEFI](https://uefi.org/specifications) / the Intel x86-64 SDM.
+
+## BootInfo v3 and early mapping window (PR #62)
+
+The historical v2 checkpoints above are superseded for the current entry
+contract by a mapped, aligned **96-byte v3** BootInfo object. Version is
+checked in the common prefix before the new tail is read. See ADR 0009.
+
+`prepare_kernel_window` accesses only exclusively owned inactive loader
+page tables, verifies empty leaves and retains all linked allocations.
+The PT is narrowly identity-mapped RW/NX and never reclaimed by the frame
+allocator. Failure aborts the attempt; no partial rollback is promised.
+
+`memory::virtual_memory::Window` owns raw volatile access to 512 mapped,
+u64-aligned entries on the sole boot CPU with IRQs disabled. Its unsafe
+constructor requires the v3 parent hierarchy and exclusive lifetime;
+index/physical-width checks do not independently prove those invariants.
+Map/protect/unmap require caller-owned WB RAM and retirement of incompatible
+references. Each store precedes INVLPG; the assembly has no `nomem` claim.
+CR0.WP is set while preserving all other bits. Leaves are supervisor/NX.
+No SMP, interrupt allocation, MMIO caching or physical-frame reuse is provided.
+Two optional QEMU probes deliberately fault through the installed IDT.
+The default boot only accesses mapped owned frames, then unmaps them.
+
+The separate early heap from PR #60 owns a 64 KiB static mapped arena and
+metadata in UnsafeCell under the same sole-CPU/IRQs-off restriction. See
+[EARLY_HEAP.md](EARLY_HEAP.md) for allocation lifetime and free/reuse rules.

@@ -45,7 +45,7 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [x] Kernel framebuffer output without UEFI
 - [x] Kernel panic output
 
-**Verified M2 QEMU/OVMF handoff (PR #49):** [Actions run 36337520346](https://github.com/mixutin/Vibrix/actions/runs/36337520346) executed the UEFI loader, refreshed the final map, populated BootInfo v2, successfully exited boot services, switched to verified kernel mappings and dedicated stack, and entered the standalone higher-half kernel. The **kernel's own** debugcon markers confirm BootInfo validation, GDT/TSS initialization, native COM1 output and uncached GOP framebuffer pixel writes; the separate QEMU serial log contains `Vibrix kernel started.`. [Run 36337648665](https://github.com/mixutin/Vibrix/actions/runs/36337648665) also booted an optional panic-probe kernel and observed real post-firmware panic messages over QEMU debugcon **and** COM1. These are QEMU observations, not Target 001 physical boot or a native USB storage/filesystem/interrupts/userspace milestone. Kernel page allocator, full ACPI table mappings, IDT, removable USB reacquisition and persistence are still pending.
+**Verified M2 QEMU/OVMF handoff (PR #49):** [Actions run 36337520346](https://github.com/mixutin/Vibrix/actions/runs/36337520346) executed the UEFI loader, refreshed the final map, populated BootInfo v2, successfully exited boot services, switched to verified kernel mappings and dedicated stack, and entered the standalone higher-half kernel. The **kernel's own** debugcon markers confirm BootInfo validation, GDT/TSS initialization, native COM1 output and uncached GOP framebuffer pixel writes; the separate QEMU serial log contains `Vibrix kernel started.`. [Run 36337648665](https://github.com/mixutin/Vibrix/actions/runs/36337648665) also booted an optional panic-probe kernel and observed real post-firmware panic messages over QEMU debugcon **and** COM1. These are QEMU observations, not Target 001 physical boot or a native USB storage/filesystem/interrupts/userspace milestone. At that M2 checkpoint, full ACPI table mappings, native memory/exception subsystems, removable USB reacquisition and persistence were pending. **Since then**, PRs #52/#54 have added and independently QEMU-tested a limited single-CPU IDT, page-fault diagnostics and monotonic physical-only frame allocator; see M3 below. Full ACPI SDT/MCFG mapping, virtual memory, native USB and persistence remain pending.
 
 **Exit:** standalone kernel prints after ExitBootServices without firmware boot services.
 
@@ -58,10 +58,14 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [x] Page-fault diagnostics
 - [x] Physical frame allocator
 - [ ] Virtual memory manager
-- [ ] Kernel heap
+- [x] Kernel heap
 - [ ] Local APIC + I/O APIC
 - [ ] Timer + interrupt routing
 - [x] Explicit unsafe-code boundaries
+
+**Verified M3 mapping groundwork (PR #62):** [Actions run 36343397525](https://github.com/mixutin/Vibrix/actions/runs/36343397525) passed seven QEMU configurations, including actual supervisor-write and post-unmap page faults. BootInfo v3 provides one bounded 2 MiB mapping window; the kernel maps newly owned RAM frames, changes write permissions, unmaps and remaps with local TLB invalidation. CR0.WP is enabled. The general virtual-memory manager checkbox stays **unchecked**: dynamic page tables, address-space management, frame reuse and SMP shootdowns remain unfinished. See [ADR 0009](docs/decisions/0009-early-mapping-window.md).
+
+**Verified M3 bounded early heap (PR #60):** [Actions run 36342588023](https://github.com/mixutin/Vibrix/actions/runs/36342588023) passed production heap host tests, formatting, target Clippy/builds and five QEMU boots (normal, virtual xHCI, panic, breakpoint and page fault). The real kernel allocates aligned spans, writes/reads their RAM backing, frees and reuses an allocation, and reports success independently over debugcon and COM1. This is a **64 KiB fixed-capacity early kernel heap** over reserved, already mapped BSS, with free/reuse. It is single-CPU/IRQs-off, has no global Rust allocator and cannot grow from physical frames. Virtual memory, general-purpose/SMP allocation and physical Target 001 tests remain separate work. See [early heap contract](docs/EARLY_HEAP.md).
 
 **Verified M3 early frame allocator (PR #54):** [Actions run
 36339836880](https://github.com/mixutin/Vibrix/actions/runs/36339836880)
@@ -93,11 +97,30 @@ and SMP handling are separate unchecked work. Target 001 is untested.
 ## M4 — Device discovery
 - [ ] ACPI parser
 - [ ] MCFG/ECAM
-- [ ] PCI enumeration
-- [ ] BAR parsing
+- [x] PCI enumeration
+- [x] BAR parsing
 - [ ] MSI/MSI-X
 - [ ] Device/driver model
 - [ ] Driver binding
+
+**Verified M4 native PCI segment-zero scan (PR #59):** [Actions run
+36341931987](https://github.com/mixutin/Vibrix/actions/runs/36341931987)
+compiled the production read-only PCI mechanism-#1 scanner and BAR decoder,
+passed host fixtures for multifunction buses, absent devices and 32-/64-bit
+BAR pairs, and ran the actual post-ExitBootServices kernel under QEMU q35.
+Independent kernel debugcon markers and COM1 observed **6 PCI functions,
+9 assigned BARs, 0 xHCI controllers** on that particular QEMU setup, in
+normal and exception-probe regression boots. A second QEMU boot with an
+explicit `qemu-xhci` PCI controller exercised the same native scanner and
+observed **7 PCI functions, 10 assigned BARs and 1 xHCI controller** in
+[run 36342144203](https://github.com/mixutin/Vibrix/actions/runs/36342144203).
+This M4 enumeration checkbox
+is **legacy PCI segment zero on x86-64**, not other PCI segments or extended
+configuration space: ACPI MCFG/ECAM, MSI/MSI-X, driver binding, BAR resource
+sizing/MMIO activation, a native xHCI driver and Target 001 remain separate
+unchecked tasks. Reading an assigned BAR is not using its memory or
+writing an internal disk.
+
 
 ### Target 001
 - [ ] AMD xHCI 1022:43ee

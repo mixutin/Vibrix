@@ -6,27 +6,27 @@ Vibrix is a 64-bit, UEFI-booted Unix-like operating system for x86-64 whose pers
 
 The first development platform is QEMU. The first physical reference is Target 001.
 
-Vibrix has **no internal-disk edition**. The boot USB becomes the persistent root/system device after the kernel takes control.
+Vibrix has **no internal-disk edition**. The intended boot USB becomes the persistent root/system device after native USB reacquisition and root mounting. Current QEMU smoke boots from a virtual FAT disk, not a proven USB system root.
 
 ## Boot model
 
     UEFI firmware
         |
-    Vibrix UEFI loader on USB
+    Vibrix UEFI loader (target: USB)
         |
-    Vibrix kernel
+    Vibrix kernel after ExitBootServices
         |
-    USB/xHCI discovery
+    early memory + CPU exceptions (QEMU verified)
         |
-    reacquire boot USB
+    PCI/xHCI discovery + native USB storage (pending)
         |
-    mount persistent Vibrix root
+    reacquire the actual boot USB (pending)
         |
-    memory + interrupts + scheduler
+    mount persistent Vibrix root (pending)
         |
-    userspace
+    scheduler + userspace (pending)
         |
-    init -> shell -> applications
+    init -> shell -> applications (pending)
 
 The loader and kernel are Vibrix code. UEFI firmware is a platform interface, not part of the operating system.
 

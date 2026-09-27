@@ -77,6 +77,7 @@ mod tests {
                 descriptor_size: 48,
                 descriptor_version: 1,
             },
+            0x3000,
         )
         .unwrap()
     }

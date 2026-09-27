@@ -69,3 +69,16 @@ Primary references: UEFI Specification, `GetMemoryMap`,
 `EFI_MEMORY_DESCRIPTOR` and memory type enumeration; Intel x86-64
 page-address width conventions; Vibrix ADRs 0001/0004/0006.
 The code uses no external crate, allocator or firmware call.
+
+## Subsequent heap and mapping interfaces
+
+PR #60 adds a fixed-capacity mapped BSS heap with deallocation/reuse; see
+[EARLY_HEAP.md](EARLY_HEAP.md). Its backing is independent of frame allocation.
+
+BootInfo v3 and PR #62 add a separate bounded 2 MiB virtual mapping window,
+including mapping newly owned conventional frames, changing permissions,
+unmapping and reusing virtual slots with local TLB invalidation. The PT is
+an additional explicitly protected physical page. See
+[ADR 0009](decisions/0009-early-mapping-window.md) for the boot ABI and unsafe
+contracts. This does not change the allocator's numeric, monotonic ownership
+API or add frame reuse, userspace address spaces or dynamic page tables.

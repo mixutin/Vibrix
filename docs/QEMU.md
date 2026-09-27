@@ -50,6 +50,47 @@ You can also extend the searched firmware locations with a colon-separated
 `OVMF_SEARCH_DIRS` value. The missing-firmware diagnostic names the
 distribution packages and supported environment variables.
 
+## GUI splash versus kernel progress
+
+The interactive QEMU window can keep the **TianoCore splash** and the
+pre-exit UEFI console text at `VIBRIX: transition mappings verified`.
+That screen is **not** a reliable kernel progress indicator: after
+`ExitBootServices`, the loader stops calling firmware text output and
+the standalone kernel writes to two native logging channels instead.
+It currently draws only a tiny colored framebuffer marker, not a
+text console, window manager or interactive shell.
+
+`./tools/run-qemu.sh` now captures both channels *without hiding the
+graphical QEMU window*:
+
+- `build/qemu/interactive-debugcon.log`: loader and kernel QEMU debug
+  I/O port 0xE9, including `VIBRIX: ExitBootServices succeeded` and
+  `VIBRIX: kernel entry after ExitBootServices`.
+- `build/qemu/interactive-serial.log`: the kernel's independent native
+  COM1 messages, including `Vibrix kernel started.` and PCI device
+  discovery when the kernel actually reaches those stages.
+
+From another terminal, while interactive QEMU runs:
+
+```bash
+tail -f build/qemu/interactive-debugcon.log build/qemu/interactive-serial.log
+```
+
+The `tools/test-qemu.sh` **headless** test separately uses
+`build/qemu/debugcon.log` and `build/qemu/serial.log`. Its filenames
+are intentionally distinct so tests do not overwrite GUI-run evidence.
+QEMU is still not a persistent USB-root boot; the FAT directory is
+development media.
+
+To expose a virtual xHCI controller for native PCI-discovery diagnostics:
+
+```bash
+VIBRIX_QEMU_XHCI=1 ./tools/run-qemu.sh
+```
+
+This adds a controller in PCI, **not** an initialized xHCI stack or a
+booted USB storage device.
+
 Run the headless CI-equivalent smoke test with:
 
 ```bash
