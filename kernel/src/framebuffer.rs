@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn bitmask_mode_keeps_original_safe_black_marker() {
-        let mut framebuffer = vec![0xaabb_ccdd; 400 * 150];
+        let mut framebuffer = vec![0xaabb_ccddu32; 400 * 150];
         let info = BootInfo::new(
             FramebufferInfo {
                 physical_base: framebuffer.as_mut_ptr() as u64,
