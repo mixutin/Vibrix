@@ -59,6 +59,12 @@ jobs:
           rustc --edition=2024 --test boot/src/memory_map.rs -o "$RUNNER_TEMP/vibrix-memory-map-tests"
           "$RUNNER_TEMP/vibrix-memory-map-tests"
 
+      - name: Test loader page-release ownership on host
+        run: |
+          rustfmt --edition 2024 --check host-tests/loader_cleanup.rs
+          rustc --edition=2024 --test host-tests/loader_cleanup.rs -o "$RUNNER_TEMP/vibrix-loader-cleanup-tests"
+          "$RUNNER_TEMP/vibrix-loader-cleanup-tests"
+
       - name: Lint bootloader
         run: cargo clippy -p vibrix-boot --features qemu-debugcon --target x86_64-unknown-uefi -- -D warnings
 
