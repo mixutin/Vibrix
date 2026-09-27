@@ -265,8 +265,7 @@ pub unsafe fn find_rsdp(system_table: *mut SystemTable) -> Option<u64> {
             }
             if header[15] >= 2 {
                 let base = unsafe { slice::from_raw_parts(entry.vendor_table, 36) };
-                let length =
-                    u32::from_le_bytes([base[20], base[21], base[22], base[23]]) as usize;
+                let length = u32::from_le_bytes([base[20], base[21], base[22], base[23]]) as usize;
                 if !(36..=4096).contains(&length) {
                     continue;
                 }
@@ -282,10 +281,7 @@ pub unsafe fn find_rsdp(system_table: *mut SystemTable) -> Option<u64> {
 }
 
 fn checksum_zero(bytes: &[u8]) -> bool {
-    bytes
-        .iter()
-        .fold(0u8, |sum, &byte| sum.wrapping_add(byte))
-        == 0
+    bytes.iter().fold(0u8, |sum, &byte| sum.wrapping_add(byte)) == 0
 }
 
 pub struct KernelFile {
