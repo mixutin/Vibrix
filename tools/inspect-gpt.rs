@@ -254,7 +254,9 @@ fn inspect<R: Read + Seek>(
         last_lba,
         partitions,
         efi_system_partitions,
-        disk_guid: header[56..72].try_into().expect("fixed GPT disk GUID width"),
+        disk_guid: header[56..72]
+            .try_into()
+            .expect("fixed GPT disk GUID width"),
         partition_guids,
     })
 }
@@ -296,7 +298,11 @@ fn main() {
                 format_guid(&report.disk_guid)
             );
             for (index, guid) in &report.partition_guids {
-                println!("partition_entry={} unique_guid={}", index, format_guid(guid));
+                println!(
+                    "partition_entry={} unique_guid={}",
+                    index,
+                    format_guid(guid)
+                );
             }
         }
         Err(err) => {
@@ -395,8 +401,8 @@ mod tests {
     #[test]
     fn formats_uefi_mixed_endian_guids() {
         let raw = [
-            0x78, 0x56, 0x34, 0x12, 0xbc, 0x9a, 0xf0, 0xde,
-            0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+            0x78, 0x56, 0x34, 0x12, 0xbc, 0x9a, 0xf0, 0xde, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
+            0x77, 0x88,
         ];
         assert_eq!(format_guid(&raw), "12345678-9abc-def0-1122-334455667788");
     }
@@ -418,7 +424,10 @@ mod tests {
             let report = check(image, sector_size as u64).unwrap();
             assert_eq!(report.partitions, 2);
             assert_eq!(report.efi_system_partitions, 1);
-            assert_eq!(format_guid(&report.disk_guid), "44444444-4444-4444-4444-444444444444");
+            assert_eq!(
+                format_guid(&report.disk_guid),
+                "44444444-4444-4444-4444-444444444444"
+            );
             assert_eq!(
                 report.partition_guids,
                 vec![(1, [0x42; 16]), (2, [0x43; 16])]
@@ -433,7 +442,10 @@ mod tests {
             add_second_partition(&mut image, sector_size, [0x42; 16]);
             let err = check(image, sector_size as u64).unwrap_err();
             assert!(err.contains("duplicate GPT partition unique GUID"), "{err}");
-            assert!(err.contains("42424242-4242-4242-4242-424242424242"), "{err}");
+            assert!(
+                err.contains("42424242-4242-4242-4242-424242424242"),
+                "{err}"
+            );
         }
     }
 
