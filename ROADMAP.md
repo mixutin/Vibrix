@@ -106,7 +106,11 @@ passed host fixtures for multifunction buses, absent devices and 32-/64-bit
 BAR pairs, and ran the actual post-ExitBootServices kernel under QEMU q35.
 Independent kernel debugcon markers and COM1 observed **6 PCI functions,
 9 assigned BARs, 0 xHCI controllers** on that particular QEMU setup, in
-normal and exception-probe regression boots. This M4 enumeration checkbox
+normal and exception-probe regression boots. A second QEMU boot with an
+explicit `qemu-xhci` PCI controller exercised the same native scanner and
+observed **7 PCI functions, 10 assigned BARs and 1 xHCI controller** in
+[run 36342144203](https://github.com/mixutin/Vibrix/actions/runs/36342144203).
+This M4 enumeration checkbox
 is **legacy PCI segment zero on x86-64**, not other PCI segments or extended
 configuration space: ACPI MCFG/ECAM, MSI/MSI-X, driver binding, BAR resource
 sizing/MMIO activation, a native xHCI driver and Target 001 remain separate
