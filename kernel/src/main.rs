@@ -3,6 +3,7 @@
 #![feature(abi_x86_interrupt)]
 
 mod arch;
+mod console;
 mod debugcon;
 mod framebuffer;
 mod memory;
@@ -295,14 +296,44 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         // Development QEMU keyboard: read only legacy i8042 ports after
         // ExitBootServices; IRQs remain disabled and no USB HID is implied.
         let mut ps2 = arch::x86_64::ps2::SetOne::new();
+        let mut editor = console::LineEditor::new();
         debugcon::write("VIBRIX: kernel PS2 polling ready\r\n");
+        crate::println!("\n◇ VIBRIX");
+        crate::println!("early kernel console (polling transport)");
+        crate::print!("vibrix> ");
         loop {
             // SAFETY: sole boot CPU, IF=0, i8042 data has no other consumer.
             if let Some(scan) = unsafe { arch::x86_64::ps2::poll_scancode() }
                 && let Some(ascii) = ps2.feed(scan)
             {
-                crate::println!("kernel PS2 ascii {}", ascii);
-                debugcon::write("VIBRIX: kernel PS2 ASCII accepted\r\n");
+                if ascii == 8 {
+                    if editor.len() != 0 {
+                        let _ = editor.feed(ascii);
+                        crate::print!("\\x08 \\x08");
+                    }
+                    continue;
+                }
+                if ascii != b'\n' {
+                    let _ = editor.feed(ascii);
+                    crate::print!("{}", ascii as char);
+                    continue;
+                }
+                crate::println!();
+                let command = editor.feed(ascii).map(console::parse).unwrap_or(console::Command::Unknown);
+                match command {
+                    console::Command::Help => crate::println!("help clear info mem pci acpi uptime reboot"),
+                    console::Command::Clear => crate::println!("clear: framebuffer terminal clearing is not implemented yet"),
+                    console::Command::Info => crate::println!("Vibrix x86_64 · UEFI · Rust no_std · early kernel console"),
+                    console::Command::Mem => crate::println!("mem: detailed allocator statistics are not exposed yet"),
+                    console::Command::Pci => crate::println!("pci: use boot discovery output above; interactive listing is next"),
+                    console::Command::Acpi => crate::println!("acpi: use boot discovery output above; interactive listing is next"),
+                    console::Command::Uptime => crate::println!("uptime: waiting for the M4.5 timer IRQ"),
+                    console::Command::Reboot => crate::println!("reboot: reset controller path is not implemented yet"),
+                    console::Command::Unknown => crate::println!("unknown command; type help"),
+                }
+                editor.reset();
+                crate::print!("vibrix> ");
+                debugcon::write("VIBRIX: kernel console command dispatched\r\n");
             }
             core::hint::spin_loop();
         }
