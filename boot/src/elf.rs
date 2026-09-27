@@ -12,6 +12,66 @@ pub struct ElfInfo {
     pub entry: u64,
     pub program_headers: u16,
     pub load_segments: u16,
+    program_header_offset: usize,
+}
+
+#[derive(Clone, Copy)]
+pub struct LoadSegment {
+    pub file_offset: u64,
+    pub virtual_address: u64,
+    pub file_size: u64,
+    pub memory_size: u64,
+}
+
+pub struct LoadSegmentIter<'a> {
+    data: &'a [u8],
+    program_header_offset: usize,
+    program_headers: u16,
+    next_index: u16,
+}
+
+impl ElfInfo {
+    pub fn load_segments<'a>(&self, data: &'a [u8]) -> LoadSegmentIter<'a> {
+        LoadSegmentIter {
+            data,
+            program_header_offset: self.program_header_offset,
+            program_headers: self.program_headers,
+            next_index: 0,
+        }
+    }
+}
+
+impl Iterator for LoadSegmentIter<'_> {
+    type Item = Result<LoadSegment, ElfError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.next_index < self.program_headers {
+            let index = self.next_index as usize;
+            self.next_index += 1;
+
+            let base = self.program_header_offset + index * PROGRAM_HEADER_SIZE;
+            let p_type = match read_u32(self.data, base) {
+                Ok(value) => value,
+                Err(error) => return Some(Err(error)),
+            };
+            if p_type != PT_LOAD {
+                continue;
+            }
+
+            let segment = (|| {
+                Ok(LoadSegment {
+                    file_offset: read_u64(self.data, base + 8)?,
+                    virtual_address: read_u64(self.data, base + 16)?,
+                    file_size: read_u64(self.data, base + 32)?,
+                    memory_size: read_u64(self.data, base + 40)?,
+                })
+            })();
+
+            return Some(segment);
+        }
+
+        None
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -177,6 +237,7 @@ pub fn validate(data: &[u8]) -> Result<ElfInfo, ElfError> {
         entry,
         program_headers: phnum,
         load_segments,
+        program_header_offset: phoff,
     })
 }
 
@@ -366,6 +427,22 @@ mod tests {
         let mut data = valid_elf();
         data[ELF_HEADER_SIZE + 4..ELF_HEADER_SIZE + 8].copy_from_slice(&4u32.to_le_bytes());
         assert!(matches!(validate(&data), Err(ElfError::EntryNotExecutable)));
+    }
+
+    #[test]
+    fn enumerates_validated_load_segment_metadata() {
+        let data = valid_elf();
+        let info = validate(&data).unwrap_or_else(|_| panic!("valid fixture rejected"));
+        let segments: Vec<_> = info
+            .load_segments(&data)
+            .map(|segment| segment.unwrap_or_else(|_| panic!("validated segment failed")))
+            .collect();
+
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].file_offset, PAYLOAD_OFFSET as u64);
+        assert_eq!(segments[0].virtual_address, 0x1000);
+        assert_eq!(segments[0].file_size, 4);
+        assert_eq!(segments[0].memory_size, 8);
     }
 
     #[test]
