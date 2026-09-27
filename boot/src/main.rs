@@ -1,6 +1,10 @@
 #![no_std]
 #![no_main]
 
+#[path = "../../shared/bootinfo.rs"]
+#[allow(dead_code)]
+mod bootinfo;
+
 mod elf;
 mod loader;
 mod memory_map;
@@ -56,7 +60,7 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     console.write("VIBRIX: kernel validated\r\n");
 
     // The physical address must eventually be forwarded in BootInfo.
-    let Some(_rsdp_address) = (unsafe { uefi::find_rsdp(system_table) }) else {
+    let Some(rsdp_address) = (unsafe { uefi::find_rsdp(system_table) }) else {
         console.write("VIBRIX: ACPI RSDP not found or invalid\r\n");
         return EFI_LOAD_ERROR;
     };
@@ -66,15 +70,6 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
         console.write("VIBRIX: GOP framebuffer unavailable\r\n");
         return EFI_LOAD_ERROR;
     };
-    // This is discovery only: BootInfo population and kernel mapping follow later.
-    let _ = (
-        framebuffer.base,
-        framebuffer.size,
-        framebuffer.width,
-        framebuffer.height,
-        framebuffer.stride,
-        framebuffer.format,
-    );
     console.write("VIBRIX: GOP framebuffer discovered\r\n");
 
     let loaded_kernel = match unsafe { loader::stage_kernel(system_table, &kernel, &info) } {
@@ -108,7 +103,23 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
         page_tables.mapped_pages,
     );
     console.write("VIBRIX: kernel page tables verified\r\n");
-    console.write("Next: capture UEFI memory map; firmware exit is not implemented.\r\n");
+    // Allocate permanent loader-owned BootInfo backing *before* acquiring the
+    // final map/key. Its eventual kernel virtual mapping is a separate M2 step.
+    let boot_info_physical = match unsafe { uefi::allocate_loader_pages(system_table, 1) } {
+        Ok(physical) => physical,
+        Err(status) => {
+            console.write("VIBRIX: BootInfo backing allocation failed\r\n");
+            return status;
+        }
+    };
+    let Ok(boot_info_address) = usize::try_from(boot_info_physical) else {
+        console.write("VIBRIX: BootInfo backing address invalid\r\n");
+        return EFI_LOAD_ERROR;
+    };
+    if boot_info_address == 0 || boot_info_physical & 4095 != 0 {
+        console.write("VIBRIX: BootInfo backing alignment invalid\r\n");
+        return EFI_LOAD_ERROR;
+    }
 
     let memory_map = match unsafe { memory_map::capture(system_table) } {
         Ok(map) => map,
@@ -134,6 +145,41 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     );
     uefi::debug_write("VIBRIX: final memory map captured\r\n");
 
+    // No firmware calls after successful map acquisition: preserve exactly
+    // this buffer's length, stride and descriptor version, and keep the key
+    // strictly loader-local for the later ExitBootServices implementation.
+    let boot_info = match bootinfo::BootInfo::new(
+        bootinfo::FramebufferInfo {
+            physical_base: framebuffer.base,
+            size_bytes: framebuffer.size,
+            width: framebuffer.width,
+            height: framebuffer.height,
+            stride: framebuffer.stride,
+            pixel_format: framebuffer.format,
+        },
+        rsdp_address,
+        bootinfo::FinalMemoryMap {
+            physical_base: memory_map.physical_base,
+            byte_len: memory_map.byte_len,
+            descriptor_size: memory_map.descriptor_size,
+            descriptor_version: memory_map.descriptor_version,
+        },
+    ) {
+        Ok(info) => info,
+        Err(_error) => {
+            uefi::debug_write("VIBRIX: BootInfo v2 validation failed\r\n");
+            return EFI_LOAD_ERROR;
+        }
+    };
+    // SAFETY: UEFI AllocatePages granted one page of EfiLoaderData, writable
+    // and mapped in the firmware address space. The checked address is aligned
+    // for BootInfo and the 88-byte object fits in the exclusive 4096-byte page.
+    unsafe { (boot_info_address as *mut bootinfo::BootInfo).write(boot_info) };
+    let _boot_info_page_owner = boot_info_physical;
+    uefi::debug_write("VIBRIX: BootInfo v2 staged\r\n");
+
+    // Do not attempt to dereference the physical map address as a kernel
+    // pointer, activate incomplete page tables, or exit boot services here.
     loop {
         core::hint::spin_loop();
     }
