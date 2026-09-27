@@ -199,6 +199,15 @@ impl<'a> FrameAllocator<'a> {
         })
     }
 
+    /// Diagnostic value only: never dereferences a physical address.
+    pub fn descriptor_at(&self, physical: u64) -> Option<(u32, u64)> {
+        self.map
+            .chunks_exact(self.stride)
+            .filter_map(|bytes| descriptor(bytes).ok())
+            .find(|region| region.start <= physical && physical < region.end)
+            .map(|region| (region.kind, region.attr))
+    }
+
     /// Return a newly claimed 4 KiB physical frame or None on exhaustion.
     /// The caller must map/zero it before accessing it, and must keep it
     /// reserved; this early monotonic allocator does NOT support free().
