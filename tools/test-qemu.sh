@@ -19,7 +19,8 @@ fi
 
 QEMU_DIR="$ROOT/build/qemu"
 LOG="$QEMU_DIR/debugcon.log"
-rm -f "$LOG"
+SERIAL_LOG="$QEMU_DIR/serial.log"
+rm -f "$LOG" "$SERIAL_LOG"
 cp -- "$OVMF_VARS" "$QEMU_DIR/OVMF_VARS.test.fd"
 
 ARGS=(
@@ -31,7 +32,7 @@ ARGS=(
   -drive "if=pflash,format=raw,file=$QEMU_DIR/OVMF_VARS.test.fd"
   -drive "format=raw,file=fat:rw:$QEMU_DIR/esp"
   -display none
-  -serial none
+  -serial "file:$SERIAL_LOG"
   -monitor none
   -no-reboot
   -chardev "file,id=vibrixdbg,path=$LOG"
@@ -71,11 +72,24 @@ for expected in \
   "VIBRIX: kernel page tables verified" \
   "VIBRIX: transition mappings verified" \
   "VIBRIX: final memory map captured" \
-  "VIBRIX: BootInfo v2 staged"; do
+  "VIBRIX: BootInfo v2 staged" \
+  "VIBRIX: ExitBootServices succeeded" \
+  "VIBRIX: kernel entry after ExitBootServices" \
+  "VIBRIX: kernel BootInfo v2 validated" \
+  "VIBRIX: kernel GDT/TSS loaded" \
+  "VIBRIX: kernel serial initialized" \
+  "VIBRIX: kernel framebuffer wrote pixels"; do
   if ! grep -Fq "$expected" "$LOG"; then
     echo "[vibrix] missing smoke-test marker: $expected" >&2
     exit 1
   fi
 done
 
-echo "[vibrix] QEMU kernel validation smoke test passed"
+if [[ ! -f "$SERIAL_LOG" ]] || ! grep -Fq "Vibrix kernel started." "$SERIAL_LOG"; then
+  echo "[vibrix] missing native kernel COM1 serial output" >&2
+  [[ -f "$SERIAL_LOG" ]] && cat "$SERIAL_LOG"
+  exit 1
+fi
+cat "$SERIAL_LOG"
+
+echo "[vibrix] QEMU post-firmware kernel handoff smoke test passed"

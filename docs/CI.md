@@ -8,7 +8,7 @@ The CI job also compiles `boot/src/elf.rs` as a standalone host test harness and
 
 The parser also rejects a kernel entry point that does not belong to a file-backed, executable `PT_LOAD` range. Host regression fixtures cover non-executable code, BSS-only entry points and out-of-range entry points. This prevents an invalid future kernel jump but does not yet implement the firmware-to-kernel handoff.
 
-The QEMU smoke test captures Vibrix's QEMU-only debug port and requires the bootloader to prove that it:
+The QEMU smoke test captures both the loader/kernel QEMU debug port **and a separate native kernel COM1 serial log**. It requires the loader and then standalone kernel to prove that they:
 
 1. entered the Vibrix loader,
 2. opened `/vibrix/kernel.elf`,
@@ -18,9 +18,9 @@ The QEMU smoke test captures Vibrix's QEMU-only debug port and requires the boot
 6. discovered an ACPI RSDP with valid firmware-provided checksum(s),
 7. located a linear UEFI GOP framebuffer with sane mode and size metadata,
 8. allocated physical backing pages for the kernel, zeroed the image span, copied every validated PT_LOAD file range and verified BSS bytes remain zero,
-9. constructed and software-verified **inactive** higher-half kernel page tables; it has not activated them with CR3.
-10. explicitly mapped and verified the loader image, 16-page kernel stack, BootInfo allocation, full memory-map buffer, RSDP and uncached GOP framebuffer under **inactive** page tables, and refreshed the preallocated map buffer after the last paging allocation. Successfully captured the final UEFI memory map and retained its byte length, descriptor stride/version and map key. This does not call ExitBootServices.
-11. allocated a loader-owned BootInfo page before capture and populated a validated v2 value from the final memory-map tuple without leaking the firmware map key into the kernel ABI.
+9. constructed and software-verified higher-half kernel page tables before ExitBootServices; they are subsequently **activated via CR3**.
+10. explicitly mapped and verified the loader image, 16-page kernel stack, BootInfo allocation, full memory-map buffer, RSDP and uncached GOP framebuffer under initially **inactive** page tables, and refreshed the preallocated map buffer after the last paging allocation. Captured the final UEFI memory-map tuple and successfully called ExitBootServices with its fresh key.
+11. allocated a loader-owned BootInfo page before capture, populated validated v2 from the final tuple, and passed it to the **standalone kernel** after changing CR3 and moving to the dedicated stack. The kernel validated BootInfo, discovered CPUID, initialized GDT/TSS and native COM1 and wrote bounded pixels to the uncached framebuffer.
 
 Run the same smoke test locally:
 
@@ -33,9 +33,27 @@ The debug port is compiled only for QEMU builds. Bare-metal Vibrix builds do not
 
 ## Evidence levels
 
-- **Host tests and builds:** a passing parser/decoder test or successful loader/kernel build checks that specific code path or artifact; neither proves that the kernel ran in QEMU.
-- **CI QEMU/OVMF:** GitHub Actions runs `tools/test-qemu.sh` in headless QEMU and requires the debug-port markers above. At the current loader-stage checkpoint, this proves the UEFI loader found and validated `kernel.elf`, discovered ACPI/GOP, staged the physical segments, and emitted `VIBRIX: kernel page tables verified` after a software walk of an **inactive** hierarchy, then `VIBRIX: final memory map captured` after the last GetMemoryMap call and `VIBRIX: BootInfo v2 staged` after validated pre-exit population. It does not activate CR3, call `ExitBootServices` or require kernel entry; the new transition identity regions are software-verified, not execution-tested.
+- **Host tests and builds:** check parser, page-table, memory-map, CPUID,
+  transition and framebuffer functions, but do not prove physical hardware.
+- **QEMU/OVMF firmware-to-kernel handoff:** [CI run 36337520346](https://github.com/mixutin/Vibrix/actions/runs/36337520346)
+  observed `VIBRIX: ExitBootServices succeeded` from the loader, then the
+  **kernel's** `VIBRIX: kernel entry after ExitBootServices`,
+  `VIBRIX: kernel BootInfo v2 validated`, `VIBRIX: kernel GDT/TSS loaded`,
+  `VIBRIX: kernel serial initialized`, and `VIBRIX: kernel framebuffer
+  wrote pixels`. A distinct QEMU serial capture contains
+  `Vibrix kernel started.`; loader debug output cannot satisfy that check.
+- **Kernel panic:** [CI run 36337648665](https://github.com/mixutin/Vibrix/actions/runs/36337648665)
+  additionally booted a separately built `panic-probe` kernel, which
+  reached post-firmware execution and printed the real panic handler's
+  `VIBRIX: kernel panic` in debugcon and `kernel panic:` on COM1.
+  The default kernel does not deliberately panic.
+
 - **Human-reproduced QEMU/OVMF:** [Mixutin's workstation report](https://github.com/mixutin/Vibrix/issues/14#issuecomment-5856279590) records a manual run of `./tools/test-qemu.sh` on `main` at `4a1eac2`, including `VIBRIX: kernel segments staged` and the smoke-test success line. Mixutin also ran `./tools/run-qemu.sh` and visually observed the loader sequence through the staging marker via QEMU VNC. This independently reproduces that **loader-stage QEMU milestone**, not a later handoff.
 - **Bare-metal Target 001:** requires a separate observed boot on the named physical machine. Neither GitHub Actions nor a workstation QEMU run is evidence of Target 001 operation; no such result is claimed here.
 
-Neither the owner reproduction nor the CI smoke test establishes higher-half kernel execution, a successful `ExitBootServices`, native USB reacquisition, persistent root, or a CLI. The owner's earlier run at `4a1eac2` also does **not** reproduce the later page-table marker. For any later milestone, cite the exact branch/commit, test or machine, observed output, and the specific behavior demonstrated rather than upgrading a loader marker into kernel or bare-metal proof.
+Neither the owner reproduction of the earlier loader-only code nor these
+QEMU CI results establish a native USB/xHCI driver, persistent USB root,
+IDT/interrupts, processes, userspace shell, or Target 001 bare-metal boot.
+The older workstation report and its Issue #14 link are historical; issue
+#14 was subsequently deleted. Do not generalize QEMU success to physical
+hardware or unrelated milestones.

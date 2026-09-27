@@ -63,3 +63,13 @@ until a real CR3 transition and kernel entry are observed.
 - [Intel SDM volume 3, paging and memory types](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html)
 - [Vibrix ADR 0001](0001-bootinfo-address-spaces.md)
 - [Vibrix ADR 0003](0003-initial-kernel-page-tables.md)
+
+## Later implementation checkpoint — PR #49
+
+After this initial inactive-staging decision, Vibrix implemented the
+successful ExitBootServices -> EFER.NXE -> CR3 -> dedicated stack ->
+higher-half kernel transition in [ADR 0007](0007-uefi-exit-kernel-entry.md).
+QEMU CI run [36337520346](https://github.com/mixutin/Vibrix/actions/runs/36337520346)
+observed independent post-firmware kernel BootInfo, COM1 and framebuffer
+markers. The previous section describes the **earlier staging PR**, not the
+current execution boundary; Target 001 remains untested.
