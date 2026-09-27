@@ -80,9 +80,7 @@ impl GdtEntry {
     /// Access byte: 0xFA = present, ring 3, code, executable, readable
     /// Flags: 0xA0 = L=1 (64-bit), G=1 (4K granularity)
     pub const USER_CODE: Self = Self::new(
-        0,
-        0xFFFFF,
-        0xFA, // present | ring 3 | code | executable | readable
+        0, 0xFFFFF, 0xFA, // present | ring 3 | code | executable | readable
         0xA0, // L=1, G=1
         0,
     );
@@ -92,9 +90,7 @@ impl GdtEntry {
     /// Access byte: 0xF2 = present, ring 3, data, writable
     /// Flags: 0xC0 = D/B=1, G=1
     pub const USER_DATA: Self = Self::new(
-        0,
-        0xFFFFF,
-        0xF2, // present | ring 3 | data | writable
+        0, 0xFFFFF, 0xF2, // present | ring 3 | data | writable
         0xC0, // D/B=1, G=1
         0,
     );
@@ -388,8 +384,7 @@ mod tests {
             | ((desc.base_mid as u64) << 16)
             | ((desc.base_high as u64) << 24)
             | ((desc.base_upper as u64) << 32);
-        let limit = desc.limit_low as u32
-            | (((desc.limit_high_flags & 0x0f) as u32) << 16);
+        let limit = desc.limit_low as u32 | (((desc.limit_high_flags & 0x0f) as u32) << 16);
         assert_eq!(base, &tss as *const _ as u64);
         assert_eq!(limit, (size_of::<Tss>() - 1) as u32);
         assert_eq!(desc.access, 0x89);
