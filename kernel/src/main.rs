@@ -26,6 +26,10 @@ pub struct BootInfo {
 pub extern "C" fn vibrix_kernel_entry(_boot_info: *const BootInfo) -> ! {
     // Re-enumerate on each boot; a portable USB may boot on a different CPU.
     let _cpu = arch::x86_64::cpuid::discover();
+
+    // Initialize GDT + TSS (required for privilege-level transitions).
+    unsafe { arch::x86_64::gdt::init() };
+
     loop {
         core::hint::spin_loop();
     }
