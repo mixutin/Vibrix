@@ -425,6 +425,13 @@ pub unsafe fn discover_framebuffer(system_table: *mut SystemTable) -> Option<Fra
 
 const ALLOCATE_ANY_PAGES: u32 = 0;
 
+/// Allocate loader-owned physical pages that intentionally survive the firmware handoff.
+///
+/// # Safety
+///
+/// `system_table` must point to a live UEFI system table whose Boot Services table is
+/// valid for the duration of this call. The caller becomes responsible for either freeing
+/// the returned allocation before ExitBootServices or reserving it for kernel ownership.
 pub unsafe fn allocate_loader_pages(
     system_table: *mut SystemTable,
     pages: usize,
@@ -460,6 +467,13 @@ pub unsafe fn allocate_loader_pages(
     Ok(physical_address)
 }
 
+/// Release pages previously returned by `allocate_loader_pages`.
+///
+/// # Safety
+///
+/// `system_table` must still expose live UEFI Boot Services. `physical_address` and
+/// `pages` must identify an allocation currently owned by the loader and must not have
+/// been freed already.
 pub unsafe fn free_loader_pages(
     system_table: *mut SystemTable,
     physical_address: u64,
