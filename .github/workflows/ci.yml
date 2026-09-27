@@ -122,6 +122,12 @@ jobs:
           rustc --edition=2024 --test kernel/src/memory/frame_allocator.rs -o "$RUNNER_TEMP/vibrix-frame-tests"
           "$RUNNER_TEMP/vibrix-frame-tests"
 
+      - name: Test native PCI enumeration and BAR parsing on host
+        run: |
+          rustfmt --edition 2024 --check kernel/src/arch/x86_64/pci.rs
+          rustc --edition=2024 --test kernel/src/arch/x86_64/pci.rs -o "$RUNNER_TEMP/vibrix-pci-tests"
+          "$RUNNER_TEMP/vibrix-pci-tests"
+
       - name: Test CPUID discovery on host
         run: |
           rustc --edition=2024 --test kernel/src/arch/x86_64/cpuid.rs -o "$RUNNER_TEMP/vibrix-cpuid-tests"
@@ -168,6 +174,14 @@ jobs:
         env:
           VIBRIX_SKIP_BUILD: "1"
         run: bash tools/test-qemu.sh
+
+      - name: QEMU native PCI scan with virtual xHCI controller
+        env:
+          VIBRIX_SKIP_BUILD: "1"
+          VIBRIX_QEMU_XHCI: "1"
+        run: |
+          bash tools/test-qemu.sh
+          grep -Eq 'Vibrix PCI segment0: [1-9][0-9]* devices, [1-9][0-9]* assigned BARs, [1-9][0-9]* xHCI' build/qemu/serial.log
 
       - name: QEMU post-firmware kernel panic test
         run: |

@@ -39,6 +39,12 @@ ARGS=(
   -device "isa-debugcon,iobase=0xe9,chardev=vibrixdbg"
 )
 
+# Optionally expose a virtual PCI xHCI controller to the *native kernel*.
+# This does not connect a persistent USB system disk or enable a USB driver.
+if [[ "${VIBRIX_QEMU_XHCI:-0}" == "1" ]]; then
+  ARGS+=(-device "qemu-xhci,id=vibrix-xhci")
+fi
+
 echo "[vibrix] OVMF CODE: $OVMF_CODE"
 echo "[vibrix] OVMF VARS: $OVMF_VARS"
 echo "[vibrix] running headless QEMU smoke test"
@@ -82,6 +88,8 @@ for expected in \
   "VIBRIX: kernel ACPI RSDP parsed" \
   "VIBRIX: kernel frame allocator initialized" \
   "VIBRIX: kernel conventional frames allocated" \
+  "VIBRIX: kernel PCI segment0 enumerated" \
+  "VIBRIX: kernel PCI BARs parsed" \
   "VIBRIX: kernel framebuffer wrote pixels"; do
   if ! grep -Fq "$expected" "$LOG"; then
     echo "[vibrix] missing smoke-test marker: $expected" >&2
