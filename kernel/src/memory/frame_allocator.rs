@@ -6,9 +6,12 @@
 //! All other firmware memory types, including LoaderData, remain reserved.
 
 const PAGE_SIZE: u64 = 4096;
+const EFI_RESERVED_MEMORY: u32 = 0;
 const EFI_CONVENTIONAL_MEMORY: u32 = 7;
 const EFI_ACPI_RECLAIM_MEMORY: u32 = 9;
 const EFI_ACPI_MEMORY_NVS: u32 = 10;
+const EFI_MEMORY_MAPPED_IO: u32 = 11;
+const EFI_MEMORY_UC: u64 = 1;
 const EFI_MEMORY_WB: u64 = 1 << 3;
 const EFI_MEMORY_RUNTIME: u64 = 1 << 63;
 const DESCRIPTOR_PREFIX: usize = 40;
@@ -149,7 +152,7 @@ impl<'a> FrameAllocator<'a> {
     /// No physical memory is dereferenced here. The caller still needs a
     /// separate, temporary read-only mapping and must not reclaim these pages.
     /// Padding pages at either end are also required to have ACPI ownership.
-    pub fn covers_acpi_bytes(&self, start: u64, len: u64) -> bool {
+    fn covers_pages(&self, start: u64, len: u64, allowed: impl Fn(Descriptor) -> bool) -> bool {
         let Some(end) = start.checked_add(len) else {
             return false;
         };
@@ -170,15 +173,43 @@ impl<'a> FrameAllocator<'a> {
             else {
                 return false;
             };
-            if !matches!(region.kind, EFI_ACPI_RECLAIM_MEMORY | EFI_ACPI_MEMORY_NVS)
-                || region.attr & EFI_MEMORY_WB == 0
-                || region.attr & EFI_MEMORY_RUNTIME != 0
-            {
+            if !allowed(region) {
                 return false;
             }
             cursor = region.end.min(aligned_end);
         }
         true
+    }
+
+    pub fn covers_acpi_bytes(&self, start: u64, len: u64) -> bool {
+        self.covers_pages(start, len, |region| {
+            matches!(region.kind, EFI_ACPI_RECLAIM_MEMORY | EFI_ACPI_MEMORY_NVS)
+                && region.attr & EFI_MEMORY_WB != 0
+                && region.attr & EFI_MEMORY_RUNTIME == 0
+        })
+    }
+
+    /// Confirm that *all page padding*, not only the bytes used by a PCI
+    /// register, belongs to UC-capable reserved or MMIO memory in the final
+    /// firmware map. QEMU OVMF marks its MCFG aperture type 0 (reserved) with
+    /// UC capability, not type 11 (MMIO). MCFG separately proves the ECAM
+    /// address and bus bounds; this rejects any conventional/loader/ACPI RAM.
+    /// Numeric only: never interprets a generic reserved span as PCI MMIO.
+    pub fn covers_mmio_bytes(&self, start: u64, len: u64) -> bool {
+        self.covers_pages(start, len, |region| {
+            matches!(region.kind, EFI_RESERVED_MEMORY | EFI_MEMORY_MAPPED_IO)
+                && region.attr & EFI_MEMORY_UC != 0
+                && region.attr & EFI_MEMORY_RUNTIME == 0
+        })
+    }
+
+    /// Diagnostic value only: never dereferences a physical address.
+    pub fn descriptor_at(&self, physical: u64) -> Option<(u32, u64)> {
+        self.map
+            .chunks_exact(self.stride)
+            .filter_map(|bytes| descriptor(bytes).ok())
+            .find(|region| region.start <= physical && physical < region.end)
+            .map(|region| (region.kind, region.attr))
     }
 
     /// Return a newly claimed 4 KiB physical frame or None on exhaustion.
@@ -331,6 +362,40 @@ mod tests {
             let bad = raw(9, 0x1000, 1, attr);
             let owner = FrameAllocator::from_memory_map(&bad, 48, 1).unwrap();
             assert!(!owner.covers_acpi_bytes(0x1000, 1));
+        }
+    }
+
+    #[test]
+    fn mmio_must_be_firmware_described_uncached_and_non_runtime() {
+        let map = [
+            raw(11, 0xe000_0000, 2, EFI_MEMORY_UC),
+            raw(11, 0xe000_2000, 1, EFI_MEMORY_UC),
+            raw(9, 0xe000_3000, 1, EFI_MEMORY_WB),
+        ]
+        .concat();
+        let frames = FrameAllocator::from_memory_map(&map, 48, 1).unwrap();
+        assert!(frames.covers_mmio_bytes(0xe000_0ffc, 8));
+        let reserved = raw(0, 0xe000_0000, 1, EFI_MEMORY_UC);
+        let owner = FrameAllocator::from_memory_map(&reserved, 48, 1).unwrap();
+        assert!(owner.covers_mmio_bytes(0xe000_0000, PAGE_SIZE));
+        assert!(frames.covers_mmio_bytes(0xe000_2000, 0x1000));
+        assert!(!frames.covers_mmio_bytes(0xe000_2ffc, 8));
+        assert!(!frames.covers_mmio_bytes(0xe000_3000, 4));
+        assert!(!frames.covers_mmio_bytes(0, 4096));
+        assert!(!frames.covers_mmio_bytes(u64::MAX, 4));
+        for (kind, attrs) in [
+            (7, EFI_MEMORY_UC),
+            (0, 0),
+            (0, EFI_MEMORY_WB),
+            (0, EFI_MEMORY_UC | EFI_MEMORY_RUNTIME),
+            (11, 0),
+            (11, EFI_MEMORY_WB),
+            (11, EFI_MEMORY_UC | EFI_MEMORY_RUNTIME),
+            (12, EFI_MEMORY_UC),
+        ] {
+            let invalid = raw(kind, 0xe000_0000, 1, attrs);
+            let owner = FrameAllocator::from_memory_map(&invalid, 48, 1).unwrap();
+            assert!(!owner.covers_mmio_bytes(0xe000_0000, 4));
         }
     }
 

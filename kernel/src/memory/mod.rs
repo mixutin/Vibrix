@@ -128,6 +128,24 @@ pub unsafe fn acpi_span_is_reserved(start: u64, len: u64) -> bool {
         .is_some_and(|owner| owner.frames.covers_acpi_bytes(start, len))
 }
 
+/// Numeric check that a physical span is wholly firmware-described UC MMIO.
+/// # Safety
+/// Same sole boot CPU and interrupts-disabled precondition as allocate_frame.
+pub unsafe fn mmio_span_is_reserved(start: u64, len: u64) -> bool {
+    // SAFETY: the final UEFI map is retained and immutable; IF=0, one CPU.
+    unsafe { (*EARLY_FRAMES.0.get()).as_ref() }
+        .is_some_and(|owner| owner.frames.covers_mmio_bytes(start, len))
+}
+
+/// Diagnostics only: no ownership or pointer access is granted.
+/// # Safety
+/// Sole boot CPU and IF=0, same as mmio_span_is_reserved.
+pub unsafe fn firmware_descriptor_at(physical: u64) -> Option<(u32, u64)> {
+    // SAFETY: one boot CPU and immutable final firmware descriptor copy.
+    unsafe { (*EARLY_FRAMES.0.get()).as_ref() }
+        .and_then(|owner| owner.frames.descriptor_at(physical))
+}
+
 /// Runtime validation of two independent, suitably aligned allocations.
 /// This is a numeric and firmware-type proof, NOT a mapped-page write test.
 ///

@@ -71,3 +71,30 @@ real kernel's independent debugcon reported
 post-firmware SDT parsing on QEMU q35, not Target 001 or any ECAM MMIO
 read. The M4 ACPI parser checkbox records this limited table foundation;
 MCFG/ECAM, interrupt routing, full AML and hardware drivers remain open.
+
+## Native read-only PCIe ECAM bootstrap (PR #67, QEMU verified)
+
+The M4 implementation extends the existing MCFG parser to select only its
+segment-zero allocation containing bus zero, verifies PAT index 3 is UC,
+and checks every prospective function-zero 4 KiB ECAM page against the
+retained final UEFI map. Only non-runtime, UC-capable
+`EfiReservedMemoryType` or `EfiMemoryMappedIO` pages are eligible;
+QEMU/OVMF's actual ECAM region was observed as reserved type 0, attribute
+`EFI_MEMORY_UC`, so accepting only type 11 would incorrectly reject it.
+The validated MCFG allocation additionally supplies the PCIe aperture
+identity and bounds; normal RAM types remain forbidden. A one-page read-only/NX
+supervisor mapping with PCD+PWT is installed only for each volatile
+32-bit vendor/class register read, then unmapped. These reads are not
+PCI device register writes, BAR MMIO accesses, extended configuration
+space discovery on all buses, IOMMU setup or driver initialization.
+
+[Exact-head QEMU run 36346144132](https://github.com/mixutin/Vibrix/actions/runs/36346144132)
+passed host validation, both target Clippy/builds and seven QEMU
+configurations. Native debugcon observed
+`VIBRIX: kernel PCI ECAM bus0 read` each time; COM1 reported
+`Vibrix ECAM segment0 bus0: 4 devices, 0 xHCI` normally and
+`Vibrix ECAM segment0 bus0: 5 devices, 1 xHCI` with virtual xHCI,
+independent of legacy CF8/CFC scanning. The M4 MCFG/ECAM checkbox
+means this limited, genuine bus-zero native read path, not full
+bus/multifunction/multisegment exploration or a USB controller driver.
+No physical Target 001 evidence is claimed.

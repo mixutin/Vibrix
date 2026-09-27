@@ -96,12 +96,31 @@ and SMP handling are separate unchecked work. Target 001 is untested.
 
 ## M4 — Device discovery
 - [x] ACPI parser
-- [ ] MCFG/ECAM
+- [x] MCFG/ECAM
 - [x] PCI enumeration
 - [x] BAR parsing
 - [ ] MSI/MSI-X
 - [ ] Device/driver model
 - [ ] Driver binding
+
+**Verified M4 read-only ECAM bootstrap (PR #67):**
+[Actions run 36346144132](https://github.com/mixutin/Vibrix/actions/runs/36346144132)
+passed formatting, production UEFI-map, ACPI, ECAM and virtual-mapping
+host tests, both target Clippy/builds and seven post-firmware QEMU boots.
+The native kernel used a checksummed real MCFG allocation for
+**segment-zero bus-zero function-zero configuration reads**, mapping each
+4 KiB ECAM page supervisor-read-only/NX/UC for aligned volatile vendor
+and class dwords, then unmapping. It verified the CPU's actual PAT index 3
+and accepted only UEFI reserved or MMIO pages advertising UC capability,
+not conventional/loader/ACPI RAM or runtime memory. QEMU OVMF labels this
+ECAM aperture `EfiReservedMemoryType` (type 0), UC attribute 1.
+QEMU's native COM1 reported **4 function-zero devices** on bus zero
+without a virtual xHCI, or **5 devices and 1 xHCI controller** when
+`qemu-xhci` was added; seven debugcon boot configurations passed.
+This checkbox is **bounded MCFG-selected ECAM read-only discovery**,
+not full 256-bus/multifunction/multisegment scanning, PCIe extended
+register enumeration, resource sizing, configuration writes, MSI,
+native xHCI activation, DMA, interrupts or physical Target 001 support.
 
 **Verified M4 real ACPI SDT parsing (PR #64):** [Actions run
 36344773356](https://github.com/mixutin/Vibrix/actions/runs/36344773356)

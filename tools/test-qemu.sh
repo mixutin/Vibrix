@@ -92,11 +92,13 @@ for expected in \
   "VIBRIX: kernel PCI BARs parsed" \
   "VIBRIX: kernel virtual mappings verified" \
   "VIBRIX: kernel ACPI XSDT and MCFG mapped and parsed" \
+  "VIBRIX: kernel PCI ECAM bus0 read" \
   "VIBRIX: kernel heap allocation and reuse verified" \
   "VIBRIX: kernel framebuffer wrote pixels" \
   "VIBRIX: kernel framebuffer status banner drawn"; do
   if ! grep -Fq "$expected" "$LOG"; then
     echo "[vibrix] missing smoke-test marker: $expected" >&2
+    [[ -f "$SERIAL_LOG" ]] && cat "$SERIAL_LOG"
     exit 1
   fi
 done
@@ -107,6 +109,10 @@ if [[ ! -f "$SERIAL_LOG" ]] || ! grep -Fq "Vibrix kernel started." "$SERIAL_LOG"
   exit 1
 fi
 grep -Fq "kernel VM: map, protect, unmap and remap verified" "$SERIAL_LOG"
+grep -Eq 'Vibrix ECAM segment0 bus0: [1-9][0-9]* devices, [0-9]+ xHCI' "$SERIAL_LOG"
+if [[ "${VIBRIX_QEMU_XHCI:-0}" == "1" ]]; then
+  grep -Eq 'Vibrix ECAM segment0 bus0: [1-9][0-9]* devices, [1-9][0-9]* xHCI' "$SERIAL_LOG"
+fi
 grep -Fq "kernel heap: aligned allocations, RAM writes and reuse verified" "$SERIAL_LOG"
 cat "$SERIAL_LOG"
 

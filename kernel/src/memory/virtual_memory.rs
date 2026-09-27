@@ -5,6 +5,8 @@ mod window;
 const ADDRESS: u64 = 0x000f_ffff_ffff_f000;
 const PRESENT: u64 = 1;
 const WRITE: u64 = 2;
+const PWT: u64 = 1 << 3;
+const PCD: u64 = 1 << 4;
 const NX: u64 = 1 << 63;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -81,6 +83,34 @@ impl Window {
         let address = page_address(index)?;
         let entry = leaf(physical, self.physical_bits, writable)?;
         // SAFETY: index is bounded and this object exclusively owns the table.
+        unsafe {
+            let slot = self.table.add(index);
+            if slot.read_volatile() != 0 {
+                return Err(MapError::Occupied);
+            }
+            slot.write_volatile(entry);
+            (self.invalidate)(address);
+        }
+        Ok(address)
+    }
+
+    /// Map one page of read-only device configuration MMIO as supervisor
+    /// NX and UC (PWT+PCD under the loader's default x86-64 PAT).
+    /// Unlike map(), the physical page must NOT belong to ordinary RAM.
+    ///
+    /// # Safety
+    /// Sole boot CPU, IF=0, no other virtual/cache aliases with conflicting
+    /// effective memory types. The caller must validate actual PCI ECAM
+    /// physical ownership and span before creating/using any MMIO pointer.
+    /// The mapped page must stay live and no references may escape unmap().
+    pub unsafe fn map_mmio_readonly(
+        &mut self,
+        index: usize,
+        physical: u64,
+    ) -> Result<u64, MapError> {
+        let address = page_address(index)?;
+        let entry = leaf(physical, self.physical_bits, false)? | PWT | PCD;
+        // SAFETY: same exclusively owned live PT as map(), but UC and RO.
         unsafe {
             let slot = self.table.add(index);
             if slot.read_volatile() != 0 {
@@ -270,6 +300,32 @@ mod tests {
         assert_eq!(unsafe { vm.protect(511, true) }, Err(MapError::Unmapped));
         unsafe { vm.map(511, 0x3000, false) }.unwrap();
         assert_eq!(table[511], 0x3000 | PRESENT | NX);
+    }
+
+    #[test]
+    fn mmio_maps_readonly_nonexecuting_and_uncached_without_ram_alias() {
+        let mut table = [0u64; 512];
+        let mut vm = unsafe { Window::from_table(table.as_mut_ptr(), 48, no_flush) }.unwrap();
+        assert_eq!(
+            unsafe { vm.map_mmio_readonly(1, 0xe000_0000) },
+            Ok(window::BASE + 4096)
+        );
+        assert_eq!(table[1], 0xe000_0000 | PRESENT | NX | PWT | PCD);
+        assert_eq!(vm.translation(1), Ok(Some((0xe000_0000, false))));
+        assert_eq!(
+            unsafe { vm.map_mmio_readonly(1, 0xe000_1000) },
+            Err(MapError::Occupied)
+        );
+        assert_eq!(unsafe { vm.unmap(1) }, Ok(0xe000_0000));
+        assert_eq!(table[1], 0);
+        assert_eq!(
+            unsafe { vm.map_mmio_readonly(512, 0xe000_0000) },
+            Err(MapError::InvalidAddress)
+        );
+        assert_eq!(
+            unsafe { vm.map_mmio_readonly(0, 0xe000_0001) },
+            Err(MapError::InvalidAddress)
+        );
     }
 
     #[test]

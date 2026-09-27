@@ -72,6 +72,7 @@ flowchart LR
 | Physical frames + early heap | ✅ |
 | Early map/protect/unmap window | ✅ |
 | ACPI XSDT/MCFG discovery | ✅ |
+| MCFG-selected read-only PCIe ECAM bus-zero probe | ✅ QEMU |
 | PCI enumeration + BAR parsing | ✅ |
 | Full VM + hardware IRQ routing | 🚧 |
 | **Interactive kernel console** | 🎯 **next visible milestone** |
