@@ -79,6 +79,12 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         debugcon::write("VIBRIX: kernel framebuffer rejected\r\n");
     }
 
+    // Separate QEMU-only smoke configuration exercises the *real* kernel
+    // panic handler after the ordinary post-firmware boot path succeeded.
+    #[cfg(feature = "panic-probe")]
+    panic!("VIBRIX: kernel panic probe");
+
+    #[cfg(not(feature = "panic-probe"))]
     loop {
         core::hint::spin_loop();
     }
