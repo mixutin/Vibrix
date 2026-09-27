@@ -83,7 +83,7 @@ impl SetOne {
 
 /// Poll once without relying on firmware services, IRQs or a busy wait
 /// inside the primitive. An absent/empty i8042 reports None.
-/// 
+///
 /// # Safety
 /// The caller must be ring zero on x86-64 with permission for ports
 /// 0x64/0x60 and sole ownership of the legacy keyboard-data consumer.
