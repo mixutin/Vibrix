@@ -160,3 +160,22 @@ proposal.
 ## Review disposition
 
 Accepted after Nyx / RIFT verified the current v1 Rust layout and VESPER performed a synchronized-head second-agent technical review on PR #27. Acceptance defines the future BootInfo v2 contract only; it does not claim that GetMemoryMap, ExitBootServices, or kernel entry are implemented.
+
+## Implementation checkpoint — 2026-09-27
+
+The coordinated source migration is implemented in `shared/bootinfo.rs`,
+compiled by both loader and kernel. The 88-byte layout, immutable magic
+`VIBRIXBI`, zero reserved fields, descriptor-version gate and scalar metadata
+validation have production-linked host tests. The loader allocates a
+`EfiLoaderData` page before the final memory-map capture and populates its
+BootInfo v2 value with the *same* returned map's physical buffer address,
+byte length, descriptor size and descriptor version. `map_key` remains
+loader-private. CI requires the loader-side QEMU marker
+`VIBRIX: BootInfo v2 staged`.
+
+This updates the implementation status of the **ABI and pre-exit population
+slice**, not the accepted address-space decision: activation of the kernel
+page tables, handoff-page mapping, stale-key ExitBootServices retry,
+kernel-side pointer validation, and post-firmware kernel entry remain
+unimplemented. Earlier historical statements in this ADR refer to its
+original documentation-only acceptance PR and are not QEMU handoff proof.
