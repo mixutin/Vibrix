@@ -31,7 +31,7 @@ Vibrix does **not** intend to ship a traditional C libc as its native system int
 
 - Rust-native kernel and userspace
 - Independent implementation from boot to applications
-- No third-party runtime code shipped as part of Vibrix
+- No community or third-party Rust crates in Vibrix; only official Rust language/toolchain components
 - Specifications, hardware manuals and development tools are allowed
 - x86-64 and UEFI first
 - QEMU first, bare metal as the hardware layer matures
@@ -76,6 +76,8 @@ docs/       architecture and specifications
 Vibrix may be developed using existing compilers, assemblers, emulators, debuggers, firmware and source-control tools. Those tools are not part of Vibrix.
 
 Code from Linux, BSD, GNU, third-party bootloaders, third-party libc implementations, BusyBox or other operating systems must not be copied into or shipped with Vibrix.
+
+Vibrix also does **not** use crates.io/community packages in the bootloader, kernel, drivers, system libraries or first-party userspace. The only Rust runtime/foundation code allowed is code provided as part of the official Rust toolchain itself, such as `core` and Rust compiler support.
 
 ## Mascot
 
