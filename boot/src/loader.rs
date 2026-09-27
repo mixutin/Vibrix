@@ -24,7 +24,7 @@ impl LoadError {
             Self::InvalidRange => "VIBRIX: kernel load range is invalid\r\n",
             Self::OverlappingSegments => "VIBRIX: kernel PT_LOAD memory ranges overlap\r\n",
             Self::KernelSpanTooLarge => "VIBRIX: kernel virtual span exceeds loader policy\r\n",
-            Self::Firmware(_) => "VIBRIX: firmware page allocation failed\r\n",
+            Self::Firmware(_) => "VIBRIX: firmware page allocation or release failed\r\n",
             Self::VerificationFailed => "VIBRIX: staged kernel verification failed\r\n",
         }
     }
@@ -57,7 +57,26 @@ pub unsafe fn stage_kernel(
     kernel_file: &KernelFile,
     info: &ElfInfo,
 ) -> Result<LoadedKernel, LoadError> {
-    let data = kernel_file.as_slice();
+    // SAFETY: same live-firmware and immutable-image invariants as this entry point.
+    unsafe {
+        stage_kernel_with(
+            kernel_file.as_slice(),
+            info,
+            |pages| uefi::allocate_loader_pages(system_table, pages),
+            |base, pages| uefi::free_loader_pages(system_table, base, pages),
+        )
+    }
+}
+
+// Uses the production staging algorithm with narrow allocation/release injection.
+// SAFETY: returned pages must be exclusively owned, writable and directly mapped;
+// the validated data/info pair must remain immutable through staging.
+unsafe fn stage_kernel_with(
+    data: &[u8],
+    info: &ElfInfo,
+    mut allocate: impl FnMut(usize) -> Result<u64, Status>,
+    mut release: impl FnMut(u64, usize) -> Result<(), Status>,
+) -> Result<LoadedKernel, LoadError> {
     let (virtual_base, virtual_end) = planned_span(data, info)?;
     let span_bytes = virtual_end
         .checked_sub(virtual_base)
@@ -70,13 +89,16 @@ pub unsafe fn stage_kernel(
     let pages = usize::try_from(pages_u64).map_err(|_| LoadError::KernelSpanTooLarge)?;
     let span_len = usize::try_from(span_bytes).map_err(|_| LoadError::KernelSpanTooLarge)?;
 
-    let physical_base =
-        unsafe { uefi::allocate_loader_pages(system_table, pages) }.map_err(LoadError::Firmware)?;
+    let physical_base = allocate(pages).map_err(LoadError::Firmware)?;
     let physical_usize = match usize::try_from(physical_base) {
         Ok(address) => address,
         Err(_) => {
-            unsafe { uefi::free_loader_pages(system_table, physical_base, pages) };
-            return Err(LoadError::InvalidRange);
+            return Err(cleanup_error(
+                &mut release,
+                physical_base,
+                pages,
+                LoadError::InvalidRange,
+            ));
         }
     };
     let destination = physical_usize as *mut u8;
@@ -86,13 +108,11 @@ pub unsafe fn stage_kernel(
     }
 
     if let Err(error) = unsafe { copy_segments(destination, virtual_base, data, info) } {
-        unsafe { uefi::free_loader_pages(system_table, physical_base, pages) };
-        return Err(error);
+        return Err(cleanup_error(&mut release, physical_base, pages, error));
     }
 
     if let Err(error) = unsafe { verify_segments(destination, virtual_base, data, info) } {
-        unsafe { uefi::free_loader_pages(system_table, physical_base, pages) };
-        return Err(error);
+        return Err(cleanup_error(&mut release, physical_base, pages, error));
     }
 
     Ok(LoadedKernel {
@@ -102,6 +122,19 @@ pub unsafe fn stage_kernel(
         pages,
         entry: info.entry,
     })
+}
+
+// Cleanup failure overrides the operation error: the allocation is still owned.
+fn cleanup_error(
+    release: &mut impl FnMut(u64, usize) -> Result<(), Status>,
+    base: u64,
+    pages: usize,
+    original: LoadError,
+) -> LoadError {
+    match release(base, pages) {
+        Ok(()) => original,
+        Err(status) => LoadError::Firmware(status),
+    }
 }
 
 fn planned_span(data: &[u8], info: &ElfInfo) -> Result<(u64, u64), LoadError> {
@@ -265,4 +298,107 @@ fn align_up(address: u64) -> Option<u64> {
     address
         .checked_add(PAGE_SIZE - 1)
         .map(|value| value & !(PAGE_SIZE - 1))
+}
+
+#[cfg(test)]
+mod cleanup_tests {
+    use super::*;
+    use crate::test_support::*;
+    use crate::uefi::EFI_OUT_OF_RESOURCES;
+
+    #[test]
+    fn stage_copy_failure_releases_and_prioritizes_free_status() {
+        for fail in [false, true] {
+            reset();
+            let (mut data, info) = image();
+            // Keep validated span metadata but force the defensive file-range check
+            // to fail before copy. No out-of-bounds pointer access is performed.
+            data[72..80].copy_from_slice(&8192u64.to_le_bytes());
+            let result = unsafe {
+                stage_kernel_with(
+                    &data,
+                    &info,
+                    |pages| {
+                        let base = uefi::allocate_pages_with(allocate, free, pages)?;
+                        if fail {
+                            FW.with_borrow_mut(|fw| {
+                                fw.failed_frees.push((base, EFI_OUT_OF_RESOURCES))
+                            });
+                        }
+                        Ok(base)
+                    },
+                    |base, pages| uefi::free_pages_with(free, base, pages),
+                )
+            };
+            match result {
+                Err(LoadError::Firmware(s)) if fail => assert_eq!(s, EFI_OUT_OF_RESOURCES),
+                Err(LoadError::InvalidRange) if !fail => (),
+                _ => panic!("wrong cleanup precedence"),
+            }
+            FW.with_borrow(|fw| {
+                let Call::Allocate(base, 1) = fw.calls[0] else {
+                    panic!("missing allocation")
+                };
+                assert_eq!(fw.calls, [Call::Allocate(base, 1), Call::Free(base, 1)]);
+                assert_eq!(fw.allocations.len(), usize::from(fail));
+            });
+        }
+    }
+
+    #[test]
+    fn actual_verification_failure_uses_same_cleanup_precedence() {
+        for fail in [false, true] {
+            reset();
+            let (data, info) = image();
+            let base = unsafe { uefi::allocate_pages_with(allocate, free, 1) }.unwrap();
+            // Zero pages differ from the ELF file bytes. This exercises the real
+            // verifier followed by the exact cleanup helper used by stage_kernel.
+            let original = match unsafe {
+                verify_segments(base as *mut u8, 0xffff_ffff_8000_0000, &data, &info)
+            } {
+                Err(error) => error,
+                Ok(()) => panic!("expected verification failure"),
+            };
+            assert!(matches!(original, LoadError::VerificationFailed));
+            if fail {
+                FW.with_borrow_mut(|fw| fw.failed_frees.push((base, EFI_OUT_OF_RESOURCES)));
+            }
+            let error = cleanup_error(
+                &mut |base, pages| unsafe { uefi::free_pages_with(free, base, pages) },
+                base,
+                1,
+                original,
+            );
+            assert!(matches!(
+                (fail, error),
+                (true, LoadError::Firmware(EFI_OUT_OF_RESOURCES))
+                    | (false, LoadError::VerificationFailed)
+            ));
+            FW.with_borrow(|fw| {
+                assert_eq!(fw.calls, [Call::Allocate(base, 1), Call::Free(base, 1)])
+            });
+        }
+    }
+
+    #[test]
+    fn successful_staging_retains_pages_without_release() {
+        reset();
+        let (data, info) = image();
+        let loaded = unsafe {
+            stage_kernel_with(
+                &data,
+                &info,
+                |pages| uefi::allocate_pages_with(allocate, free, pages),
+                |base, pages| uefi::free_pages_with(free, base, pages),
+            )
+        }
+        .map_err(|e| e.message())
+        .unwrap();
+        FW.with_borrow(|fw| {
+            assert_eq!(fw.calls, [Call::Allocate(loaded.physical_base, 1)]);
+            assert_eq!(fw.allocations.len(), 1);
+            assert_eq!(&fw.allocations[0].1[0].0[..256], &data[..256]);
+            assert!(fw.allocations[0].1[0].0[256..].iter().all(|&b| b == 0));
+        });
+    }
 }
