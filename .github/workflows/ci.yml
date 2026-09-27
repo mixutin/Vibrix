@@ -30,7 +30,8 @@ jobs:
 
       - name: Test host OVMF firmware discovery
         run: |
-          bash -n tools/ovmf.inc host-tests/ovmf-discovery.sh
+          bash -n tools/ovmf.inc
+          bash -n host-tests/ovmf-discovery.sh
           bash host-tests/ovmf-discovery.sh
 
       - name: Install QEMU and OVMF
