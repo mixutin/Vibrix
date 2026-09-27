@@ -7,6 +7,9 @@
 
 const PAGE_SIZE: u64 = 4096;
 const EFI_CONVENTIONAL_MEMORY: u32 = 7;
+const EFI_ACPI_RECLAIM_MEMORY: u32 = 9;
+const EFI_ACPI_MEMORY_NVS: u32 = 10;
+const EFI_MEMORY_WB: u64 = 1 << 3;
 const EFI_MEMORY_RUNTIME: u64 = 1 << 63;
 const DESCRIPTOR_PREFIX: usize = 40;
 const MAX_MAP_BYTES: usize = 16 * 1024 * 1024;
@@ -140,6 +143,46 @@ impl<'a> FrameAllocator<'a> {
         })
     }
 
+    /// Confirm that a physical byte span is entirely in retained firmware
+    /// ACPI RAM, with WB-capable attributes and no runtime-services overlap.
+    ///
+    /// No physical memory is dereferenced here. The caller still needs a
+    /// separate, temporary read-only mapping and must not reclaim these pages.
+    /// Padding pages at either end are also required to have ACPI ownership.
+    pub fn covers_acpi_bytes(&self, start: u64, len: u64) -> bool {
+        let Some(end) = start.checked_add(len) else {
+            return false;
+        };
+        let Some(last) = end.checked_add(PAGE_SIZE - 1) else {
+            return false;
+        };
+        let mut cursor = start & !(PAGE_SIZE - 1);
+        let aligned_end = last & !(PAGE_SIZE - 1);
+        if start == 0 || len == 0 || aligned_end > MAX_PHYSICAL_EXCLUSIVE {
+            return false;
+        }
+        while cursor < aligned_end {
+            let Some(region) = self
+                .map
+                .chunks_exact(self.stride)
+                .filter_map(|bytes| descriptor(bytes).ok())
+                .find(|region| region.start <= cursor && cursor < region.end)
+            else {
+                return false;
+            };
+            if !matches!(
+                region.kind,
+                EFI_ACPI_RECLAIM_MEMORY | EFI_ACPI_MEMORY_NVS
+            ) || region.attr & EFI_MEMORY_WB == 0
+                || region.attr & EFI_MEMORY_RUNTIME != 0
+            {
+                return false;
+            }
+            cursor = region.end.min(aligned_end);
+        }
+        true
+    }
+
     /// Return a newly claimed 4 KiB physical frame or None on exhaustion.
     /// The caller must map/zero it before accessing it, and must keep it
     /// reserved; this early monotonic allocator does NOT support free().
@@ -261,6 +304,35 @@ mod tests {
                 FrameAllocator::from_memory_map(&broken, 48, 1),
                 Err(FrameError::InvalidDescriptor)
             ));
+        }
+    }
+
+    #[test]
+    fn validates_readonly_firmware_acpi_spans_and_padding_pages() {
+        let raw_map = [
+            raw(9, 0x1000, 2, EFI_MEMORY_WB),
+            raw(10, 0x3000, 2, EFI_MEMORY_WB),
+            raw(7, 0x5000, 2, EFI_MEMORY_WB),
+        ]
+        .concat();
+        let frames = FrameAllocator::from_memory_map(&raw_map, 48, 1).unwrap();
+        assert!(frames.covers_acpi_bytes(0x1fff, 0x2001));
+        assert!(frames.covers_acpi_bytes(0x4000, 0x1000));
+        assert!(!frames.covers_acpi_bytes(0x1fff, 0x3002));
+        assert!(!frames.covers_acpi_bytes(0x1000, 0));
+        assert!(!frames.covers_acpi_bytes(0, 0x1000));
+        assert!(!frames.covers_acpi_bytes(u64::MAX - 16, 32));
+        assert!(!frames.covers_acpi_bytes(0x1000, 1u64 << 52));
+
+        for kind in [2, 4, 7, 11] {
+            let bad = raw(kind, 0x1000, 1, EFI_MEMORY_WB);
+            let owner = FrameAllocator::from_memory_map(&bad, 48, 1).unwrap();
+            assert!(!owner.covers_acpi_bytes(0x1000, 1));
+        }
+        for attr in [0, EFI_MEMORY_RUNTIME | EFI_MEMORY_WB] {
+            let bad = raw(9, 0x1000, 1, attr);
+            let owner = FrameAllocator::from_memory_map(&bad, 48, 1).unwrap();
+            assert!(!owner.covers_acpi_bytes(0x1000, 1));
         }
     }
 
