@@ -95,6 +95,18 @@ jobs:
           rustc --edition=2024 --test host-tests/loader_cleanup.rs -o "$RUNNER_TEMP/vibrix-loader-cleanup-tests"
           "$RUNNER_TEMP/vibrix-loader-cleanup-tests"
 
+      - name: Test production CPU transition preflight on host
+        run: |
+          rustfmt --edition 2024 --check boot/src/transition.rs host-tests/transition.rs
+          rustc --edition=2024 --test host-tests/transition.rs -o "$RUNNER_TEMP/vibrix-transition-tests"
+          "$RUNNER_TEMP/vibrix-transition-tests"
+
+      - name: Test mapped framebuffer writes on host
+        run: |
+          rustfmt --edition 2024 --check kernel/src/framebuffer.rs kernel/src/debugcon.rs
+          rustc --edition=2024 --test kernel/src/framebuffer.rs -o "$RUNNER_TEMP/vibrix-framebuffer-tests"
+          "$RUNNER_TEMP/vibrix-framebuffer-tests"
+
       - name: Lint bootloader
         run: cargo clippy -p vibrix-boot --features qemu-debugcon --target x86_64-unknown-uefi -- -D warnings
 
@@ -127,7 +139,7 @@ jobs:
           set -euo pipefail
           for fixture in host-tests/*.rs; do
             case "$fixture" in
-              host-tests/gdt_layout.rs|host-tests/gdt_tss.rs|host-tests/loader_cleanup.rs) continue ;;
+              host-tests/gdt_layout.rs|host-tests/gdt_tss.rs|host-tests/loader_cleanup.rs|host-tests/transition.rs) continue ;;
             esac
             echo "[vibrix] fixture: $fixture"
             rustc --edition=2024 "$fixture" -o "$RUNNER_TEMP/vibrix-host-fixture"
@@ -135,7 +147,7 @@ jobs:
           done
 
       - name: Lint kernel
-        run: cargo clippy -p vibrix-kernel --target x86_64-unknown-none -- -D warnings
+        run: cargo clippy -p vibrix-kernel --all-features --target x86_64-unknown-none -- -D warnings
 
       - name: Build Vibrix
         run: bash tools/build-qemu.sh
@@ -144,3 +156,10 @@ jobs:
         env:
           VIBRIX_SKIP_BUILD: "1"
         run: bash tools/test-qemu.sh
+
+      - name: QEMU post-firmware kernel panic test
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,panic-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel panic" build/qemu/debugcon.log
+          grep -Fq "kernel panic:" build/qemu/serial.log
