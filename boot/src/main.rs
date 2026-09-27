@@ -5,7 +5,7 @@ mod elf;
 mod uefi;
 
 use core::panic::PanicInfo;
-use uefi::{Console, Handle, Status, SystemTable, EFI_LOAD_ERROR};
+use uefi::{Console, EFI_LOAD_ERROR, Handle, Status, SystemTable};
 
 #[unsafe(no_mangle)]
 pub extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemTable) -> Status {
