@@ -70,7 +70,7 @@ fn virtual_ptr(offset: usize) -> Result<usize, ApicError> {
 }
 
 unsafe fn read_lapic(vm: &mut Window, physical: u64) -> Result<(u8, u8, u8), ApicError> {
-    if !physical.is_multiple_of(PAGE) || !unsafe { memory::mmio_span_is_reserved(physical, PAGE) } {
+    if !physical.is_multiple_of(PAGE) || !unsafe { memory::external_mmio_page_is_safe(physical) } {
         return Err(ApicError::MmioRange);
     }
     let base = virtual_ptr(0)?;
@@ -100,7 +100,7 @@ unsafe fn ioapic_register(base: usize, selector: u32) -> u32 {
 }
 
 unsafe fn read_ioapic(vm: &mut Window, physical: u64) -> Result<(u8, u8, u8), ApicError> {
-    if !physical.is_multiple_of(PAGE) || !unsafe { memory::mmio_span_is_reserved(physical, PAGE) } {
+    if !physical.is_multiple_of(PAGE) || !unsafe { memory::external_mmio_page_is_safe(physical) } {
         return Err(ApicError::MmioRange);
     }
     let base = virtual_ptr(0)?;
