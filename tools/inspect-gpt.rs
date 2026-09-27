@@ -129,8 +129,12 @@ fn inspect<R: Read + Seek>(
     // The backup header occupies the final logical block. Its entry array
     // must be wholly between usable space and that final header block.
     let mut backup = vec![0u8; sector_len];
-    let backup_start = last_lba.checked_mul(sector_size).ok_or("backup GPT offset overflow")?;
-    image.seek(SeekFrom::Start(backup_start)).map_err(|e| e.to_string())?;
+    let backup_start = last_lba
+        .checked_mul(sector_size)
+        .ok_or("backup GPT offset overflow")?;
+    image
+        .seek(SeekFrom::Start(backup_start))
+        .map_err(|e| e.to_string())?;
     image.read_exact(&mut backup).map_err(|e| e.to_string())?;
     if &backup[..8] != b"EFI PART" {
         return Err("missing backup GPT signature".into());
@@ -175,8 +179,12 @@ fn inspect<R: Read + Seek>(
         return Err("backup GPT entry array overlaps usable space or backup header".into());
     }
     let mut backup_entries = vec![0u8; array_size];
-    image.seek(SeekFrom::Start(backup_array_start)).map_err(|e| e.to_string())?;
-    image.read_exact(&mut backup_entries).map_err(|e| e.to_string())?;
+    image
+        .seek(SeekFrom::Start(backup_array_start))
+        .map_err(|e| e.to_string())?;
+    image
+        .read_exact(&mut backup_entries)
+        .map_err(|e| e.to_string())?;
     if crc32(&backup_entries) != read_u32(&backup, 88) {
         return Err("backup GPT partition-entry array CRC mismatch".into());
     }
@@ -396,22 +404,30 @@ mod tests {
         for sector_size in [512usize, 4096] {
             let mut image = synthetic_gpt(sector_size);
             image[sector_size * 127 + 40] ^= 1;
-            assert!(check(image, sector_size as u64).unwrap_err().contains("backup GPT header CRC"));
+            assert!(check(image, sector_size as u64)
+                .unwrap_err()
+                .contains("backup GPT header CRC"));
 
             let mut image = synthetic_gpt(sector_size);
             image[sector_size * 126 + 40] ^= 1;
-            assert!(check(image, sector_size as u64).unwrap_err().contains("backup GPT partition-entry array CRC"));
+            assert!(check(image, sector_size as u64)
+                .unwrap_err()
+                .contains("backup GPT partition-entry array CRC"));
 
             let mut image = synthetic_gpt(sector_size);
             image[sector_size * 127 + 32..sector_size * 127 + 40]
                 .copy_from_slice(&2u64.to_le_bytes());
             reset_backup_header_crc(&mut image, sector_size);
-            assert!(check(image, sector_size as u64).unwrap_err().contains("reciprocal"));
+            assert!(check(image, sector_size as u64)
+                .unwrap_err()
+                .contains("reciprocal"));
 
             let mut image = synthetic_gpt(sector_size);
             image[sector_size * 127 + 56] ^= 1;
             reset_backup_header_crc(&mut image, sector_size);
-            assert!(check(image, sector_size as u64).unwrap_err().contains("metadata mismatch"));
+            assert!(check(image, sector_size as u64)
+                .unwrap_err()
+                .contains("metadata mismatch"));
 
             let mut image = synthetic_gpt(sector_size);
             image[sector_size * 126 + 16] ^= 1;
@@ -419,7 +435,9 @@ mod tests {
             image[sector_size * 127 + 88..sector_size * 127 + 92]
                 .copy_from_slice(&crc.to_le_bytes());
             reset_backup_header_crc(&mut image, sector_size);
-            assert!(check(image, sector_size as u64).unwrap_err().contains("arrays differ"));
+            assert!(check(image, sector_size as u64)
+                .unwrap_err()
+                .contains("arrays differ"));
 
             let mut image = synthetic_gpt(sector_size);
             image[sector_size * 127 + 72..sector_size * 127 + 80]
