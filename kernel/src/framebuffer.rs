@@ -216,6 +216,73 @@ mod tests {
     }
 
     #[test]
+    fn visible_banner_renders_glyphs_with_no_writes_outside_gop_buffer() {
+        const STRIDE: usize = 400;
+        const HEIGHT: usize = 150;
+        const SENTINEL: u32 = 0xaabb_ccdd;
+        let mut framebuffer = vec![SENTINEL; STRIDE * HEIGHT + 19];
+        let info = BootInfo::new(
+            FramebufferInfo {
+                physical_base: framebuffer.as_mut_ptr() as u64,
+                size_bytes: (STRIDE * HEIGHT * 4) as u64,
+                width: 396,
+                height: HEIGHT as u32,
+                stride: STRIDE as u32,
+                pixel_format: 1,
+            },
+            0x1000,
+            FinalMemoryMap {
+                physical_base: 0x2000,
+                byte_len: 48,
+                descriptor_size: 48,
+                descriptor_version: 1,
+            },
+        )
+        .unwrap();
+        // SAFETY: live and uniquely borrowed 32-bit host test pixel buffer.
+        assert_eq!(unsafe { draw_boot_marker(&info) }, Ok(true));
+        assert_eq!(framebuffer[0], GREEN);
+        assert_eq!(framebuffer[BANNER_Y * STRIDE + BANNER_X], GREEN);
+        assert_eq!(framebuffer[(BANNER_Y + 8) * STRIDE + BANNER_X + 8], DARK);
+        // The first V foreground pixel is row 0/column 0 of a 6x glyph.
+        assert_eq!(framebuffer[(BANNER_Y + 12) * STRIDE + BANNER_X + 68], WHITE);
+        // K of KERNEL LIVE is row 0/column 0 of its 3x glyph.
+        assert_eq!(framebuffer[(BANNER_Y + 72) * STRIDE + BANNER_X + 77], WHITE);
+        assert_eq!(framebuffer[149 * STRIDE + 395], SENTINEL);
+        assert!(framebuffer[STRIDE * HEIGHT..]
+            .iter()
+            .all(|&value| value == SENTINEL));
+    }
+
+    #[test]
+    fn bitmask_mode_keeps_original_safe_black_marker() {
+        let mut framebuffer = vec![0xaabb_ccdd; 400 * 150];
+        let info = BootInfo::new(
+            FramebufferInfo {
+                physical_base: framebuffer.as_mut_ptr() as u64,
+                size_bytes: (framebuffer.len() * 4) as u64,
+                width: 400,
+                height: 150,
+                stride: 400,
+                pixel_format: 2,
+            },
+            0x1000,
+            FinalMemoryMap {
+                physical_base: 0x2000,
+                byte_len: 48,
+                descriptor_size: 48,
+                descriptor_version: 1,
+            },
+        )
+        .unwrap();
+        // SAFETY: live and uniquely borrowed host test framebuffer.
+        assert_eq!(unsafe { draw_boot_marker(&info) }, Ok(false));
+        assert_eq!(framebuffer[0], 0);
+        assert_eq!(framebuffer[15 * 400 + 47], 0);
+        assert_eq!(framebuffer[16 * 400 + 16], 0xaabb_ccdd);
+    }
+
+    #[test]
     fn refuses_corrupt_size_before_mmio_access() {
         let mut framebuffer = vec![0xaabb_ccdd_u32; 16 * 16];
         let mut info = valid_for_buffer(&mut framebuffer);
