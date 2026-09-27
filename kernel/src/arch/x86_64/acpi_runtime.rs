@@ -4,9 +4,9 @@
 
 use core::slice;
 
+use crate::BootInfo;
 use crate::arch::x86_64::acpi::{AcpiError, Rsdp, Sdt};
 use crate::memory::{self, virtual_memory::Window};
-use crate::BootInfo;
 
 const PAGE: u64 = 4096;
 const MAX_SDT: usize = 1024 * 1024;
@@ -53,16 +53,17 @@ unsafe fn with_table<T>(
         let initial = (offset + 36).div_ceil(PAGE as usize);
         for i in 0..initial {
             // SAFETY: each page was checked as retained WB ACPI RAM; IF=0.
-            unsafe { vm.map(i, base + i as u64 * PAGE, false) }
-                .map_err(|_| ReadError::Mapping)?;
+            unsafe { vm.map(i, base + i as u64 * PAGE, false) }.map_err(|_| ReadError::Mapping)?;
             mapped += 1;
         }
-        let address = usize::try_from(WINDOW_BASE + offset as u64)
-            .map_err(|_| ReadError::Mapping)?;
+        let address =
+            usize::try_from(WINDOW_BASE + offset as u64).map_err(|_| ReadError::Mapping)?;
         // SAFETY: initial leaves map all 36 readable header bytes.
         let header = unsafe { slice::from_raw_parts(address as *const u8, 36) };
         let length = usize::try_from(u32::from_le_bytes(
-            header[4..8].try_into().map_err(|_| ReadError::TableLength)?,
+            header[4..8]
+                .try_into()
+                .map_err(|_| ReadError::TableLength)?,
         ))
         .map_err(|_| ReadError::TableLength)?;
         if !(36..=MAX_SDT).contains(&length)
@@ -75,8 +76,7 @@ unsafe fn with_table<T>(
         for i in initial..pages {
             // SAFETY: entire physical span, including page padding, checked
             // against the immutable UEFI map before adding any new leaves.
-            unsafe { vm.map(i, base + i as u64 * PAGE, false) }
-                .map_err(|_| ReadError::Mapping)?;
+            unsafe { vm.map(i, base + i as u64 * PAGE, false) }.map_err(|_| ReadError::Mapping)?;
             mapped += 1;
         }
         // SAFETY: all bytes are mapped and firmware-owned during the callback.
