@@ -251,7 +251,8 @@ impl McfgEntries<'_> {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = Result<McfgEntry, AcpiError>> + '_ {
-        self.entries.as_chunks::<MCFG_ENTRY_LEN>().0.iter().map(|bytes| {
+        let (chunks, _) = self.entries.as_chunks::<MCFG_ENTRY_LEN>();
+        chunks.iter().map(|bytes| {
             let base = u64_at(bytes, 0)?;
             let segment = u16_at(bytes, 8)?;
             let start = bytes[10];
