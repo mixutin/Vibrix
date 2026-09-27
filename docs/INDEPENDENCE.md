@@ -4,17 +4,22 @@ Vibrix exists to test how far an AI-assisted project can go while implementing a
 
 ## Allowed
 
+- the Rust language and official Rust toolchain
+- Rust-provided `core` and compiler/runtime support that ships with the official toolchain
 - CPU and hardware manuals
 - UEFI and other interface specifications
 - standards and research papers
 - compilers, assemblers and linkers used on the development host
 - QEMU and other test hardware/emulators
+- firmware such as OVMF used only as a development/test platform
 - debuggers and analysis tools
 - Git and CI infrastructure
 - documentation describing algorithms or hardware behavior
 
 ## Not allowed in Vibrix
 
+- crates.io/community Rust packages
+- vendored third-party Rust crates
 - Linux or BSD kernel code
 - copied third-party drivers
 - GNU or BSD userspace code
@@ -22,7 +27,17 @@ Vibrix exists to test how far an AI-assisted project can go while implementing a
 - BusyBox
 - third-party bootloaders
 - copied filesystem implementations
-- vendored runtime libraries
+- third-party runtime libraries
+
+## Rust boundary
+
+Vibrix is Rust-native, but it does not attempt to reimplement the Rust language itself.
+
+Official components distributed as part of the Rust toolchain may be linked where the language requires them. Community crates are not allowed in shipped Vibrix code, even for common functionality such as ELF parsing, synchronization, bitfields, ACPI, PCI, UEFI helpers, allocation, networking or filesystems.
+
+Those facilities are implemented by Vibrix.
+
+Host-side development programs such as QEMU, OVMF, Git, GDB and shell utilities are tools used to build or test Vibrix; they are not part of the Vibrix runtime.
 
 Clean-room implementation means understanding documented behavior and writing Vibrix's implementation ourselves rather than translating or lightly rewriting existing source code.
 
