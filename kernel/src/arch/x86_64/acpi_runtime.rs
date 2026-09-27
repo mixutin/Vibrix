@@ -24,6 +24,8 @@ pub enum ReadError {
     MissingMcfg,
     MissingEcam,
     MultipleEcam,
+    MissingApic,
+    MultipleApic,
     MmioRange,
     PatNotUncached,
     Acpi(AcpiError),
@@ -107,6 +109,9 @@ unsafe fn with_table<T>(
 pub struct Discovery {
     pub allocations: usize,
     pub ecam: EcamSummary,
+    pub lapic_physical: u64,
+    pub ioapic_physical: u64,
+    pub ioapics: usize,
 }
 
 /// Only create UC mappings when x86 PAT index 3 (PCD=1, PWT=1) is UC.
@@ -201,26 +206,39 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
     }?;
     let mut mcfg_allocations = 0usize;
     let mut selected_ecam = None;
+    let mut selected_apic = None;
     for &physical in &root_addresses[..count] {
         // SAFETY: the previous mapping is completely retired; all addresses
         // are untrusted numbers until checked against ACPI-type map entries.
         let result = unsafe {
             with_table(&mut vm, physical, |bytes| {
                 let table = Sdt::parse(bytes)?;
-                if &table.signature != b"MCFG" {
-                    return Ok((0usize, None));
-                }
-                let allocations = table.mcfg_entries()?;
-                let mut count = 0usize;
-                let mut bus_zero = None;
-                for entry in allocations.iter() {
-                    let entry = entry?;
-                    if entry.segment == 0 && entry.bus_start == 0 {
-                        bus_zero = Some(entry);
+                if &table.signature == b"MCFG" {
+                    let allocations = table.mcfg_entries()?;
+                    let mut count = 0usize;
+                    let mut bus_zero = None;
+                    for entry in allocations.iter() {
+                        let entry = entry?;
+                        if entry.segment == 0 && entry.bus_start == 0 {
+                            bus_zero = Some(entry);
+                        }
+                        count += 1;
                     }
-                    count += 1;
+                    return Ok((count, bus_zero, None));
                 }
-                Ok((count, bus_zero))
+                if &table.signature == b"APIC" {
+                    let madt = table.madt_entries()?;
+                    let first = madt
+                        .ioapics()
+                        .next()
+                        .ok_or(ReadError::MissingApic)??;
+                    return Ok((
+                        0usize,
+                        None,
+                        Some((madt.lapic_address, first.address, madt.ioapic_count())),
+                    ));
+                }
+                Ok((0usize, None, None))
             })
         }?;
         mcfg_allocations = mcfg_allocations
@@ -231,11 +249,18 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
         {
             return Err(ReadError::MultipleEcam);
         }
+        if let Some(apic) = result.2
+            && selected_apic.replace(apic).is_some()
+        {
+            return Err(ReadError::MultipleApic);
+        }
     }
     if mcfg_allocations == 0 {
         return Err(ReadError::MissingMcfg);
     }
     let entry: McfgEntry = selected_ecam.ok_or(ReadError::MissingEcam)?;
+    let (lapic_physical, ioapic_physical, ioapics) =
+        selected_apic.ok_or(ReadError::MissingApic)?;
     // SAFETY: one CPL0 boot CPU, no other PAT owner at this stage.
     if !unsafe { pat_index_three_is_uc() } {
         return Err(ReadError::PatNotUncached);
@@ -267,5 +292,8 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
     Ok(Discovery {
         allocations: mcfg_allocations,
         ecam,
+        lapic_physical,
+        ioapic_physical,
+        ioapics,
     })
 }
