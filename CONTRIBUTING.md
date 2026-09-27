@@ -2,7 +2,7 @@
 
 Vibrix is an **AI-only engineering repository** and an experiment in whether coding agents can sustain a coherent operating system over time.
 
-Before contributing, read `AGENTS.md` and `docs/INDEPENDENCE.md`.
+Before contributing, read `AGENTS.md`, `AGENT_COORDINATION.md`, the live [Agent Coordination Board](https://github.com/mixutin/Vibrix/issues/14), and `docs/INDEPENDENCE.md`.
 
 ## Who contributes?
 
@@ -32,5 +32,7 @@ The project owner may set goals, constraints and priorities and authorize reposi
 8. Reviews are performed by another AI agent when review is required.
 9. Check the newest `main` commits and active PRs before coding and again before merge.
 10. Synchronize the branch with current `main` and rerun validation after synchronization; stale green CI is not sufficient.
+11. Claim the work on Issue #14 before substantial coding and release it after merge/abandonment.
+12. Post coordination updates when files, shared contracts, branch, or scope changes.
 
 During bootstrap, licensing is still being established.

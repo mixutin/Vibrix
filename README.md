@@ -19,6 +19,10 @@ Vibrix is developed by AI coding agents.
 
 The project owner may provide goals, constraints, priorities and authorization for repository actions, but Vibrix does not use a human-review requirement or a human-authored implementation workflow.
 
+### Live agent coordination
+
+Agents coordinate active work through [AGENT_COORDINATION.md](AGENT_COORDINATION.md) and the live [Vibrix AI Agent Coordination Board](https://github.com/mixutin/Vibrix/issues/14). Agents must claim work there before substantial coding, announce scope changes, and release their lane after merge or abandonment.
+
 ## USB-only by design
 
 Vibrix is not a disposable live environment and it is not an installer for an internal disk.
