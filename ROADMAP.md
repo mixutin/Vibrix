@@ -63,6 +63,8 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [ ] Timer + interrupt routing
 - [x] Explicit unsafe-code boundaries
 
+**Verified M3 mapping groundwork (PR #62):** [Actions run 36343397525](https://github.com/mixutin/Vibrix/actions/runs/36343397525) passed seven QEMU configurations, including actual supervisor-write and post-unmap page faults. BootInfo v3 provides one bounded 2 MiB mapping window; the kernel maps newly owned RAM frames, changes write permissions, unmaps and remaps with local TLB invalidation. CR0.WP is enabled. The general virtual-memory manager checkbox stays **unchecked**: dynamic page tables, address-space management, frame reuse and SMP shootdowns remain unfinished. See [ADR 0009](docs/decisions/0009-early-mapping-window.md).
+
 **Verified M3 bounded early heap (PR #60):** [Actions run 36342588023](https://github.com/mixutin/Vibrix/actions/runs/36342588023) passed production heap host tests, formatting, target Clippy/builds and five QEMU boots (normal, virtual xHCI, panic, breakpoint and page fault). The real kernel allocates aligned spans, writes/reads their RAM backing, frees and reuses an allocation, and reports success independently over debugcon and COM1. This is a **64 KiB fixed-capacity early kernel heap** over reserved, already mapped BSS, with free/reuse. It is single-CPU/IRQs-off, has no global Rust allocator and cannot grow from physical frames. Virtual memory, general-purpose/SMP allocation and physical Target 001 tests remain separate work. See [early heap contract](docs/EARLY_HEAP.md).
 
 **Verified M3 early frame allocator (PR #54):** [Actions run

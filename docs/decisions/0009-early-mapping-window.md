@@ -1,6 +1,6 @@
 # ADR 0009: BootInfo v3 and the early kernel mapping window
 
-- Status: Implemented; exact-head QEMU evidence pending
+- Status: Accepted; QEMU verified
 - Scope: M3 virtual-memory groundwork
 
 The physical allocator issues owned frame numbers, but the kernel cannot
@@ -56,3 +56,13 @@ normal, xHCI discovery, panic, breakpoint and page-fault boots remain required.
 References: Intel SDM Volume 3A, four-level paging, CR0.WP and section 4.10.4
 (TLB invalidation); existing Vibrix ADRs 0003/0004/0006/0007. Original code by
 OpenAI Codex; no third-party implementation or new dependency.
+
+## Observed validation
+
+[Actions run 36343397525](https://github.com/mixutin/Vibrix/actions/runs/36343397525)
+passed on head `343d72abd73d45a1a3209d397bc60083e20d3acc`: production host
+checks, formatting, both target Clippy/builds and seven QEMU boots. Normal
+and all probe kernels reported real map/protect/unmap/remap RAM success.
+At CR2 `0xffffc00000000000`, the supervisor-write probe observed error `0x3`
+(P=1,W=1,U=0), and the unmap-read probe observed error `0x0` (P=0,W=0,U=0).
+These are actual CPU #PFs logged on native COM1. Target 001 is untested.

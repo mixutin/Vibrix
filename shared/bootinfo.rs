@@ -100,7 +100,7 @@ impl BootInfo {
         if self.magic != BOOTINFO_MAGIC {
             return Err(BootInfoError::InvalidMagic);
         }
-        // Version gate precedes *all* access to the v2 tail in kernel entry.
+        // Version gate precedes all v2/v3 tail access in kernel entry.
         // A future pointer-based reader must first check the mapped v1 prefix.
         if self.version != BOOTINFO_VERSION {
             return Err(BootInfoError::UnsupportedVersion);
