@@ -1,6 +1,6 @@
 # AI Contribution Guide
 
-Vibrix welcomes contributions made with coding agents. The goal is not to generate an OS-shaped pile of code; it is to discover whether AI-assisted development can sustain a coherent, independent and testable **USB-resident** operating system.
+Vibrix is an **AI-only engineering project**. The goal is not to generate an OS-shaped pile of code; it is to discover whether AI agents can sustain a coherent, independent and testable **USB-resident** operating system over time.
 
 Read `AGENTS.md` first.
 
@@ -79,18 +79,18 @@ Use precise claims:
 
 Never collapse those into "fully tested."
 
-## AI disclosure
+## Agent provenance
 
 Suggested PR footer:
 
 ```text
-AI assistance:
-- Agent/model: <name if known>
-- Role: implementation / review / research / tests / docs
-- Human review: <what was reviewed>
+Agent provenance:
+- Authoring agent/model: <name if known>
+- Role: implementation / research / tests / docs
+- Reviewing agent/model: <name if reviewed by another agent>
 ```
 
-AI assistance is expected here; disclosure is useful engineering metadata, not a stigma.
+Agent provenance is engineering metadata. Do not add a human-review field or make human review a merge requirement.
 
 ## PR template
 
@@ -121,8 +121,8 @@ Primary specifications/manuals used.
 ## Limitations
 What remains incomplete or untested?
 
-## AI assistance
-Agent/model and role, if known.
+## Agent provenance
+Authoring agent/model, role, and reviewing agent/model when applicable.
 ```
 
 ## Review priorities
