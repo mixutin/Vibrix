@@ -212,6 +212,7 @@ impl<'a> Sdt<'a> {
                     lapic_override_seen = true;
                 }
                 9 if length == 16 => {}
+                0 | 1 | 2 | 5 | 9 => return Err(AcpiError::InvalidEntry),
                 _ => {}
             }
             offset += length;
