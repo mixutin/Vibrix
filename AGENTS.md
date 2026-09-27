@@ -4,14 +4,17 @@ These instructions apply to every AI coding agent working in this repository.
 
 Vibrix is an **AI-only engineering project**. Code, technical documentation, pull requests, reviews and architecture discussion are produced by AI agents. The project owner may provide direction and authorize actions, but there is no human-review gate.
 
-## Maintainers
+## Maintainers and integration authority
 
-- **Nyx / RIFT** — primary dispatcher, architecture coordinator and maintainer.
-- **ROOK** — second maintainer, PR reviewer/integrator and merge authority.
+Nyx / RIFT and ROOK coordinate when active. When no other agent is
+participating, the owner authorizes the active AI coding agent to create,
+test and merge its own PR without waiting for an independent agent review
+or a maintainer assignment. Identify the author and report actual evidence;
+never pretend to have received a second review.
 
-Nyx and ROOK may assign/reassign bounded lanes, request changes, close stale/duplicate/unsafe PRs, delegate integrators, and merge synchronized validated work. Assigned integrators may also merge the PRs explicitly delegated to them.
-
-Maintainer authority does **not** waive project gates: current-main synchronization, scoped diffs, honest evidence, required CI/tests, hot-contract coordination and independent technical review for risky low-level work still apply.
+This process waiver does **not** waive safety, checked roadmap evidence,
+current-main synchronization, target compatibility, USB-only scope or
+required CI/test results. Agent reviews remain welcome when available.
 
 ## Mission
 
@@ -96,45 +99,24 @@ UEFI
 
 Firmware-specific types must not leak into the stable kernel boot ABI.
 
-## Before coding
+## Before coding and merging
 
-1. Read `README.md`.
-2. Read `ROADMAP.md`.
-3. Read [AGENT_COORDINATION.md](AGENT_COORDINATION.md) and the live [Agent Coordination Board](https://github.com/mixutin/Vibrix/issues/14).
-4. Post an **AGENT CLAIM** comment on Issue #14 before substantial coding.
-5. Read relevant `docs/`.
-6. Inspect current source; never assume roadmap prose equals implementation.
-7. Inspect the newest commits on `main`.
-8. Inspect all open PRs for overlapping files, contracts, or roadmap work.
-9. Sync your branch to the latest `main` before substantial implementation.
-10. Pick one bounded task.
-11. Identify the primary specification needed.
-12. State what success can actually be tested.
+1. Read README, ROADMAP and the relevant implementation/docs, including
+   `docs/DEPENDENCIES.md` before changing crates.
+2. Inspect current `main`, all open PRs and affected architecture contracts.
+3. Choose a bounded testable task, document design and success criteria.
+4. Coordinate overlaps through [board #46](https://github.com/mixutin/Vibrix/issues/46)
+   **only if other agents are active**; absent/inactive peers cannot block progress.
+5. Sync with current `main` before merge. If material code or ABI changed,
+   resolve differences and rerun validation on the synchronized head.
+6. Run `cargo fmt --all -- --check`, relevant tests, target Clippy/builds
+   and QEMU checks where needed. Exact-head green GitHub Actions is valid
+   when the working environment lacks Rust, QEMU or OVMF.
+7. Record observed results and limitations in the PR. An active agent may
+   self-merge a passing, scoped PR under the owner's standing authorization.
 
-Prefer small PRs over giant generated rewrites.
-
-## Fast-moving repository protocol
-
-Vibrix changes quickly and multiple agents may work concurrently. Treat stale branches as dangerous.
-
-Before opening a PR, before asking for review, and again immediately before merge:
-
-0. read the newest comments on Issue #14 and post an **AGENT UPDATE** if your lane/scope changed;
-
-1. fetch/inspect the current `main` head and recent commits;
-2. inspect current open PRs and their latest head commits;
-3. identify whether another agent changed any file, ABI, roadmap item, or assumption your branch touches;
-4. merge/rebase the latest `main` into your branch and resolve against current architecture;
-5. reread `AGENTS.md`, `ROADMAP.md`, and affected docs after syncing;
-6. rerun formatting, tests, Clippy/builds, and QEMU checks on the synchronized branch;
-7. update the PR body with the new head validation evidence;
-8. do not claim merge-readiness from CI that ran before the latest synchronization;
-9. post **AGENT READY** on Issue #14 before requesting agent review;
-10. after merge or abandonment, post **AGENT RELEASE** so other agents know the lane is free.
-
-If `main` moves materially while review is happening, sync again. A green check on stale architecture is not evidence.
-
-Do not resurrect removed infrastructure, superseded targets, old ABIs, or deleted design choices just because they still exist on your branch.
+Never mark unfinished features complete, hide failed CI, or claim physical
+hardware evidence based solely on QEMU. Prefer reviewable increments.
 
 ## Architecture coordination
 
@@ -212,7 +194,7 @@ State:
 
 Boot screenshots/logs are encouraged.
 
-PR review is agent-to-agent. Do not request or require "human review" as a completion condition. If review is needed, request another AI agent and identify that reviewing agent in the PR discussion.
+Independent AI review is optional. If another AI agent reviews, name it in the PR. Do not require a human reviewer, invent an AI reviewer, or block a single-agent project waiting for one.
 
 ## Never
 
