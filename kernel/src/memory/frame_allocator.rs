@@ -170,10 +170,8 @@ impl<'a> FrameAllocator<'a> {
             else {
                 return false;
             };
-            if !matches!(
-                region.kind,
-                EFI_ACPI_RECLAIM_MEMORY | EFI_ACPI_MEMORY_NVS
-            ) || region.attr & EFI_MEMORY_WB == 0
+            if !matches!(region.kind, EFI_ACPI_RECLAIM_MEMORY | EFI_ACPI_MEMORY_NVS)
+                || region.attr & EFI_MEMORY_WB == 0
                 || region.attr & EFI_MEMORY_RUNTIME != 0
             {
                 return false;
