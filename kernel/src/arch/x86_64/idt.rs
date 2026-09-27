@@ -47,14 +47,22 @@ pub unsafe fn init() {
     let table = IDT.0.get();
     // SAFETY: exclusive single-core bootstrap access before LIDT.
     let table = unsafe { &mut *table };
-    table.0[VECTOR_BREAKPOINT] =
-        IdtGate::interrupt(breakpoint_handler as usize as u64, Gdt::KERNEL_CODE_SELECTOR);
-    table.0[VECTOR_DOUBLE_FAULT] =
-        IdtGate::interrupt(double_fault_handler as usize as u64, Gdt::KERNEL_CODE_SELECTOR);
-    table.0[VECTOR_GENERAL_PROTECTION] =
-        IdtGate::interrupt(general_protection_handler as usize as u64, Gdt::KERNEL_CODE_SELECTOR);
-    table.0[VECTOR_PAGE_FAULT] =
-        IdtGate::interrupt(page_fault_handler as usize as u64, Gdt::KERNEL_CODE_SELECTOR);
+    table.0[VECTOR_BREAKPOINT] = IdtGate::interrupt(
+        breakpoint_handler as usize as u64,
+        Gdt::KERNEL_CODE_SELECTOR,
+    );
+    table.0[VECTOR_DOUBLE_FAULT] = IdtGate::interrupt(
+        double_fault_handler as usize as u64,
+        Gdt::KERNEL_CODE_SELECTOR,
+    );
+    table.0[VECTOR_GENERAL_PROTECTION] = IdtGate::interrupt(
+        general_protection_handler as usize as u64,
+        Gdt::KERNEL_CODE_SELECTOR,
+    );
+    table.0[VECTOR_PAGE_FAULT] = IdtGate::interrupt(
+        page_fault_handler as usize as u64,
+        Gdt::KERNEL_CODE_SELECTOR,
+    );
 
     let pointer = IdtPointer {
         limit: (core::mem::size_of::<IdtTable>() - 1) as u16,
@@ -67,16 +75,10 @@ pub unsafe fn init() {
 
 extern "x86-interrupt" fn breakpoint_handler(frame: InterruptStackFrame) {
     crate::debugcon::write("VIBRIX: kernel breakpoint exception handled\r\n");
-    crate::println!(
-        "kernel #BP breakpoint rip={:#x}",
-        frame.instruction_pointer
-    );
+    crate::println!("kernel #BP breakpoint rip={:#x}", frame.instruction_pointer);
 }
 
-extern "x86-interrupt" fn double_fault_handler(
-    frame: InterruptStackFrame,
-    error_code: u64,
-) -> ! {
+extern "x86-interrupt" fn double_fault_handler(frame: InterruptStackFrame, error_code: u64) -> ! {
     crate::debugcon::write("VIBRIX: kernel double fault\r\n");
     crate::println!(
         "kernel #DF rip={:#x} error={:#x} (no IST yet)",
@@ -103,10 +105,7 @@ extern "x86-interrupt" fn general_protection_handler(
     }
 }
 
-extern "x86-interrupt" fn page_fault_handler(
-    frame: InterruptStackFrame,
-    error_code: u64,
-) -> ! {
+extern "x86-interrupt" fn page_fault_handler(frame: InterruptStackFrame, error_code: u64) -> ! {
     let cr2: u64;
     // SAFETY: CPL0 may read CR2. Do this first so debug printing cannot
     // overwrite the faulting linear address before it is captured.
