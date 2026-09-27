@@ -56,12 +56,25 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [x] GDT + TSS
 - [ ] IDT + exception handlers
 - [ ] Page-fault diagnostics
-- [ ] Physical frame allocator
+- [x] Physical frame allocator
 - [ ] Virtual memory manager
 - [ ] Kernel heap
 - [ ] Local APIC + I/O APIC
 - [ ] Timer + interrupt routing
 - [x] Explicit unsafe-code boundaries
+
+**Verified M3 early frame allocator (PR #54):** [Actions run
+36339836880](https://github.com/mixutin/Vibrix/actions/runs/36339836880)
+compiled the production memory-map allocator, ran malformed-map/ownership
+host tests and booted the real kernel after ExitBootServices. Its
+kernel-only markers confirm initialization from the retained final UEFI v1
+descriptor map and issuance of two different, nonzero, page-aligned
+`EfiConventionalMemory` physical frames; both normal and panic-probe
+QEMU boots passed. The global allocator is deliberately monotonic,
+single-boot-CPU and interrupts-disabled. **This checkbox does not imply**
+new physical frames are identity-mapped, zeroed, releasable, SMP-safe, or
+available to a heap/userspace: those are separate uncompleted memory tasks.
+
 
 ## M4 — Device discovery
 - [ ] ACPI parser

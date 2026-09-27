@@ -106,6 +106,25 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         Err(()) => debugcon::write("VIBRIX: kernel ACPI RSDP rejected\r\n"),
     }
 
+    // The entire final descriptor buffer is loader-owned EfiLoaderData,
+    // explicitly identity-mapped under the active kernel PML4. No frame
+    // number is dereferenced: a later virtual mapper must map/zero pages.
+    // Early single-CPU mode still has interrupts disabled.
+    if unsafe { memory::init_from_boot_info(&info) }.is_err() {
+        debugcon::write("VIBRIX: kernel frame allocator rejected map\r\n");
+        loop {
+            core::hint::spin_loop();
+        }
+    }
+    debugcon::write("VIBRIX: kernel frame allocator initialized\r\n");
+    if unsafe { memory::smoke_claim_two_frames() }.is_err() {
+        debugcon::write("VIBRIX: kernel conventional frame claims failed\r\n");
+        loop {
+            core::hint::spin_loop();
+        }
+    }
+    debugcon::write("VIBRIX: kernel conventional frames allocated\r\n");
+
     // Physical GOP BAR is explicitly identity-mapped UC in the active PML4.
     if unsafe { framebuffer::draw_boot_marker(&info) }.is_ok() {
         debugcon::write("VIBRIX: kernel framebuffer wrote pixels\r\n");

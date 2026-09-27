@@ -10,6 +10,8 @@ const EFI_CONVENTIONAL_MEMORY: u32 = 7;
 const EFI_MEMORY_RUNTIME: u64 = 1 << 63;
 const DESCRIPTOR_PREFIX: usize = 40;
 const MAX_MAP_BYTES: usize = 16 * 1024 * 1024;
+// Pairwise overlap validation is intentionally heapless: bound its worst case.
+const MAX_DESCRIPTORS: usize = 4096;
 const MAX_PHYSICAL_EXCLUSIVE: u64 = 1 << 52;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -114,6 +116,7 @@ impl<'a> FrameAllocator<'a> {
             || stride < DESCRIPTOR_PREFIX
             || !stride.is_multiple_of(8)
             || !map.len().is_multiple_of(stride)
+            || map.len() / stride > MAX_DESCRIPTORS
         {
             return Err(FrameError::InvalidMap);
         }
@@ -230,6 +233,13 @@ mod tests {
         }
         assert!(matches!(
             FrameAllocator::from_memory_map(&[], 48, 1),
+            Err(FrameError::InvalidMap)
+        ));
+        // Reject adversarial oversized maps before the quadratic overlap
+        // check, even when byte length is below the 16 MiB buffer limit.
+        let excessive = vec![0u8; (MAX_DESCRIPTORS + 1) * STRIDE];
+        assert!(matches!(
+            FrameAllocator::from_memory_map(&excessive, STRIDE as u64, 1),
             Err(FrameError::InvalidMap)
         ));
     }
