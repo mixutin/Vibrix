@@ -31,6 +31,11 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Test ELF64 parser on host
+        run: |
+          rustc --edition=2024 --test boot/src/elf.rs -o "$RUNNER_TEMP/vibrix-elf-tests"
+          "$RUNNER_TEMP/vibrix-elf-tests"
+
       - name: Lint bootloader
         run: cargo clippy -p vibrix-boot --features qemu-debugcon --target x86_64-unknown-uefi -- -D warnings
 
