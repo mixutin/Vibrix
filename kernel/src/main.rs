@@ -197,6 +197,44 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             );
             debugcon::write("VIBRIX: kernel ACPI XSDT and MCFG mapped and parsed\r\n");
             debugcon::write("VIBRIX: kernel PCI ECAM bus0 read\r\n");
+            crate::println!(
+                "kernel ACPI APIC topology: LAPIC {:#x}, {} IOAPIC(s), first {:#x}",
+                discovery.lapic_physical,
+                discovery.ioapics,
+                discovery.ioapic_physical
+            );
+            // SAFETY: MADT physical addresses are checksummed ACPI metadata;
+            // probe independently validates firmware MMIO ownership/PAT and
+            // uses the empty v3 window while IF remains cleared.
+            match unsafe {
+                arch::x86_64::apic::probe(
+                    &info,
+                    discovery.lapic_physical,
+                    discovery.ioapic_physical,
+                )
+            } {
+                Ok(apic) => {
+                    crate::println!(
+                        "Vibrix APIC: LAPIC id={} version={:#x} max_lvt={}, IOAPIC id={} version={:#x} max_redir={}",
+                        apic.lapic_id,
+                        apic.lapic_version,
+                        apic.lapic_max_lvt,
+                        apic.ioapic_id,
+                        apic.ioapic_version,
+                        apic.ioapic_max_redirection_entry
+                    );
+                    debugcon::write("VIBRIX: kernel LAPIC and IOAPIC registers read\r\n");
+                }
+                Err(error) => {
+                    crate::println!("kernel APIC validation failed: {:?}", error);
+                    crate::println!(
+                        "kernel LAPIC UEFI descriptor {:?}, IOAPIC descriptor {:?}",
+                        unsafe { memory::firmware_descriptor_at(discovery.lapic_physical) },
+                        unsafe { memory::firmware_descriptor_at(discovery.ioapic_physical) }
+                    );
+                    debugcon::write("VIBRIX: kernel APIC discovery rejected\r\n");
+                }
+            }
         }
         Err(()) => debugcon::write("VIBRIX: kernel ACPI or ECAM discovery rejected\r\n"),
     }
