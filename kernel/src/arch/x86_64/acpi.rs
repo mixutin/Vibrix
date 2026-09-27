@@ -161,24 +161,31 @@ impl<'a> Sdt<'a> {
             return Err(AcpiError::InvalidLength);
         }
         let mut lapic_address = u64::from(u32_at(self.bytes, 36)?);
-        if lapic_address == 0 || !lapic_address.is_multiple_of(4096) {
-            return Err(AcpiError::InvalidAllocation);
-        }
         let flags = u32_at(self.bytes, 40)?;
+        if flags & !1 != 0 {
+            return Err(AcpiError::InvalidEntry);
+        }
         let entries = &self.bytes[MADT_HEADER_LEN..];
         let mut offset = 0usize;
         let mut ioapics = 0usize;
+        let mut lapic_override_seen = false;
         while offset < entries.len() {
-            let header = entries.get(offset..offset + 2).ok_or(AcpiError::Truncated)?;
+            let header = entries
+                .get(offset..offset + 2)
+                .ok_or(AcpiError::Truncated)?;
             let length = usize::from(header[1]);
-            if length < 2 || offset.checked_add(length).is_none_or(|end| end > entries.len()) {
+            if length < 2
+                || offset
+                    .checked_add(length)
+                    .is_none_or(|end| end > entries.len())
+            {
                 return Err(AcpiError::InvalidEntry);
             }
             let entry = &entries[offset..offset + length];
             match entry[0] {
                 0 if length == 8 => {
                     let apic_flags = u32_at(entry, 4)?;
-                    if apic_flags & !0b11 != 0 {
+                    if apic_flags & !0b11 != 0 || apic_flags & 0b11 == 0b11 {
                         return Err(AcpiError::InvalidEntry);
                     }
                 }
@@ -194,7 +201,7 @@ impl<'a> Sdt<'a> {
                 }
                 2 if length == 10 => {}
                 5 if length == 12 => {
-                    if entry[2..4] != [0; 2] {
+                    if entry[2..4] != [0; 2] || lapic_override_seen {
                         return Err(AcpiError::InvalidEntry);
                     }
                     let address = u64_at(entry, 4)?;
@@ -202,13 +209,14 @@ impl<'a> Sdt<'a> {
                         return Err(AcpiError::InvalidAllocation);
                     }
                     lapic_address = address;
+                    lapic_override_seen = true;
                 }
                 9 if length == 16 => {}
                 _ => {}
             }
             offset += length;
         }
-        if ioapics == 0 {
+        if lapic_address == 0 || !lapic_address.is_multiple_of(4096) || ioapics == 0 {
             return Err(AcpiError::InvalidAllocation);
         }
         Ok(Madt {
