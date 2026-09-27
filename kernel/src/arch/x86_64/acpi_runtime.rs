@@ -147,9 +147,7 @@ unsafe fn read_ecam_word(vm: &mut Window, physical: u64) -> Result<u32, ReadErro
     }
     let page = physical & !(PAGE - 1);
     let offset = usize::try_from(physical - page).map_err(|_| ReadError::MmioRange)?;
-    if offset > PAGE as usize - 4
-        || !unsafe { memory::mmio_span_is_reserved(page, PAGE) }
-    {
+    if offset > PAGE as usize - 4 || !unsafe { memory::mmio_span_is_reserved(page, PAGE) } {
         return Err(ReadError::MmioRange);
     }
     // SAFETY: device config MMIO is exclusively mapped UC, RO and NX.
@@ -252,8 +250,7 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
     // SAFETY: preflighted MCFG bus/page bounds; each page is temporarily
     // mapped supervisor RO/NX/UC and retired after its volatile dword read.
     let ecam = crate::arch::x86_64::acpi::scan_ecam_bus_zero(entry, |physical| {
-        unsafe { read_ecam_word(&mut vm, physical) }
-            .map_err(|_| AcpiError::InvalidAllocation)
+        unsafe { read_ecam_word(&mut vm, physical) }.map_err(|_| AcpiError::InvalidAllocation)
     })?;
     if ecam.devices == 0 {
         return Err(ReadError::MissingEcam);
