@@ -45,9 +45,13 @@ fn layout(size_mib: u64, sector_size: u64) -> Result<Layout, &'static str> {
     let sectors = bytes / sector_size;
     let array_sectors = u64::from(ENTRY_COUNT) * u64::from(ENTRY_BYTES) / sector_size;
     let last_lba = sectors.checked_sub(1).ok_or("invalid image size")?;
-    let backup_entries_lba = last_lba.checked_sub(array_sectors).ok_or("invalid backup GPT")?;
+    let backup_entries_lba = last_lba
+        .checked_sub(array_sectors)
+        .ok_or("invalid backup GPT")?;
     let first_usable = 2 + array_sectors;
-    let last_usable = backup_entries_lba.checked_sub(1).ok_or("invalid usable space")?;
+    let last_usable = backup_entries_lba
+        .checked_sub(1)
+        .ok_or("invalid usable space")?;
     let alignment = MIB / sector_size;
     let esp_first = alignment;
     let esp_last = esp_first + ESP_MIB * alignment - 1;
@@ -112,28 +116,18 @@ fn write_partition(
     }
 }
 
-fn header(
-    plan: Layout,
-    disk_guid: [u8; 16],
-    entries_crc: u32,
-    primary: bool,
-) -> Vec<u8> {
+fn header(plan: Layout, disk_guid: [u8; 16], entries_crc: u32, primary: bool) -> Vec<u8> {
     let mut bytes = vec![0u8; plan.sector_size as usize];
     bytes[..8].copy_from_slice(b"EFI PART");
     bytes[8..12].copy_from_slice(&0x0001_0000u32.to_le_bytes());
     bytes[12..16].copy_from_slice(&(HEADER_BYTES as u32).to_le_bytes());
-    bytes[24..32].copy_from_slice(
-        &(if primary { 1 } else { plan.last_lba }).to_le_bytes(),
-    );
-    bytes[32..40].copy_from_slice(
-        &(if primary { plan.last_lba } else { 1 }).to_le_bytes(),
-    );
+    bytes[24..32].copy_from_slice(&(if primary { 1 } else { plan.last_lba }).to_le_bytes());
+    bytes[32..40].copy_from_slice(&(if primary { plan.last_lba } else { 1 }).to_le_bytes());
     bytes[40..48].copy_from_slice(&plan.first_usable.to_le_bytes());
     bytes[48..56].copy_from_slice(&plan.last_usable.to_le_bytes());
     bytes[56..72].copy_from_slice(&disk_guid);
-    bytes[72..80].copy_from_slice(
-        &(if primary { 2 } else { plan.backup_entries_lba }).to_le_bytes(),
-    );
+    bytes[72..80]
+        .copy_from_slice(&(if primary { 2 } else { plan.backup_entries_lba }).to_le_bytes());
     bytes[80..84].copy_from_slice(&ENTRY_COUNT.to_le_bytes());
     bytes[84..88].copy_from_slice(&ENTRY_BYTES.to_le_bytes());
     bytes[88..92].copy_from_slice(&entries_crc.to_le_bytes());
@@ -183,9 +177,7 @@ fn write_gpt(
     file.write_all(&header(plan, disk_guid, entries_crc, true))?;
     file.seek(SeekFrom::Start(2 * plan.sector_size))?;
     file.write_all(&entries)?;
-    file.seek(SeekFrom::Start(
-        plan.backup_entries_lba * plan.sector_size,
-    ))?;
+    file.seek(SeekFrom::Start(plan.backup_entries_lba * plan.sector_size))?;
     file.write_all(&entries)?;
     file.seek(SeekFrom::Start(plan.last_lba * plan.sector_size))?;
     file.write_all(&header(plan, disk_guid, entries_crc, false))?;
@@ -198,7 +190,10 @@ fn create_image(path: &Path, plan: Layout) -> Result<(), String> {
     }
     // A block-device path already exists; create_new refuses it and symlinks.
     // Do not allow creating files under pseudo/device filesystems either.
-    let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     let canonical_parent = parent.canonicalize().map_err(|e| e.to_string())?;
     if ["/dev", "/proc", "/sys"]
         .iter()
@@ -245,7 +240,12 @@ fn main() {
         std::process::exit(2);
     }
     let size_mib = args[2].parse::<u64>().unwrap_or(0);
-    let sector_size = args.get(3).map(String::as_str).unwrap_or("512").parse::<u64>().unwrap_or(0);
+    let sector_size = args
+        .get(3)
+        .map(String::as_str)
+        .unwrap_or("512")
+        .parse::<u64>()
+        .unwrap_or(0);
     let plan = layout(size_mib, sector_size).unwrap_or_else(|error| {
         eprintln!("invalid image geometry: {error}");
         std::process::exit(2);
@@ -259,7 +259,9 @@ fn main() {
         size_mib, sector_size, args[1]
     );
     println!("Partition 1: 32 MiB ESP placeholder; partition 2: generic data placeholder.");
-    println!("Neither partition is formatted; do not write this image directly to USB as an installer.");
+    println!(
+        "Neither partition is formatted; do not write this image directly to USB as an installer."
+    );
 }
 
 #[cfg(test)]
@@ -325,7 +327,8 @@ mod tests {
 
     #[test]
     fn refusing_an_existing_file_preserves_contents() {
-        let base = std::env::temp_dir().join(format!("vibrix-gpt-no-overwrite-{}", std::process::id()));
+        let base =
+            std::env::temp_dir().join(format!("vibrix-gpt-no-overwrite-{}", std::process::id()));
         let file = base.with_extension("img");
         std::fs::write(&file, b"not a disk").unwrap();
         let result = create_image(&file, layout(64, 512).unwrap());
