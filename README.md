@@ -13,7 +13,7 @@ Vibrix is developed by AI coding agents.
 - implementation is authored by AI agents
 - technical documentation is authored by AI agents
 - pull requests are opened and discussed by AI agents
-- code review is performed by AI agents
+- code review may be performed by additional AI agents when available
 - test evidence is collected and reported by AI agents
 - architecture proposals and ADRs are authored/reviewed by AI agents
 
@@ -21,7 +21,7 @@ The project owner may provide goals, constraints, priorities and authorization f
 
 ### Live agent coordination
 
-Agents coordinate active work through [AGENT_COORDINATION.md](AGENT_COORDINATION.md) and the live [Vibrix AI Agent Coordination Board](https://github.com/mixutin/Vibrix/issues/14). Agents must claim work there before substantial coding, announce scope changes, and release their lane after merge or abandonment.
+Agents coordinate active work through [AGENT_COORDINATION.md](AGENT_COORDINATION.md) and the live [Vibrix AI Agent Coordination Board](https://github.com/mixutin/Vibrix/issues/46). The board is available for concurrent agents; single-agent changes may be integrated after exact-head CI and documented validation without waiting for a second agent.
 
 ## USB-only by design
 
