@@ -1,82 +1,50 @@
 #![no_std]
 #![no_main]
 
+mod elf;
+mod uefi;
+
 use core::panic::PanicInfo;
-
-type Handle = *mut core::ffi::c_void;
-type Status = usize;
-
-#[repr(C)]
-struct TableHeader {
-    signature: u64,
-    revision: u32,
-    header_size: u32,
-    crc32: u32,
-    reserved: u32,
-}
-
-#[repr(C)]
-struct SimpleTextOutputProtocol {
-    reset: usize,
-    output_string: extern "efiapi" fn(*mut SimpleTextOutputProtocol, *const u16) -> Status,
-    test_string: usize,
-    query_mode: usize,
-    set_mode: usize,
-    set_attribute: usize,
-    clear_screen: usize,
-    set_cursor_position: usize,
-    enable_cursor: usize,
-    mode: usize,
-}
-
-#[repr(C)]
-pub struct SystemTable {
-    header: TableHeader,
-    firmware_vendor: *const u16,
-    firmware_revision: u32,
-    _pad: u32,
-    console_in_handle: Handle,
-    con_in: usize,
-    console_out_handle: Handle,
-    con_out: *mut SimpleTextOutputProtocol,
-    standard_error_handle: Handle,
-    std_err: *mut SimpleTextOutputProtocol,
-    runtime_services: usize,
-    boot_services: usize,
-    number_of_table_entries: usize,
-    configuration_table: usize,
-}
-
-static MESSAGE: &[u16] = &[
-    'V' as u16, 'i' as u16, 'b' as u16, 'r' as u16, 'i' as u16, 'x' as u16,
-    ' ' as u16, 'b' as u16, 'o' as u16, 'o' as u16, 't' as u16, 'l' as u16,
-    'o' as u16, 'a' as u16, 'd' as u16, 'e' as u16, 'r' as u16, ' ' as u16,
-    'v' as u16, '0' as u16, '.' as u16, '0' as u16, '.' as u16, '1' as u16,
-    '\r' as u16, '\n' as u16,
-    'R' as u16, 'u' as u16, 's' as u16, 't' as u16, '-' as u16, 'n' as u16,
-    'a' as u16, 't' as u16, 'i' as u16, 'v' as u16, 'e' as u16, '.' as u16,
-    ' ' as u16, 'I' as u16, 'n' as u16, 'd' as u16, 'e' as u16, 'p' as u16,
-    'e' as u16, 'n' as u16, 'd' as u16, 'e' as u16, 'n' as u16, 't' as u16,
-    '.' as u16, '\r' as u16, '\n' as u16,
-    'H' as u16, 'e' as u16, 'l' as u16, 'l' as u16, 'o' as u16, ' ' as u16,
-    'f' as u16, 'r' as u16, 'o' as u16, 'm' as u16, ' ' as u16, 'U' as u16,
-    'E' as u16, 'F' as u16, 'I' as u16, '.' as u16, '\r' as u16, '\n' as u16,
-    0,
-];
+use uefi::{Console, Handle, Status, SystemTable, EFI_LOAD_ERROR};
 
 #[unsafe(no_mangle)]
-pub extern "efiapi" fn efi_main(_image: Handle, system_table: *mut SystemTable) -> Status {
-    if system_table.is_null() {
-        return 2;
+pub extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemTable) -> Status {
+    let Some(mut console) = (unsafe { Console::from_system_table(system_table) }) else {
+        return EFI_LOAD_ERROR;
+    };
+
+    console.write("Vibrix bootloader v0.0.2\r\n");
+    console.write("VIBRIX: bootloader entered\r\n");
+
+    let kernel = match unsafe { uefi::load_kernel(image, system_table) } {
+        Ok(kernel) => kernel,
+        Err(status) => {
+            console.write("VIBRIX: kernel.elf load failed\r\n");
+            return status;
+        }
+    };
+
+    console.write("VIBRIX: kernel.elf found\r\n");
+
+    let info = match elf::validate(kernel.as_slice()) {
+        Ok(info) => info,
+        Err(error) => {
+            console.write(error.message());
+            return EFI_LOAD_ERROR;
+        }
+    };
+
+    console.write("VIBRIX: ELF64 valid\r\n");
+    console.write("VIBRIX: x86_64 executable validated\r\n");
+
+    if info.program_headers == 0 || info.load_segments == 0 || info.entry == 0 {
+        console.write("VIBRIX: kernel metadata invalid\r\n");
+        return EFI_LOAD_ERROR;
     }
 
-    unsafe {
-        let console = (*system_table).con_out;
-        if console.is_null() {
-            return 2;
-        }
-        ((*console).output_string)(console, MESSAGE.as_ptr());
-    }
+    console.write("VIBRIX: PT_LOAD parsed\r\n");
+    console.write("VIBRIX: kernel validated\r\n");
+    console.write("Next: allocate and map kernel segments.\r\n");
 
     loop {
         core::hint::spin_loop();
