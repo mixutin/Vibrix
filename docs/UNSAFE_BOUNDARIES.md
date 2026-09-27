@@ -101,3 +101,29 @@ ownership, lifetime, mapping, cache policy and synchronization at the
 actual operation. See [ADR 0007](decisions/0007-uefi-exit-kernel-entry.md),
 [ADR 0006](decisions/0006-transition-mappings.md) and
 [UEFI](https://uefi.org/specifications) / the Intel x86-64 SDM.
+
+## BootInfo v3 and early mapping window (PR #62)
+
+The historical v2 checkpoints above are superseded for the current entry
+contract by a mapped, aligned **96-byte v3** BootInfo object. Version is
+checked in the common prefix before the new tail is read. See ADR 0009.
+
+`prepare_kernel_window` accesses only exclusively owned inactive loader
+page tables, verifies empty leaves and retains all linked allocations.
+The PT is narrowly identity-mapped RW/NX and never reclaimed by the frame
+allocator. Failure aborts the attempt; no partial rollback is promised.
+
+`memory::virtual_memory::Window` owns raw volatile access to 512 mapped,
+u64-aligned entries on the sole boot CPU with IRQs disabled. Its unsafe
+constructor requires the v3 parent hierarchy and exclusive lifetime;
+index/physical-width checks do not independently prove those invariants.
+Map/protect/unmap require caller-owned WB RAM and retirement of incompatible
+references. Each store precedes INVLPG; the assembly has no `nomem` claim.
+CR0.WP is set while preserving all other bits. Leaves are supervisor/NX.
+No SMP, interrupt allocation, MMIO caching or physical-frame reuse is provided.
+Two optional QEMU probes deliberately fault through the installed IDT.
+The default boot only accesses mapped owned frames, then unmaps them.
+
+The separate early heap from PR #60 owns a 64 KiB static mapped arena and
+metadata in UnsafeCell under the same sole-CPU/IRQs-off restriction. See
+[EARLY_HEAP.md](EARLY_HEAP.md) for allocation lifetime and free/reuse rules.

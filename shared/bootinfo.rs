@@ -4,7 +4,7 @@
 //! addresses remain integers: validating metadata does not map their backing.
 
 pub const BOOTINFO_MAGIC: u64 = 0x4942_5849_5242_4956; // "VIBRIXBI" in little endian
-pub const BOOTINFO_VERSION: u32 = 2;
+pub const BOOTINFO_VERSION: u32 = 3;
 pub const SUPPORTED_MEMORY_DESCRIPTOR_VERSION: u32 = 1;
 pub const MEMORY_DESCRIPTOR_PREFIX_BYTES: u64 = 40;
 
@@ -26,6 +26,7 @@ pub struct BootInfo {
     pub memory_descriptor_size: u64,
     pub memory_descriptor_version: u32,
     pub _reserved_v2: u32,
+    pub kernel_window_table: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,6 +49,7 @@ pub struct FinalMemoryMap {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BootInfoError {
+    InvalidWindowTable,
     InvalidMagic,
     UnsupportedVersion,
     NonzeroReserved,
@@ -64,6 +66,7 @@ impl BootInfo {
         framebuffer: FramebufferInfo,
         rsdp: u64,
         map: FinalMemoryMap,
+        kernel_window_table: u64,
     ) -> Result<Self, BootInfoError> {
         let byte_len = u64::try_from(map.byte_len).map_err(|_| BootInfoError::InvalidMemoryMap)?;
         let descriptor_size =
@@ -84,22 +87,29 @@ impl BootInfo {
             memory_descriptor_size: descriptor_size,
             memory_descriptor_version: map.descriptor_version,
             _reserved_v2: 0,
+            kernel_window_table,
         };
         info.validate()?;
         Ok(info)
     }
 
     /// Validate scalar metadata only. The caller must separately prove that
-    /// this whole 88-byte object and its physical ranges are mapped/owned.
+    /// this whole 96-byte object and its physical ranges are mapped/owned.
     /// In particular, this does not dereference the memory-map address.
     pub fn validate(&self) -> Result<(), BootInfoError> {
         if self.magic != BOOTINFO_MAGIC {
             return Err(BootInfoError::InvalidMagic);
         }
-        // Version gate precedes *all* access to the v2 tail in kernel entry.
+        // Version gate precedes all v2/v3 tail access in kernel entry.
         // A future pointer-based reader must first check the mapped v1 prefix.
         if self.version != BOOTINFO_VERSION {
             return Err(BootInfoError::UnsupportedVersion);
+        }
+        if self.kernel_window_table == 0
+            || !self.kernel_window_table.is_multiple_of(4096)
+            || self.kernel_window_table >= (1u64 << 47)
+        {
+            return Err(BootInfoError::InvalidWindowTable);
         }
         if self._reserved != 0 || self._reserved_v2 != 0 {
             return Err(BootInfoError::NonzeroReserved);
@@ -164,14 +174,15 @@ mod tests {
                 descriptor_size: 48,
                 descriptor_version: 1,
             },
+            0x3000,
         )
         .unwrap()
     }
 
     #[test]
-    fn abi_is_exactly_88_bytes_with_stable_v1_prefix() {
+    fn abi_is_exactly_96_bytes_with_stable_v1_prefix() {
         assert_eq!(BOOTINFO_MAGIC.to_le_bytes(), *b"VIBRIXBI");
-        assert_eq!(size_of::<BootInfo>(), 88);
+        assert_eq!(size_of::<BootInfo>(), 96);
         assert_eq!(align_of::<BootInfo>(), 8);
         assert_eq!(offset_of!(BootInfo, magic), 0);
         assert_eq!(offset_of!(BootInfo, version), 8);
@@ -188,13 +199,14 @@ mod tests {
         assert_eq!(offset_of!(BootInfo, memory_descriptor_size), 72);
         assert_eq!(offset_of!(BootInfo, memory_descriptor_version), 80);
         assert_eq!(offset_of!(BootInfo, _reserved_v2), 84);
+        assert_eq!(offset_of!(BootInfo, kernel_window_table), 88);
     }
 
     #[test]
     fn final_map_is_written_without_map_key_and_with_zero_reserved_fields() {
         let info = valid();
         assert_eq!(info.magic, BOOTINFO_MAGIC);
-        assert_eq!(info.version, 2);
+        assert_eq!(info.version, 3);
         assert_eq!(info._reserved, 0);
         assert_eq!(info._reserved_v2, 0);
         assert_eq!(info.memory_map_len, 144);
@@ -205,7 +217,7 @@ mod tests {
 
     #[test]
     fn corrupt_magic_version_and_reserved_fields_fail_closed() {
-        for value in [0, 1, 3] {
+        for value in [0, 1, 2, 4] {
             let mut info = valid();
             info.version = value;
             assert_eq!(info.validate(), Err(BootInfoError::UnsupportedVersion));
@@ -219,6 +231,15 @@ mod tests {
         let mut info = valid();
         info._reserved_v2 = 1;
         assert_eq!(info.validate(), Err(BootInfoError::NonzeroReserved));
+    }
+
+    #[test]
+    fn invalid_window_table_fails_before_dereference() {
+        for address in [0, 1, 4097, 1u64 << 47, u64::MAX] {
+            let mut info = valid();
+            info.kernel_window_table = address;
+            assert_eq!(info.validate(), Err(BootInfoError::InvalidWindowTable));
+        }
     }
 
     #[test]

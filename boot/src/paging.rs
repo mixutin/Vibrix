@@ -1,3 +1,6 @@
+#[path = "../../shared/vm_window.rs"]
+mod window;
+
 use core::ptr;
 
 use crate::elf::{ElfError, ElfInfo};
@@ -138,6 +141,44 @@ pub unsafe fn map_identity_regions(
         .checked_add(mapped)
         .ok_or(PagingError::VerificationFailed)?;
     Ok(())
+}
+
+/// Allocate the empty PT for BootInfo v3's bounded higher-half data window.
+/// The caller must identity-map the returned PT before ExitBootServices.
+///
+/// # Safety
+/// Inactive, exclusively owned hierarchy under firmware mappings. On failure,
+/// abort this boot attempt; partially linked allocations are not reusable.
+pub unsafe fn prepare_kernel_window(
+    system_table: *mut SystemTable,
+    tables: &mut KernelPageTables,
+) -> Result<u64, PagingError> {
+    let (allocate, free) =
+        unsafe { uefi::page_services(system_table) }.map_err(PagingError::Firmware)?;
+    let mut allocator = TableAllocator::new(allocate, free);
+    let table = unsafe { prepare_window_inner(&mut allocator, tables.root_physical)? };
+    tables.table_pages += allocator.count;
+    Ok(table)
+}
+
+unsafe fn prepare_window_inner(
+    allocator: &mut TableAllocator,
+    root: u64,
+) -> Result<u64, PagingError> {
+    let [a, b, c, _] = indices(window::BASE);
+    // SAFETY: firmware owns and maps all allocated hierarchy pages.
+    let pdpt = unsafe { ensure_next_table(allocator, root, a)? };
+    let pd = unsafe { ensure_next_table(allocator, pdpt, b)? };
+    let pt = unsafe { ensure_next_table(allocator, pd, c)? };
+    for i in 0..window::PAGES {
+        if unsafe { read_entry(pt, i)? } != 0 {
+            return Err(PagingError::MappingConflict);
+        }
+    }
+    if pt >= (1u64 << 47) || !pt.is_multiple_of(window::PAGE_BYTES) {
+        return Err(PagingError::InvalidPhysicalAddress);
+    }
+    Ok(pt)
 }
 
 fn identity_span(region: &IdentityRegion) -> Result<(u64, u64), PagingError> {
@@ -871,5 +912,38 @@ mod cleanup_tests {
                     .all(|call| matches!(call, Call::Allocate(_, 1)))
             );
         });
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+    use crate::test_support::*;
+
+    #[test]
+    fn reserved_window_is_empty_and_rejects_image_collision() {
+        reset();
+        let mut allocator = TableAllocator::new(allocate, free);
+        let root = unsafe { allocator.allocate_zeroed() }
+            .map_err(|e| e.message())
+            .unwrap();
+        let pt = unsafe { prepare_window_inner(&mut allocator, root) }
+            .map_err(|e| e.message())
+            .unwrap();
+        for i in 0..window::PAGES {
+            assert_eq!(
+                unsafe { read_entry(pt, i) }
+                    .map_err(|e| e.message())
+                    .unwrap(),
+                0
+            );
+        }
+        unsafe { map_page(&mut allocator, root, window::BASE, 0x1000, true, false) }
+            .map_err(|e| e.message())
+            .unwrap();
+        assert!(matches!(
+            unsafe { prepare_window_inner(&mut allocator, root) },
+            Err(PagingError::MappingConflict)
+        ));
     }
 }

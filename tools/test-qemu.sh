@@ -78,10 +78,10 @@ for expected in \
   "VIBRIX: kernel page tables verified" \
   "VIBRIX: transition mappings verified" \
   "VIBRIX: final memory map captured" \
-  "VIBRIX: BootInfo v2 staged" \
+  "VIBRIX: BootInfo v3 staged" \
   "VIBRIX: ExitBootServices succeeded" \
   "VIBRIX: kernel entry after ExitBootServices" \
-  "VIBRIX: kernel BootInfo v2 validated" \
+  "VIBRIX: kernel BootInfo v3 validated" \
   "VIBRIX: kernel GDT/TSS loaded" \
   "VIBRIX: kernel serial initialized" \
   "VIBRIX: kernel IDT installed" \
@@ -90,6 +90,7 @@ for expected in \
   "VIBRIX: kernel conventional frames allocated" \
   "VIBRIX: kernel PCI segment0 enumerated" \
   "VIBRIX: kernel PCI BARs parsed" \
+  "VIBRIX: kernel virtual mappings verified" \
   "VIBRIX: kernel heap allocation and reuse verified" \
   "VIBRIX: kernel framebuffer wrote pixels"; do
   if ! grep -Fq "$expected" "$LOG"; then
@@ -103,6 +104,7 @@ if [[ ! -f "$SERIAL_LOG" ]] || ! grep -Fq "Vibrix kernel started." "$SERIAL_LOG"
   [[ -f "$SERIAL_LOG" ]] && cat "$SERIAL_LOG"
   exit 1
 fi
+grep -Fq "kernel VM: map, protect, unmap and remap verified" "$SERIAL_LOG"
 grep -Fq "kernel heap: aligned allocations, RAM writes and reuse verified" "$SERIAL_LOG"
 cat "$SERIAL_LOG"
 

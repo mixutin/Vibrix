@@ -5,6 +5,7 @@
 //! This intentionally does not claim a general SMP-safe allocator.
 pub mod frame_allocator;
 pub mod heap;
+pub mod virtual_memory;
 
 use core::cell::UnsafeCell;
 use core::slice;
@@ -20,7 +21,7 @@ const PAGE_SIZE: u64 = 4096;
 /// mutable owner lives here, never in multiple fresh allocator instances.
 struct EarlyAllocator {
     frames: FrameAllocator<'static>,
-    protected: [ReservedFrames; 3],
+    protected: [ReservedFrames; 4],
 }
 
 struct EarlyFrameState(UnsafeCell<Option<EarlyAllocator>>);
@@ -87,6 +88,7 @@ pub unsafe fn init_from_boot_info(info: &BootInfo) -> Result<(), EarlyFrameError
         protect_span(info.memory_map, info.memory_map_len)?,
         protect_span(info.framebuffer_base, info.framebuffer_size)?,
         protect_span(info.rsdp, PAGE_SIZE)?,
+        protect_span(info.kernel_window_table, PAGE_SIZE)?,
     ];
     // SAFETY: only the boot CPU may access this cell, with IRQs disabled.
     let state = unsafe { &mut *EARLY_FRAMES.0.get() };

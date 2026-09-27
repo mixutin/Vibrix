@@ -1,102 +1,76 @@
 # Vibrix Boot ABI
 
-The boot ABI is the contract between the Vibrix UEFI loader and the Vibrix kernel.
+The boot ABI is the versioned, firmware-independent contract between the Rust
+UEFI loader and kernel. Both compile `shared/bootinfo.rs`.
 
-## Goals
+## Current layout: BootInfo v3
 
-- simple C-compatible memory layout
-- versioned from the first kernel
-- no dependency on UEFI types after firmware services are released
-- architecture-specific details kept outside generic kernel code where practical
+The `#[repr(C)]` object is 96 bytes with alignment 8 on x86-64.
 
-## Shared Rust BootInfo v2 layout
+| Offset | Field | Meaning |
+| --- | --- | --- |
+| 0 | magic: u64 | `0x4942584952424956` (`VIBRIXBI` little endian) |
+| 8 | version: u32 | 3 |
+| 12 | _reserved: u32 | zero |
+| 16 | framebuffer_base: u64 | physical framebuffer base |
+| 24 | framebuffer_size: u64 | byte extent |
+| 32–44 | width, height, stride, format: u32 | pixel geometry and format |
+| 48 | rsdp: u64 | physical ACPI RSDP |
+| 56 | memory_map: u64 | physical final memory-map buffer |
+| 64 | memory_map_len: u64 | valid byte length |
+| 72 | memory_descriptor_size: u64 | firmware descriptor stride |
+| 80 | memory_descriptor_version: u32 | supported firmware descriptor version 1 |
+| 84 | _reserved_v2: u32 | zero |
+| 88 | kernel_window_table: u64 | physical address of retained, identity-mapped early-window PT |
 
-The original v1 design specified magic/version, framebuffer physical address
-and geometry/pixel format, ACPI RSDP physical address, and UEFI-derived
-memory-map address, byte length and descriptor size.
+All stored addresses are physical numbers. The entry argument `*const BootInfo`
+is a virtual pointer under the active page tables. Scalar validation alone
+does not establish mapping, backing ownership or pointer provenance.
 
-Both `boot/src/main.rs` and `kernel/src/main.rs` now compile the same
-`shared/bootinfo.rs` `#[repr(C)]` definition (88 bytes, alignment 8 on
-x86-64). The first 80 bytes retain v1 offsets. The v2 tail is a firmware
-`u32 memory_descriptor_version` at offset 80, followed by a zero
-`u32 _reserved_v2` at offset 84. `_reserved` at offset 12 is also zero.
+Version 3 preserves the first 88 bytes but requires its new tail. The kernel
+reads the common-prefix version before copying the complete 96-byte object.
+Versions 1 and 2 fail closed; an older kernel also rejects v3. **Deploy a
+matching loader and kernel together.** Reserved fields retain their zero
+meaning. The descriptor version remains independent of the BootInfo version.
+The firmware map key is loader-local and never part of this ABI.
 
-The immutable `BOOTINFO_MAGIC = 0x4942_5849_5242_4956` encodes
-`VIBRIXBI` in little endian; `BOOTINFO_VERSION = 2` distinguishes the
-layout. The memory-map key remains loader-only. The same first-party source
-contains scalar validation and host regression tests for layout, unsupported
-ABI/firmware versions, descriptor stride/byte count and address overflow.
-No UEFI type appears in the stable ABI.
+## Early mapping window
 
-The kernel must treat all physical addresses as untrusted integers until
-its page tables map them and it validates the corresponding backing.
+[ADR 0009](decisions/0009-early-mapping-window.md) reserves 512 empty 4 KiB
+supervisor pages beginning at `0xffffc00000000000`. The loader allocates and
+links the leaf table before the final map capture, rejects pre-existing
+leaves, and identity-maps the table itself as writable and non-executable.
+The table is retained EfiLoaderData. Its address must be nonzero, 4096-aligned,
+below the low canonical limit and representable by the CPU physical width.
+The kernel reserves this page and uses it only under exclusive boot-CPU,
+interrupts-disabled ownership. It is not a recursive/whole-memory mapping.
 
-## Accepted address-space semantics
+## Handoff and ownership
 
-[ADR 0001](decisions/0001-bootinfo-address-spaces.md) defines physical
-addresses for the framebuffer, ACPI RSDP and final memory-map copy, but
-a virtual pointer for the entry argument `*const BootInfo` under the
-active page tables. Loader-owned handoff buffers use `EfiLoaderData`;
-Vibrix must reserve those physical pages until consumed or copied.
-The ADR also defines map-key retry and descriptor-stride constraints.
-This contract is now exercised in QEMU/OVMF: the loader maps BootInfo,
-its complete map buffer and required transition regions, exits UEFI boot
-services and passes an aligned, mapped BootInfo v2 pointer in RDI when
-entering the higher-half kernel. The kernel gates the version before
-reading the v2 tail, copies and validates the structure and emits its own
-post-firmware BootInfo success marker. Target 001 remains untested.
+1. Load and validate ELF64; allocate separate physical image backing.
+2. Zero the image span, copy PT_LOAD contents and verify BSS.
+3. Construct higher-half ELF mappings, the empty early window, and narrow
+   transition mappings for PE code, stack, BootInfo, the full map buffer,
+   RSDP, the window PT and the uncached GOP framebuffer.
+4. Check NX, four-level paging and physical address constraints.
+5. Refresh the final memory map in its preallocated buffer; construct BootInfo
+   from that exact descriptor length/stride/version tuple.
+6. Call ExitBootServices with the associated key. On stale-key failure,
+   refresh only the existing map buffer and rebuild BootInfo before retrying.
+7. Enable NX, switch CR3 and the dedicated stack, then pass BootInfo in RDI
+   to `vibrix_kernel_entry`. No firmware Boot Services calls follow success.
 
-## Accepted descriptor-version migration
+Loader-owned resources remain reserved until explicitly transferred or
+reclaimed. The type-7-only early frame allocator does not reclaim them.
+The kernel must not treat arbitrary physical numbers as readable pointers.
+Full ACPI table traversal, USB reacquisition and userspace remain separate.
 
-[ADR 0004](decisions/0004-memory-descriptor-version.md) defines **BootInfo
-v2** for the first implemented UEFI memory-map handoff. It appends an
-explicit `u32 memory_descriptor_version` and a zero `u32 _reserved_v2`,
-without reusing the existing reserved field or changing the physical
-address / byte-count / stride semantics from ADR 0001. UEFI's descriptor
-version and Vibrix's BootInfo version are independent numbers.
+## History and references
 
-The Rust ABI type has now migrated together on loader and kernel to v2.
-The loader stages a validated v2 value into a loader-owned
-`EfiLoaderData` page allocated **before** the final `GetMemoryMap`;
-it copies the physical map-buffer address, byte count, returned stride and
-returned descriptor version from the **same** final in-place map refresh. The loader's `VIBRIX: BootInfo v2 staged` marker proves loader-side
-population only. The **separate kernel-originated** `VIBRIX: kernel BootInfo
-v2 validated` marker proves consumption after firmware exit in QEMU.
-The loader software-verifies narrow identity mappings for BootInfo, the
-full map buffer, the dedicated stack, RSDP, loaded PE image and uncached GOP BAR
-under its initially **inactive** kernel page tables (ADR 0006); after
-successful ExitBootServices it activates those tables and transfers to the
-kernel (ADR 0007).
-
-## Kernel image staging
-
-[ADR 0002](decisions/0002-kernel-load-layout.md) defines the loader-side
-physical backing policy for the higher-half kernel image. Physical backing
-addresses and linked virtual addresses are distinct concepts; later page-table
-code must preserve that distinction explicitly.
-
-The current staging step allocates loader-owned `EfiLoaderData` pages,
-zeroes the complete image span, copies validated file-backed `PT_LOAD` bytes
-and verifies BSS remains zero. The loader separately constructs and
-software-verifies higher-half and narrow transition identity mappings before
-ExitBootServices; after successful firmware exit it enables NX, switches CR3
-and moves to a dedicated mapped kernel stack before jumping to the ELF entry.
-
-## Handoff
-
-The intended sequence is:
-
-1. loader opens `kernel.elf`
-2. loader validates ELF64/x86-64 headers
-3. loader computes the page-aligned virtual span covering all PT_LOAD segments
-4. loader allocates one contiguous physical backing span with UEFI AllocatePages
-5. loader zeroes the backing span, copies file-backed PT_LOAD bytes and verifies BSS remains zero
-6. loader establishes mappings from the linked higher-half virtual span to that physical backing
-7. loader discovers GOP framebuffer
-8. loader discovers ACPI RSDP
-9. loader obtains final UEFI memory map
-10. loader constructs BootInfo
-11. loader calls ExitBootServices
-12. loader transfers control to `vibrix_kernel_entry`
-
-After successful `ExitBootServices` the kernel must not call UEFI Boot Services.
+[ADR 0001](decisions/0001-bootinfo-address-spaces.md) established address
+semantics; [ADR 0002](decisions/0002-kernel-load-layout.md) separates physical
+backing from linked addresses; [ADR 0004](decisions/0004-memory-descriptor-version.md)
+introduced the v2 descriptor-version tail. [ADR 0006](decisions/0006-transition-mappings.md)
+and [ADR 0007](decisions/0007-uefi-exit-kernel-entry.md) describe the original
+QEMU-verified v2 transition. Those v2 observations are historical evidence,
+not evidence for new v3 behavior; the v3 validation result belongs in ADR 0009.

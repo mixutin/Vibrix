@@ -60,7 +60,7 @@ jobs:
           "$RUNNER_TEMP/vibrix-gpt-tests"
           rustc --edition=2024 -D warnings tools/inspect-gpt.rs -o "$RUNNER_TEMP/vibrix-inspect-gpt"
 
-      - name: Test shared BootInfo v2 ABI and validation on host
+      - name: Test shared BootInfo v3 ABI and validation on host
         run: |
           rustfmt --edition 2024 --check shared/bootinfo.rs
           rustc --edition=2024 --test shared/bootinfo.rs -o "$RUNNER_TEMP/vibrix-bootinfo-tests"
@@ -133,6 +133,12 @@ jobs:
           rustfmt --edition 2024 --check kernel/src/memory/heap.rs
           rustc --edition=2024 --test kernel/src/memory/heap.rs -o "$RUNNER_TEMP/vibrix-heap-tests"
           "$RUNNER_TEMP/vibrix-heap-tests"
+
+      - name: Test production virtual mapping window on host
+        run: |
+          rustfmt --edition 2024 --check shared/vm_window.rs kernel/src/memory/virtual_memory.rs
+          rustc --edition=2024 --test kernel/src/memory/virtual_memory.rs -o "$RUNNER_TEMP/vibrix-vm-tests"
+          "$RUNNER_TEMP/vibrix-vm-tests"
 
       - name: Test CPUID discovery on host
         run: |
@@ -209,4 +215,18 @@ jobs:
           VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
           grep -Fq "VIBRIX: kernel page fault diagnostic" build/qemu/debugcon.log
           grep -Fq "kernel #PF cr2=0x10000000000" build/qemu/serial.log
+          grep -Fq "present=false write=false user=false reserved=false exec=false" build/qemu/serial.log
+
+      - name: QEMU supervisor write-protection fault
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,vm-write-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
+          grep -Fq "kernel #PF cr2=0xffffc00000000000" build/qemu/serial.log
+          grep -Fq "present=true write=true user=false reserved=false exec=false" build/qemu/serial.log
+
+      - name: QEMU access after unmap fault
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,vm-unmap-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
+          grep -Fq "kernel #PF cr2=0xffffc00000000000" build/qemu/serial.log
           grep -Fq "present=false write=false user=false reserved=false exec=false" build/qemu/serial.log
