@@ -1,6 +1,6 @@
 # AI Contribution Guide
 
-Vibrix welcomes contributions made with coding agents. The goal is not to generate an OS-shaped pile of code; it is to discover whether AI-assisted development can sustain a coherent, independent and testable operating system.
+Vibrix welcomes contributions made with coding agents. The goal is not to generate an OS-shaped pile of code; it is to discover whether AI-assisted development can sustain a coherent, independent and testable **USB-resident** operating system.
 
 Read `AGENTS.md` first.
 
@@ -36,6 +36,9 @@ Avoid requests like "implement the whole networking stack" in one PR.
 ## Suggested first contributions
 
 At the current stage, good parallel work includes:
+
+- USB/xHCI architecture research based on primary specifications
+- boot-device identity and USB reacquisition design
 
 - ELF64 structures and validation logic with unit-testable parsing
 - BootInfo validation/documentation
