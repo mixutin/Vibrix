@@ -56,11 +56,25 @@ Run the headless CI-equivalent smoke test with:
 bash tools/test-qemu.sh
 ```
 
-The currently verified loader checkpoint validates and stages
-`/vibrix/kernel.elf`, discovers ACPI/GOP, constructs and software-verifies
-**inactive** kernel page tables, and captures the final UEFI memory-map
-tuple. It does **not** activate CR3, populate and pass a complete BootInfo,
-call ExitBootServices, or execute the standalone kernel.
+The smoke test now verifies **real kernel execution after firmware exit**. Its
+QEMU debugcon log requires `ExitBootServices succeeded`, the standalone
+kernel entry and BootInfo v2 validation, GDT/TSS initialization, COM1 setup,
+and pixel writes to the uncached GOP framebuffer. The distinct QEMU serial
+file must contain `Vibrix kernel started.`. This is not a native USB,
+filesystem, userspace or physical Target 001 test.
+
+The optional kernel panic-probe build tests the real post-firmware panic
+handler independently of the regular spin-loop boot:
+
+```bash
+VIBRIX_KERNEL_FEATURES=qemu-debugcon,panic-probe bash tools/build-qemu.sh
+VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
+grep -F 'VIBRIX: kernel panic' build/qemu/debugcon.log
+grep -F 'kernel panic:' build/qemu/serial.log
+```
+
+The panic-probe feature is deliberately opt-in; the regular QEMU build and
+bare-metal kernel do not deliberately panic.
 
 ## Independence boundary
 
