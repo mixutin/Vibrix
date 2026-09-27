@@ -111,6 +111,13 @@ pub struct SimpleTextOutputProtocol {
     pub mode: usize,
 }
 
+type AllocatePages = extern "efiapi" fn(
+    allocation_type: u32,
+    memory_type: u32,
+    pages: usize,
+    memory: *mut u64,
+) -> Status;
+type FreePages = extern "efiapi" fn(memory: u64, pages: usize) -> Status;
 type AllocatePool =
     extern "efiapi" fn(memory_type: u32, size: usize, buffer: *mut *mut c_void) -> Status;
 type FreePool = extern "efiapi" fn(buffer: *mut c_void) -> Status;
@@ -131,8 +138,8 @@ pub struct BootServices {
     pub header: TableHeader,
     pub raise_tpl: usize,
     pub restore_tpl: usize,
-    pub allocate_pages: usize,
-    pub free_pages: usize,
+    pub allocate_pages: AllocatePages,
+    pub free_pages: FreePages,
     pub get_memory_map: usize,
     pub allocate_pool: AllocatePool,
     pub free_pool: FreePool,
@@ -414,6 +421,76 @@ pub unsafe fn discover_framebuffer(system_table: *mut SystemTable) -> Option<Fra
         stride: info.pixels_per_scan_line,
         format: info.pixel_format,
     })
+}
+
+const ALLOCATE_ANY_PAGES: u32 = 0;
+
+/// Allocate loader-owned physical pages that intentionally survive the firmware handoff.
+///
+/// # Safety
+///
+/// `system_table` must point to a live UEFI system table whose Boot Services table is
+/// valid for the duration of this call. The caller becomes responsible for either freeing
+/// the returned allocation before ExitBootServices or reserving it for kernel ownership.
+pub unsafe fn allocate_loader_pages(
+    system_table: *mut SystemTable,
+    pages: usize,
+) -> Result<u64, Status> {
+    if system_table.is_null() || pages == 0 {
+        return Err(EFI_INVALID_PARAMETER);
+    }
+
+    let services = unsafe { (*system_table).boot_services };
+    if services.is_null() {
+        return Err(EFI_LOAD_ERROR);
+    }
+
+    let mut physical_address = 0u64;
+    let status = unsafe {
+        ((*services).allocate_pages)(
+            ALLOCATE_ANY_PAGES,
+            EFI_LOADER_DATA,
+            pages,
+            &mut physical_address,
+        )
+    };
+    if status != EFI_SUCCESS {
+        return Err(status);
+    }
+    if physical_address == 0 {
+        unsafe {
+            ((*services).free_pages)(physical_address, pages);
+        }
+        return Err(EFI_LOAD_ERROR);
+    }
+
+    Ok(physical_address)
+}
+
+/// Release pages previously returned by `allocate_loader_pages`.
+///
+/// # Safety
+///
+/// `system_table` must still expose live UEFI Boot Services. `physical_address` and
+/// `pages` must identify an allocation currently owned by the loader and must not have
+/// been freed already.
+pub unsafe fn free_loader_pages(
+    system_table: *mut SystemTable,
+    physical_address: u64,
+    pages: usize,
+) {
+    if system_table.is_null() || pages == 0 {
+        return;
+    }
+
+    let services = unsafe { (*system_table).boot_services };
+    if services.is_null() {
+        return;
+    }
+
+    unsafe {
+        ((*services).free_pages)(physical_address, pages);
+    }
 }
 
 pub struct KernelFile {
