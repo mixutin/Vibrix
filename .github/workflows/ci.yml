@@ -198,6 +198,12 @@ jobs:
             "$RUNNER_TEMP/vibrix-host-fixture"
           done
 
+      - name: Test APIC IRQ routing policy on host
+        run: |
+          rustfmt --edition 2024 --check kernel/src/arch/x86_64/irq.rs
+          rustc --edition=2024 --test kernel/src/arch/x86_64/irq.rs -o "$RUNNER_TEMP/vibrix-irq-tests"
+          "$RUNNER_TEMP/vibrix-irq-tests"
+
       - name: Test production IDT layout and page-fault bit decoding on host
         run: |
           rustfmt --edition 2024 --check shared/idt_layout.rs kernel/src/arch/x86_64/idt.rs
