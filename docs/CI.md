@@ -2,6 +2,8 @@
 
 Vibrix CI builds the Rust UEFI loader and bare-metal kernel, checks formatting and lints, and boots the resulting EFI tree in headless QEMU.
 
+CI checks that every tracked `tools/*.sh` script retains Git executable mode `100755` and passes `bash -n` before installing QEMU. Invoking scripts with `bash` alone does not verify their executable bits, so this protects the M0 script-permissions milestone against regressions.
+
 The CI job also compiles `boot/src/elf.rs` as a standalone host test harness and runs its parser regression tests. This uses only the official Rust toolchain and exercises malformed ELF metadata without requiring UEFI firmware. Host parser tests do not demonstrate kernel handoff.
 
 The parser also rejects a kernel entry point that does not belong to a file-backed, executable `PT_LOAD` range. Host regression fixtures cover non-executable code, BSS-only entry points and out-of-range entry points. This prevents an invalid future kernel jump but does not yet implement the firmware-to-kernel handoff.
