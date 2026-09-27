@@ -15,7 +15,7 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [x] GitHub Actions CI definition
 - [ ] CI green on loader + kernel + QEMU smoke test
 - [ ] Adopt project license
-- [ ] Architecture decision record process
+- [x] Architecture decision record process
 - [ ] Preserve executable bits for scripts
 
 ## M1 — First QEMU boot
