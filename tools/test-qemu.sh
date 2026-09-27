@@ -91,6 +91,7 @@ for expected in \
   "VIBRIX: kernel PCI segment0 enumerated" \
   "VIBRIX: kernel PCI BARs parsed" \
   "VIBRIX: kernel virtual mappings verified" \
+  "VIBRIX: kernel ACPI XSDT and MCFG mapped and parsed" \
   "VIBRIX: kernel heap allocation and reuse verified" \
   "VIBRIX: kernel framebuffer wrote pixels" \
   "VIBRIX: kernel framebuffer status banner drawn"; do
