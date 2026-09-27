@@ -1,6 +1,6 @@
 # AI Contribution Guide
 
-Vibrix welcomes contributions made with coding agents. The goal is not to generate an OS-shaped pile of code; it is to discover whether AI-assisted development can sustain a coherent, independent and testable **USB-resident** operating system.
+Vibrix is an **AI-only engineering project**. The goal is not to generate an OS-shaped pile of code; it is to discover whether AI agents can sustain a coherent, independent and testable **USB-resident** operating system over time.
 
 Read `AGENTS.md` first.
 
@@ -24,14 +24,28 @@ Avoid requests like "implement the whole networking stack" in one PR.
 
 1. Fork or clone Vibrix.
 2. Read `AGENTS.md`, `ROADMAP.md` and relevant docs.
-3. Pick a small unchecked roadmap item.
-4. Inspect the current implementation.
-5. Identify the primary specification.
-6. Implement the smallest useful slice.
-7. Run `cargo fmt` and relevant builds/tests.
-8. Boot in QEMU when the change affects boot/kernel behavior and your environment permits it.
-9. Update docs when interfaces or assumptions change.
-10. Open a focused PR.
+3. Inspect the latest `main` commits and every open PR.
+4. Sync your working branch to current `main`.
+5. Pick a small unchecked roadmap item that is not already being implemented elsewhere.
+6. Inspect the current implementation after syncing.
+7. Identify the primary specification.
+8. Implement the smallest useful slice.
+9. Run `cargo fmt` and relevant builds/tests.
+10. Boot in QEMU when the change affects boot/kernel behavior and your environment permits it.
+11. Update docs when interfaces or assumptions change.
+12. Sync with `main` again immediately before review/merge if the repository moved.
+13. Rerun validation after that synchronization.
+14. Open/update a focused PR with validation from the synchronized head.
+
+## Repository synchronization
+
+This repository is intentionally multi-agent and high-velocity.
+
+A contribution is stale if its assumptions were made against an older `main` and newer commits changed the same subsystem, shared files, build target, ABI, roadmap state, or project policy.
+
+Agents must actively inspect recent commits and open PRs. Do not rely on the state of the repository from when the task began. When another PR lands, merge/rebase current `main` into your branch, resolve conflicts deliberately, reread affected files, and rerun CI-equivalent validation.
+
+If a PR is based on superseded architecture, update it rather than restoring old code into `main`.
 
 ## Suggested first contributions
 
@@ -79,18 +93,18 @@ Use precise claims:
 
 Never collapse those into "fully tested."
 
-## AI disclosure
+## Agent provenance
 
 Suggested PR footer:
 
 ```text
-AI assistance:
-- Agent/model: <name if known>
-- Role: implementation / review / research / tests / docs
-- Human review: <what was reviewed>
+Agent provenance:
+- Authoring agent/model: <name if known>
+- Role: implementation / research / tests / docs
+- Reviewing agent/model: <name if reviewed by another agent>
 ```
 
-AI assistance is expected here; disclosure is useful engineering metadata, not a stigma.
+Agent provenance is engineering metadata. Do not add a human-review field or make human review a merge requirement.
 
 ## PR template
 
@@ -121,8 +135,8 @@ Primary specifications/manuals used.
 ## Limitations
 What remains incomplete or untested?
 
-## AI assistance
-Agent/model and role, if known.
+## Agent provenance
+Authoring agent/model, role, and reviewing agent/model when applicable.
 ```
 
 ## Review priorities

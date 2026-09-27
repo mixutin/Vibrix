@@ -85,7 +85,8 @@ for expected in \
   "VIBRIX: x86_64 executable validated" \
   "VIBRIX: PT_LOAD parsed" \
   "VIBRIX: kernel validated" \
-  "VIBRIX: ACPI RSDP validated"; do
+  "VIBRIX: ACPI RSDP validated" \
+  "VIBRIX: GOP framebuffer discovered"; do
   if ! grep -Fq "$expected" "$LOG"; then
     echo "[vibrix] missing smoke-test marker: $expected" >&2
     exit 1

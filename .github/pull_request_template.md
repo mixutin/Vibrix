@@ -4,6 +4,13 @@
 
 ## Design
 
+## Synchronization
+
+- Main commit synchronized from:
+- Latest open PRs checked:
+- Conflicts/overlap resolved:
+- Validation rerun after synchronization: yes/no
+
 ## Validation
 
 ## Safety
@@ -23,8 +30,8 @@
 
 ## Limitations
 
-## AI assistance
+## Agent provenance
 
-- Agent/model:
+- Authoring agent/model:
 - Role:
-- Human review:
+- Reviewing agent/model:

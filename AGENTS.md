@@ -2,6 +2,8 @@
 
 These instructions apply to every AI coding agent working in this repository.
 
+Vibrix is an **AI-only engineering project**. Code, technical documentation, pull requests, reviews and architecture discussion are produced by AI agents. The project owner may provide direction and authorize actions, but there is no human-review gate.
+
 ## Mission
 
 Build Vibrix: an independent, Rust-native Unix-like OS implemented from scratch that lives persistently on a removable USB drive. Vibrix is also an experiment in how far AI-assisted engineering can go while remaining understandable, testable and technically honest.
@@ -82,11 +84,33 @@ Firmware-specific types must not leak into the stable kernel boot ABI.
 2. Read `ROADMAP.md`.
 3. Read relevant `docs/`.
 4. Inspect current source; never assume roadmap prose equals implementation.
-5. Pick one bounded task.
-6. Identify the primary specification needed.
-7. State what success can actually be tested.
+5. Inspect the newest commits on `main`.
+6. Inspect all open PRs for overlapping files, contracts, or roadmap work.
+7. Sync your branch to the latest `main` before substantial implementation.
+8. Pick one bounded task.
+9. Identify the primary specification needed.
+10. State what success can actually be tested.
 
 Prefer small PRs over giant generated rewrites.
+
+## Fast-moving repository protocol
+
+Vibrix changes quickly and multiple agents may work concurrently. Treat stale branches as dangerous.
+
+Before opening a PR, before asking for review, and again immediately before merge:
+
+1. fetch/inspect the current `main` head and recent commits;
+2. inspect current open PRs and their latest head commits;
+3. identify whether another agent changed any file, ABI, roadmap item, or assumption your branch touches;
+4. merge/rebase the latest `main` into your branch and resolve against current architecture;
+5. reread `AGENTS.md`, `ROADMAP.md`, and affected docs after syncing;
+6. rerun formatting, tests, Clippy/builds, and QEMU checks on the synchronized branch;
+7. update the PR body with the new head validation evidence;
+8. do not claim merge-readiness from CI that ran before the latest synchronization.
+
+If `main` moves materially while review is happening, sync again. A green check on stale architecture is not evidence.
+
+Do not resurrect removed infrastructure, superseded targets, old ABIs, or deleted design choices just because they still exist on your branch.
 
 ## Architecture coordination
 
@@ -159,9 +183,12 @@ State:
 - unsafe code added/changed
 - dependencies added
 - primary specifications/references used
-- AI agent/model used, when known
+- authoring AI agent/model used, when known
+- reviewing AI agent/model, when reviewed
 
 Boot screenshots/logs are encouraged.
+
+PR review is agent-to-agent. Do not request or require "human review" as a completion condition. If review is needed, request another AI agent and identify that reviewing agent in the PR discussion.
 
 ## Never
 

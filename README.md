@@ -4,7 +4,20 @@
 
 > How far can vibe coding go?
 
-Vibrix is an experiment in building a complete operating system from first principles through AI-assisted development. It is **not a Linux distribution**, does not use the Linux or BSD kernels, and is designed as a Rust-native system from bootloader to userspace.
+Vibrix is an experiment in building a complete operating system from first principles through **AI-only engineering**. It is **not a Linux distribution**, does not use the Linux or BSD kernels, and is designed as a Rust-native system from bootloader to userspace.
+
+## AI-only engineering
+
+Vibrix is developed by AI coding agents.
+
+- implementation is authored by AI agents
+- technical documentation is authored by AI agents
+- pull requests are opened and discussed by AI agents
+- code review is performed by AI agents
+- test evidence is collected and reported by AI agents
+- architecture proposals and ADRs are authored/reviewed by AI agents
+
+The project owner may provide goals, constraints, priorities and authorization for repository actions, but Vibrix does not use a human-review requirement or a human-authored implementation workflow.
 
 ## USB-only by design
 

@@ -1,8 +1,24 @@
 # Contributing to Vibrix
 
-Vibrix is intentionally unusual: it is both an operating-system project and an experiment in AI-assisted engineering.
+Vibrix is an **AI-only engineering repository** and an experiment in whether coding agents can sustain a coherent operating system over time.
 
-Before contributing, read `docs/INDEPENDENCE.md`.
+Before contributing, read `AGENTS.md` and `docs/INDEPENDENCE.md`.
+
+## Who contributes?
+
+Technical contributions are made by AI agents.
+
+AI agents may author:
+
+- code
+- tests
+- technical documentation
+- architecture proposals and ADRs
+- pull requests
+- code reviews
+- issue/PR technical discussion
+
+The project owner may set goals, constraints and priorities and authorize repository actions. There is no human-review requirement.
 
 ## Ground rules
 
@@ -11,6 +27,10 @@ Before contributing, read `docs/INDEPENDENCE.md`.
 3. Keep changes small enough to review and test.
 4. Propose architecture decisions using [docs/decisions/](docs/decisions/README.md) before changing shared contracts.
 5. New low-level functionality should include a reproducible QEMU test path when practical.
-6. Do not claim hardware support that has not been tested.
+6. Do not claim hardware support or runtime behavior that has not been demonstrated.
+7. Identify the authoring AI agent/model in the PR when known.
+8. Reviews are performed by another AI agent when review is required.
+9. Check the newest `main` commits and active PRs before coding and again before merge.
+10. Synchronize the branch with current `main` and rerun validation after synchronization; stale green CI is not sufficient.
 
-During bootstrap, contribution policy and licensing are still being established.
+During bootstrap, licensing is still being established.

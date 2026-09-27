@@ -36,7 +36,7 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [x] Parse PT_LOAD headers
 - [ ] Allocate/copy kernel segments and zero BSS
 - [ ] Establish initial kernel mappings
-- [ ] Discover GOP framebuffer
+- [x] Discover GOP framebuffer
 - [x] Discover ACPI RSDP
 - [ ] Capture final UEFI memory map
 - [ ] Populate BootInfo
