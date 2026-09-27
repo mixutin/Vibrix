@@ -21,7 +21,7 @@ echo "[vibrix] building UEFI loader"
 cargo build -p vibrix-boot --target x86_64-unknown-uefi
 
 echo "[vibrix] building kernel"
-cargo rustc -p vibrix-kernel   --target kernel/x86_64-vibrix.json   --   -C link-arg=-Tkernel/linker.ld
+cargo -Z build-std=core,compiler_builtins   -Z build-std-features=compiler-builtins-mem   rustc -p vibrix-kernel   --target kernel/x86_64-vibrix.json   --   -C link-arg=-Tkernel/linker.ld
 
 OUT="$ROOT/build/qemu"
 ESP="$OUT/esp"
@@ -35,6 +35,7 @@ if [[ -z "$KERNEL" ]]; then
   echo "[vibrix] kernel artifact not found" >&2
   exit 1
 fi
+
 cp "$KERNEL" "$ESP/vibrix/kernel.elf"
 
 echo "[vibrix] EFI loader: $ESP/EFI/BOOT/BOOTX64.EFI"
