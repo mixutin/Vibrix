@@ -119,6 +119,7 @@ pub type AllocatePages = extern "efiapi" fn(
     memory: *mut u64,
 ) -> Status;
 pub type FreePages = extern "efiapi" fn(memory: u64, pages: usize) -> Status;
+pub type ExitBootServices = unsafe extern "efiapi" fn(image: Handle, map_key: usize) -> Status;
 /// UEFI 2.10 section 7.2.3. Firmware may return a larger descriptor stride.
 #[repr(C)]
 pub struct MemoryDescriptor {
@@ -180,7 +181,7 @@ pub struct BootServices {
     pub start_image: usize,
     pub exit: usize,
     pub unload_image: usize,
-    pub exit_boot_services: usize,
+    pub exit_boot_services: ExitBootServices,
     pub get_next_monotonic_count: usize,
     pub stall: usize,
     pub set_watchdog_timer: usize,
@@ -546,6 +547,42 @@ impl KernelFile {
     pub fn as_slice(&self) -> &[u8] {
         unsafe { slice::from_raw_parts(self.ptr, self.len) }
     }
+}
+
+/// Get the live loader PE/COFF image's mapped physical interval. The
+/// transition code must be identity-mapped until it changes CR3 and jumps
+/// directly into the higher-half kernel.
+///
+/// # Safety
+/// The image/system-table handles and firmware Loaded Image protocol must
+/// remain valid, and the returned image region must stay resident through EBS.
+pub unsafe fn loader_image_range(
+    image_handle: Handle,
+    system_table: *mut SystemTable,
+) -> Result<(u64, u64), Status> {
+    if image_handle.is_null() || system_table.is_null() {
+        return Err(EFI_INVALID_PARAMETER);
+    }
+    let services = unsafe { (*system_table).boot_services };
+    if services.is_null() {
+        return Err(EFI_LOAD_ERROR);
+    }
+    let mut raw: *mut c_void = null_mut();
+    let status = unsafe {
+        ((*services).handle_protocol)(image_handle, &LOADED_IMAGE_PROTOCOL_GUID, &mut raw)
+    };
+    if status != EFI_SUCCESS {
+        return Err(status);
+    }
+    if raw.is_null() {
+        return Err(EFI_LOAD_ERROR);
+    }
+    let image = unsafe { &*(raw as *const LoadedImageProtocol) };
+    let base = image.image_base as usize as u64;
+    if base == 0 || image.image_size == 0 || base.checked_add(image.image_size).is_none() {
+        return Err(EFI_LOAD_ERROR);
+    }
+    Ok((base, image.image_size))
 }
 
 pub unsafe fn load_kernel(
