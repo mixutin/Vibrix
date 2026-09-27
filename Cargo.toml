@@ -1,0 +1,11 @@
+[workspace]
+resolver = "3"
+members = ["boot"]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1
