@@ -108,4 +108,6 @@ Vibrix's mascot is a curious black-and-white fox carrying the Vibrix **V**. A na
 
 ## License
 
-Licensing is intentionally undecided during bootstrap. Do not assume code is open-source licensed until a license is explicitly adopted.
+Vibrix is licensed under the **BSD Zero Clause License (0BSD)**.
+
+You may use, copy, modify and/or distribute the software for any purpose, with or without fee, subject to the terms in [LICENSE](LICENSE). SPDX identifier: `0BSD`.
