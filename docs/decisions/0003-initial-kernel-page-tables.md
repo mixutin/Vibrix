@@ -51,6 +51,24 @@ Before activation, Vibrix must:
 
 The current PR must not claim kernel execution or post-firmware operation.
 
+## GNU_RELRO scope and deferred hardening
+
+The currently linked kernel is a static ELF64 ET_EXEC image: an independent
+build/readelf check found no dynamic section. The linker emits a GNU_RELRO
+program header covering `.got`, but the first-stage builder intentionally
+reads only PT_LOAD flags; `.got` is PF_W and its constructed 4 KiB leaf is
+**writable + NX**, even though it is separately page-aligned. A GNU_RELRO
+header does **not** itself change any PTE. This PR makes no RELRO enforcement
+claim and does not activate these tables or enter untrusted userspace.
+
+Later handoff/hardening work must explicitly decide when any GOT relocations
+are complete and, before claiming a read-only GOT or stronger immutability
+contract, either remap the dedicated GOT page read-only or document a reviewed
+reason it must remain writable. A future linker change producing additional
+writable orphan sections or shared-protection pages requires renewed ELF
+page-granularity validation; the measured separation here applies to the
+current kernel artifact only.
+
 ## Physical-address assumptions
 
 Page-table entries encode the architectural address field through bit 51.
