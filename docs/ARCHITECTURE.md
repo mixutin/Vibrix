@@ -83,7 +83,7 @@ Internal NVMe/SATA devices may eventually be exposed as optional data storage. V
 
 ## Third-party boundary
 
-Official Rust toolchain components are permitted. Community Rust packages and third-party runtime OS components are not.
+Official Rust toolchain components and reviewed, appropriately licensed community Rust crates are permitted, including in shipped components where they support the required target. Using another operating system as Vibrix's runtime or kernel remains out of scope. See [DEPENDENCIES.md](DEPENDENCIES.md) and [INDEPENDENCE.md](INDEPENDENCE.md).
 
 Development/test tools such as QEMU and OVMF are external infrastructure and are not part of the Vibrix runtime.
 
