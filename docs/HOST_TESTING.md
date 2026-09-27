@@ -27,6 +27,6 @@ For boot-path evidence, use `bash tools/test-qemu.sh` and consult [CI](CI.md) fo
 - If host compilation of a kernel module needs isolation from hardware-specific code, extract a small testable first-party unit and explicitly document what remains untested. A passing descriptor-layout test alone does not prove `lgdt`, interrupt delivery, or frame allocation works in the kernel.
 - Include malformed inputs, boundary values and checked arithmetic where relevant. Do not run destructive tests against real disks; the GPT inspector accepts regular image files read-only.
 - Run the new test locally and add its command to `.github/workflows/ci.yml` in the same PR **if the new test becomes part of the supported CI suite**. Coordinate changes to shared CI files with their active owner on Issue #14.
-- Report exact commands and observed results separately from planned QEMU or hardware tests. Follow [the independence policy](INDEPENDENCE.md): no community Rust crates or copied operating-system implementations.
+- Report exact commands and observed results separately from planned QEMU or hardware tests. Follow [the independence policy](INDEPENDENCE.md) and [dependency policy](DEPENDENCIES.md): reviewed community Rust crates are allowed, but copying another operating system's implementation is not.
 
 Host tests complement, rather than replace, Clippy/build checks and QEMU observation. The roadmap only advances when the relevant behavior is demonstrated on its stated target.
