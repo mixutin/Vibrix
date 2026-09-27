@@ -924,14 +924,23 @@ mod window_tests {
     fn reserved_window_is_empty_and_rejects_image_collision() {
         reset();
         let mut allocator = TableAllocator::new(allocate, free);
-        let root = unsafe { allocator.allocate_zeroed() }.map_err(|e| e.message()).unwrap();
+        let root = unsafe { allocator.allocate_zeroed() }
+            .map_err(|e| e.message())
+            .unwrap();
         let pt = unsafe { prepare_window_inner(&mut allocator, root) }
-            .map_err(|e| e.message()).unwrap();
+            .map_err(|e| e.message())
+            .unwrap();
         for i in 0..window::PAGES {
-            assert_eq!(unsafe { read_entry(pt, i) }.map_err(|e| e.message()).unwrap(), 0);
+            assert_eq!(
+                unsafe { read_entry(pt, i) }
+                    .map_err(|e| e.message())
+                    .unwrap(),
+                0
+            );
         }
         unsafe { map_page(&mut allocator, root, window::BASE, 0x1000, true, false) }
-            .map_err(|e| e.message()).unwrap();
+            .map_err(|e| e.message())
+            .unwrap();
         assert!(matches!(
             unsafe { prepare_window_inner(&mut allocator, root) },
             Err(PagingError::MappingConflict)

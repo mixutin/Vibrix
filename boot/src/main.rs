@@ -328,12 +328,12 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     // strictly loader-local for the later ExitBootServices implementation.
     let boot_info =
         match create_boot_info(&framebuffer, rsdp_address, &memory_map, kernel_window_table) {
-        Ok(info) => info,
-        Err(_error) => {
-            uefi::debug_write("VIBRIX: BootInfo v3 validation failed\r\n");
-            return EFI_LOAD_ERROR;
-        }
-    };
+            Ok(info) => info,
+            Err(_error) => {
+                uefi::debug_write("VIBRIX: BootInfo v3 validation failed\r\n");
+                return EFI_LOAD_ERROR;
+            }
+        };
     // SAFETY: UEFI AllocatePages granted one page of EfiLoaderData, writable
     // and mapped in the firmware address space. The checked address is aligned
     // for BootInfo and the 96-byte object fits in the exclusive 4096-byte page.

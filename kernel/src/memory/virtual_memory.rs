@@ -253,9 +253,15 @@ mod tests {
     fn maps_queries_protects_unmaps_and_reuses() {
         let mut table = [0u64; 512];
         let mut vm = unsafe { Window::from_table(table.as_mut_ptr(), 48, no_flush) }.unwrap();
-        assert_eq!(unsafe { vm.map(511, 0x2000, true) }, Ok(window::BASE + 511 * 4096));
+        assert_eq!(
+            unsafe { vm.map(511, 0x2000, true) },
+            Ok(window::BASE + 511 * 4096)
+        );
         assert_eq!(vm.translation(511), Ok(Some((0x2000, true))));
-        assert_eq!(unsafe { vm.map(511, 0x3000, true) }, Err(MapError::Occupied));
+        assert_eq!(
+            unsafe { vm.map(511, 0x3000, true) },
+            Err(MapError::Occupied)
+        );
         unsafe { vm.protect(511, false) }.unwrap();
         assert_eq!(vm.translation(511), Ok(Some((0x2000, false))));
         assert_eq!(unsafe { vm.unmap(511) }, Ok(0x2000));
@@ -271,11 +277,17 @@ mod tests {
         let mut table = [0u64; 512];
         let mut vm = unsafe { Window::from_table(table.as_mut_ptr(), 36, no_flush) }.unwrap();
         for index in [512, usize::MAX] {
-            assert_eq!(unsafe { vm.map(index, 4096, true) }, Err(MapError::InvalidAddress));
+            assert_eq!(
+                unsafe { vm.map(index, 4096, true) },
+                Err(MapError::InvalidAddress)
+            );
             assert_eq!(unsafe { vm.unmap(index) }, Err(MapError::InvalidAddress));
         }
         for physical in [0, 1, 4097, 1u64 << 36, u64::MAX] {
-            assert_eq!(unsafe { vm.map(0, physical, true) }, Err(MapError::InvalidAddress));
+            assert_eq!(
+                unsafe { vm.map(0, physical, true) },
+                Err(MapError::InvalidAddress)
+            );
         }
         assert!(table.iter().all(|&v| v == 0));
         assert!(leaf(4096, 35, true).is_err());
