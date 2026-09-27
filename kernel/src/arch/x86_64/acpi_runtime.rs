@@ -2,10 +2,11 @@
 //! Unlike pure ACPI decoding, this module is kernel-only and maps real RAM.
 //! No firmware calls, heap, global aliases, MMIO or dynamic page tables.
 
+use core::arch::{asm, x86_64::__cpuid_count};
 use core::slice;
 
 use crate::BootInfo;
-use crate::arch::x86_64::acpi::{AcpiError, Rsdp, Sdt};
+use crate::arch::x86_64::acpi::{AcpiError, EcamSummary, McfgEntry, Rsdp, Sdt};
 use crate::memory::{self, virtual_memory::Window};
 
 const PAGE: u64 = 4096;
@@ -21,6 +22,10 @@ pub enum ReadError {
     RootTable,
     TooManyEntries,
     MissingMcfg,
+    MissingEcam,
+    MultipleEcam,
+    MmioRange,
+    PatNotUncached,
     Acpi(AcpiError),
 }
 
@@ -98,14 +103,77 @@ unsafe fn with_table<T>(
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Discovery {
+    pub allocations: usize,
+    pub ecam: EcamSummary,
+}
+
+/// Only create UC mappings when x86 PAT index 3 (PCD=1, PWT=1) is UC.
+/// Firmware might have reprogrammed the PAT MSR; do not silently alias MMIO
+/// with a cacheable memory type. This boot CPU owns the early paging window.
+///
+/// # Safety
+/// Ring-zero x86-64 with PAT MSR access; no other CPU changes PAT concurrently.
+unsafe fn pat_index_three_is_uc() -> bool {
+    if __cpuid_count(1, 0).edx & (1 << 16) == 0 {
+        return false;
+    }
+    let low: u32;
+    let high: u32;
+    // SAFETY: PAT advertised in CPUID, CPL0, architectural IA32_PAT MSR.
+    unsafe {
+        asm!(
+            "rdmsr",
+            in("ecx") 0x277_u32,
+            out("eax") low,
+            out("edx") high,
+            options(nomem, nostack, preserves_flags)
+        );
+    }
+    let _upper_pat_entries = high;
+    (low >> 24) as u8 == 0
+}
+
+/// A single aligned volatile PCI ECAM dword read; no MMIO writes.
+/// All page extents are checked before mapping, including page padding.
+///
+/// # Safety
+/// One boot CPU, IF=0, validated MCFG allocation and firmware MMIO region,
+/// PAT index 3 UC, no concurrent users or conflicting cache aliases.
+unsafe fn read_ecam_word(vm: &mut Window, physical: u64) -> Result<u32, ReadError> {
+    if !physical.is_multiple_of(4) {
+        return Err(ReadError::MmioRange);
+    }
+    let page = physical & !(PAGE - 1);
+    let offset = usize::try_from(physical - page).map_err(|_| ReadError::MmioRange)?;
+    if offset > PAGE as usize - 4
+        || !unsafe { memory::mmio_span_is_reserved(page, PAGE) }
+    {
+        return Err(ReadError::MmioRange);
+    }
+    // SAFETY: device config MMIO is exclusively mapped UC, RO and NX.
+    let base = unsafe { vm.map_mmio_readonly(0, page) }.map_err(|_| ReadError::Mapping)?;
+    let ptr = usize::try_from(base)
+        .ok()
+        .and_then(|start| start.checked_add(offset))
+        .ok_or(ReadError::Mapping)?;
+    // SAFETY: aligned four-byte register lies within the mapped MMIO page.
+    let word = unsafe { core::ptr::read_volatile(ptr as *const u32) };
+    // SAFETY: the volatile read is complete and no Rust reference remains.
+    unsafe { vm.unmap(0) }.map_err(|_| ReadError::Mapping)?;
+    Ok(word)
+}
+
 /// Read the real XSDT (or ACPI 1.0 RSDT), then validate a real MCFG table.
-/// The result is a number of validated MCFG allocations, not enabled ECAM.
+/// The result is validated MCFG counts and actual bus-zero ECAM reads,
+/// not device enabling, BAR MMIO, DMA or a native driver.
 ///
 /// # Safety
 /// After ExitBootServices, sole boot CPU with IF=0; the temporary v3 window
 /// is empty following memory::virtual_memory::runtime::smoke_test. Firmware
 /// ACPI pages stay excluded from the physical allocator for this boot.
-pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<usize, ReadError> {
+pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadError> {
     // SAFETY: exclusive retained v3 leaf table, no active window references.
     let mut vm = unsafe { memory::virtual_memory::runtime::from_boot_info(info) }
         .map_err(|_| ReadError::Mapping)?;
@@ -133,6 +201,7 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<usize, ReadError> 
         })
     }?;
     let mut mcfg_allocations = 0usize;
+    let mut selected_ecam = None;
     for &physical in &root_addresses[..count] {
         // SAFETY: the previous mapping is completely retired; all addresses
         // are untrusted numbers until checked against ACPI-type map entries.
@@ -140,23 +209,57 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<usize, ReadError> 
             with_table(&mut vm, physical, |bytes| {
                 let table = Sdt::parse(bytes)?;
                 if &table.signature != b"MCFG" {
-                    return Ok(0usize);
+                    return Ok((0usize, None));
                 }
                 let allocations = table.mcfg_entries()?;
                 let mut count = 0usize;
+                let mut bus_zero = None;
                 for entry in allocations.iter() {
-                    entry?;
+                    let entry = entry?;
+                    if entry.segment == 0 && entry.bus_start == 0 {
+                        bus_zero = Some(entry);
+                    }
                     count += 1;
                 }
-                Ok(count)
+                Ok((count, bus_zero))
             })
         }?;
         mcfg_allocations = mcfg_allocations
-            .checked_add(result)
+            .checked_add(result.0)
             .ok_or(ReadError::TooManyEntries)?;
+        if let Some(entry) = result.1 {
+            if selected_ecam.replace(entry).is_some() {
+                return Err(ReadError::MultipleEcam);
+            }
+        }
     }
     if mcfg_allocations == 0 {
         return Err(ReadError::MissingMcfg);
     }
-    Ok(mcfg_allocations)
+    let entry: McfgEntry = selected_ecam.ok_or(ReadError::MissingEcam)?;
+    // SAFETY: one CPL0 boot CPU, no other PAT owner at this stage.
+    if !unsafe { pat_index_three_is_uc() } {
+        return Err(ReadError::PatNotUncached);
+    }
+    // Validate that every bus-zero function-zero page is UC MMIO *before*
+    // issuing the first read, so no unexpected memory type is accessed.
+    for device in 0..32u8 {
+        let physical = entry.config_physical(0, device, 0, 0)?;
+        if !unsafe { memory::mmio_span_is_reserved(physical, PAGE) } {
+            return Err(ReadError::MmioRange);
+        }
+    }
+    // SAFETY: preflighted MCFG bus/page bounds; each page is temporarily
+    // mapped supervisor RO/NX/UC and retired after its volatile dword read.
+    let ecam = crate::arch::x86_64::acpi::scan_ecam_bus_zero(entry, |physical| {
+        unsafe { read_ecam_word(&mut vm, physical) }
+            .map_err(|_| AcpiError::InvalidAllocation)
+    })?;
+    if ecam.devices == 0 {
+        return Err(ReadError::MissingEcam);
+    }
+    Ok(Discovery {
+        allocations: mcfg_allocations,
+        ecam,
+    })
 }
