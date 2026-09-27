@@ -166,7 +166,7 @@ future userspace shell.
 
 - [ ] Hardware interrupt path usable in QEMU
 - [ ] Monotonic timer source available to the console
-- [ ] QEMU keyboard input reaches the kernel without UEFI Boot Services
+- [x] QEMU keyboard input reaches the kernel without UEFI Boot Services
 - [ ] Kernel console input buffer and line editing
 - [ ] Command parser and dispatch table
 - [ ] `help`
@@ -179,6 +179,21 @@ future userspace shell.
 - [ ] `reboot`
 - [ ] Unknown-command and malformed-input handling
 - [ ] QEMU smoke test proves prompt → input → command → output
+
+**Verified M4.5 QEMU keyboard input (PR #70):**
+[Actions run 36347623002](https://github.com/mixutin/Vibrix/actions/runs/36347623002)
+compiled and host-tested the first-party PS/2 scan-code decoder and built
+the production post-firmware keyboard polling path. QEMU's host monitor
+sent **real virtual `h` and Return keypresses** only after the independent
+kernel-side `VIBRIX: kernel PS2 polling ready` marker; the kernel's
+native COM1 logged two *distinct exact lines*,
+`kernel PS2 ascii 104` and `kernel PS2 ascii 10`.
+The initial test incorrectly accepted `104` as a prefix match for
+`10`, and that false-positive was corrected before claiming this item.
+The successful kernel/QEMU job also passed normal/xHCI boots and all fault
+probes. This is a **polled QEMU i8042 set-one ASCII subset** on the single
+CPU with IF=0, not USB HID, IRQ-driven keyboard input, line editing,
+a command parser, TTY, userspace shell or Target 001 PS/2 hardware.
 
 **Exit:** after `ExitBootServices`, QEMU reaches a `vibrix>` prompt, accepts
 real keyboard input and executes diagnostic commands entirely in the Vibrix
