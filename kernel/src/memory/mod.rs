@@ -116,6 +116,18 @@ pub unsafe fn allocate_frame() -> Option<u64> {
     owner.frames.allocate_frame(&owner.protected)
 }
 
+/// Numeric validation of read-only firmware ACPI table backing.
+///
+/// # Safety
+/// Same sole boot CPU / interrupts-disabled invariant as allocate_frame.
+/// The final UEFI map must remain immutable; no allocator may reclaim
+/// EfiACPIReclaimMemory or EfiACPIMemoryNVS while mappings exist.
+pub unsafe fn acpi_span_is_reserved(start: u64, len: u64) -> bool {
+    // SAFETY: EARLY_FRAMES is initialized and accessed only by this CPU, IF=0.
+    unsafe { (*EARLY_FRAMES.0.get()).as_ref() }
+        .is_some_and(|owner| owner.frames.covers_acpi_bytes(start, len))
+}
+
 /// Runtime validation of two independent, suitably aligned allocations.
 /// This is a numeric and firmware-type proof, NOT a mapped-page write test.
 ///
