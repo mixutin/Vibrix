@@ -48,19 +48,19 @@ pub unsafe fn init() {
     // SAFETY: exclusive single-core bootstrap access before LIDT.
     let table = unsafe { &mut *table };
     table.0[VECTOR_BREAKPOINT] = IdtGate::interrupt(
-        breakpoint_handler as usize as u64,
+        breakpoint_handler as *const () as usize as u64,
         Gdt::KERNEL_CODE_SELECTOR,
     );
     table.0[VECTOR_DOUBLE_FAULT] = IdtGate::interrupt(
-        double_fault_handler as usize as u64,
+        double_fault_handler as *const () as usize as u64,
         Gdt::KERNEL_CODE_SELECTOR,
     );
     table.0[VECTOR_GENERAL_PROTECTION] = IdtGate::interrupt(
-        general_protection_handler as usize as u64,
+        general_protection_handler as *const () as usize as u64,
         Gdt::KERNEL_CODE_SELECTOR,
     );
     table.0[VECTOR_PAGE_FAULT] = IdtGate::interrupt(
-        page_fault_handler as usize as u64,
+        page_fault_handler as *const () as usize as u64,
         Gdt::KERNEL_CODE_SELECTOR,
     );
 
