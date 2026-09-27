@@ -1,48 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+# shellcheck source=tools/ovmf.inc
+source "$ROOT/tools/ovmf.inc"
+
+# Fail early on host setup problems, not after a potentially long rebuild.
+vibrix_find_ovmf
+if ! command -v qemu-system-x86_64 >/dev/null 2>&1; then
+  echo "[vibrix] qemu-system-x86_64 not found; install qemu-system-x86." >&2
+  exit 1
+fi
 
 if [[ "${VIBRIX_SKIP_BUILD:-0}" != "1" ]]; then
   bash "$ROOT/tools/build-qemu.sh"
 fi
 
-find_ovmf() {
-  for candidate in \
-    /usr/share/OVMF/OVMF_CODE_4M.fd \
-    /usr/share/OVMF/OVMF_CODE.fd \
-    /usr/share/edk2/x64/OVMF_CODE.fd \
-    /usr/share/edk2/ovmf/OVMF_CODE.fd; do
-    if [[ -r "$candidate" ]]; then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
-  done
-  return 1
-}
-
-OVMF_CODE="$(find_ovmf || true)"
-if [[ -z "$OVMF_CODE" ]]; then
-  echo "[vibrix] readable OVMF firmware not found" >&2
-  exit 1
-fi
-
-OVMF_VARS=""
-for candidate in \
-  /usr/share/OVMF/OVMF_VARS_4M.fd \
-  /usr/share/OVMF/OVMF_VARS.fd \
-  /usr/share/edk2/x64/OVMF_VARS.fd \
-  /usr/share/edk2/ovmf/OVMF_VARS.fd; do
-  if [[ -r "$candidate" ]]; then
-    OVMF_VARS="$candidate"
-    break
-  fi
-done
-
 QEMU_DIR="$ROOT/build/qemu"
 LOG="$QEMU_DIR/debugcon.log"
 rm -f "$LOG"
+cp -- "$OVMF_VARS" "$QEMU_DIR/OVMF_VARS.test.fd"
 
 ARGS=(
   -machine q35
@@ -50,6 +28,7 @@ ARGS=(
   -cpu max
   -m 512M
   -drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE"
+  -drive "if=pflash,format=raw,file=$QEMU_DIR/OVMF_VARS.test.fd"
   -drive "format=raw,file=fat:rw:$QEMU_DIR/esp"
   -display none
   -serial none
@@ -59,11 +38,8 @@ ARGS=(
   -device "isa-debugcon,iobase=0xe9,chardev=vibrixdbg"
 )
 
-if [[ -n "$OVMF_VARS" ]]; then
-  cp "$OVMF_VARS" "$QEMU_DIR/OVMF_VARS.test.fd"
-  ARGS+=(-drive "if=pflash,format=raw,file=$QEMU_DIR/OVMF_VARS.test.fd")
-fi
-
+echo "[vibrix] OVMF CODE: $OVMF_CODE"
+echo "[vibrix] OVMF VARS: $OVMF_VARS"
 echo "[vibrix] running headless QEMU smoke test"
 set +e
 timeout 12s qemu-system-x86_64 "${ARGS[@]}"
@@ -76,6 +52,10 @@ if [[ "$RC" -ne 0 && "$RC" -ne 124 ]]; then
   exit "$RC"
 fi
 
+if [[ ! -f "$LOG" ]]; then
+  echo "[vibrix] QEMU debug log not created: $LOG" >&2
+  exit 1
+fi
 cat "$LOG"
 
 for expected in \
