@@ -2,37 +2,69 @@
 
 QEMU is Vibrix's first development platform. Target 001 remains the first physical reference machine.
 
-## Host prerequisites (Ubuntu)
+## Host prerequisites
+
+Install QEMU and OVMF on the **host**, using the distribution's package manager:
 
 ```bash
+# Ubuntu / Debian
 sudo apt update
 sudo apt install -y qemu-system-x86 ovmf
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Fedora
+sudo dnf install qemu-system-x86 edk2-ovmf
+
+# Arch Linux
+sudo pacman -S qemu-system-x86 edk2-ovmf
 ```
 
-Restart the shell after installing Rust.
+Install Rust with [rustup](https://rustup.rs/) and restart your shell. The
+pinned toolchain and required Rust targets are managed by
+`tools/build-qemu.sh`.
+
+A successful Rust build does not install QEMU or OVMF. The interactive
+launcher and headless smoke test check those host dependencies before
+starting the build.
 
 ## First boot
 
 ```bash
-chmod +x tools/build-qemu.sh tools/run-qemu.sh
 ./tools/run-qemu.sh
 ```
 
-The current milestone boots a Vibrix-authored Rust UEFI executable and writes directly through the UEFI Simple Text Output Protocol.
+`tools/run-qemu.sh` and `tools/test-qemu.sh` share the firmware selection
+logic in `tools/ovmf.inc`. It searches common Ubuntu/Debian, Fedora, Arch
+and EDK2 installation paths, then requires a matching OVMF CODE/VARS pair
+rather than mixing 2 MiB and 4 MiB images. The VARS template is copied
+to a per-run writable file: the system-installed firmware is not modified.
 
-Expected output includes:
+If OVMF is installed somewhere else, supply explicit paths:
 
-```text
-Vibrix bootloader v0.0.1
-Rust-native. Independent.
-Hello from UEFI.
+```bash
+OVMF_CODE=/path/to/OVMF_CODE.fd \
+OVMF_VARS=/path/to/OVMF_VARS.fd \
+./tools/run-qemu.sh
 ```
 
-This is deliberately not yet the Vibrix kernel. The next boot milestone is to load a separate kernel image, obtain the firmware memory map, construct a boot-info structure, call ExitBootServices and transfer control to the kernel.
+You can also extend the searched firmware locations with a colon-separated
+`OVMF_SEARCH_DIRS` value. The missing-firmware diagnostic names the
+distribution packages and supported environment variables.
+
+Run the headless CI-equivalent smoke test with:
+
+```bash
+bash tools/test-qemu.sh
+```
+
+The currently verified loader checkpoint validates and stages
+`/vibrix/kernel.elf`, discovers ACPI/GOP, constructs and software-verifies
+**inactive** kernel page tables, and captures the final UEFI memory-map
+tuple. It does **not** activate CR3, populate and pass a complete BootInfo,
+call ExitBootServices, or execute the standalone kernel.
 
 ## Independence boundary
 
-OVMF is development firmware supplied to the virtual machine. It is not part of Vibrix. QEMU is also a development/testing tool and is not shipped as part of Vibrix.
-
-The boot executable itself uses no third-party Rust crates.
+OVMF is development firmware supplied to the virtual machine, not part of
+Vibrix. QEMU is development/testing infrastructure, not shipped as the
+Vibrix runtime. Rust package policy is documented in [AGENTS.md](../AGENTS.md) and
+[INDEPENDENCE.md](INDEPENDENCE.md).
