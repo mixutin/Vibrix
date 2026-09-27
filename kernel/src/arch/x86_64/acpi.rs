@@ -491,7 +491,13 @@ mod tests {
         assert_eq!(summary.xhci_controllers, 1);
         assert_eq!(reads, 34);
         assert_eq!(
-            scan_ecam_bus_zero(McfgEntry { bus_start: 1, ..entry }, |_| Ok(0)),
+            scan_ecam_bus_zero(
+                McfgEntry {
+                    bus_start: 1,
+                    ..entry
+                },
+                |_| Ok(0)
+            ),
             Err(AcpiError::InvalidAllocation)
         );
         assert_eq!(
