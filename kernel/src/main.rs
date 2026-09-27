@@ -227,6 +227,11 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                 }
                 Err(error) => {
                     crate::println!("kernel APIC validation failed: {:?}", error);
+                    crate::println!(
+                        "kernel LAPIC UEFI descriptor {:?}, IOAPIC descriptor {:?}",
+                        unsafe { memory::firmware_descriptor_at(discovery.lapic_physical) },
+                        unsafe { memory::firmware_descriptor_at(discovery.ioapic_physical) }
+                    );
                     debugcon::write("VIBRIX: kernel APIC discovery rejected\r\n");
                 }
             }
