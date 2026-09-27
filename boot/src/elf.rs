@@ -17,6 +17,7 @@ pub struct ElfInfo {
 
 #[derive(Clone, Copy)]
 pub struct LoadSegment {
+    pub flags: u32,
     pub file_offset: u64,
     pub virtual_address: u64,
     pub file_size: u64,
@@ -60,6 +61,7 @@ impl Iterator for LoadSegmentIter<'_> {
 
             let segment = (|| {
                 Ok(LoadSegment {
+                    flags: read_u32(self.data, base + 4)?,
                     file_offset: read_u64(self.data, base + 8)?,
                     virtual_address: read_u64(self.data, base + 16)?,
                     file_size: read_u64(self.data, base + 32)?,
@@ -175,6 +177,7 @@ pub fn validate(data: &[u8]) -> Result<ElfInfo, ElfError> {
 
     let mut load_segments = 0u16;
     let mut executable_entry = false;
+    let mut previous_load_end = None;
     for index in 0..phnum as usize {
         let base = phoff + index * PROGRAM_HEADER_SIZE;
         let p_type = read_u32(data, base)?;
@@ -194,8 +197,14 @@ pub fn validate(data: &[u8]) -> Result<ElfInfo, ElfError> {
         }
         // The complete memory image must have a representable half-open virtual range.
         // Do not allow a malicious PT_LOAD to wrap when segments are mapped later.
-        if p_vaddr.checked_add(p_memsz).is_none() {
-            return Err(ElfError::InvalidLoadSegment);
+        let memory_end = p_vaddr
+            .checked_add(p_memsz)
+            .ok_or(ElfError::InvalidLoadSegment)?;
+        if p_memsz != 0 {
+            if previous_load_end.is_some_and(|end| p_vaddr < end) {
+                return Err(ElfError::InvalidLoadSegment);
+            }
+            previous_load_end = Some(memory_end);
         }
         let file_virtual_end = p_vaddr
             .checked_add(p_filesz)
@@ -439,6 +448,7 @@ mod tests {
             .collect();
 
         assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].flags, PF_X);
         assert_eq!(segments[0].file_offset, PAYLOAD_OFFSET as u64);
         assert_eq!(segments[0].virtual_address, 0x1000);
         assert_eq!(segments[0].file_size, 4);

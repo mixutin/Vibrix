@@ -16,7 +16,8 @@ The QEMU smoke test captures Vibrix's QEMU-only debug port and requires the boot
 4. parsed at least one valid `PT_LOAD` segment,
 5. accepted the kernel image,
 6. discovered an ACPI RSDP with valid firmware-provided checksum(s),
-7. located a linear UEFI GOP framebuffer with sane mode and size metadata.
+7. located a linear UEFI GOP framebuffer with sane mode and size metadata,
+8. allocated physical backing pages for the kernel, zeroed the image span, copied every validated PT_LOAD file range and verified BSS bytes remain zero.
 
 Run the same smoke test locally:
 
