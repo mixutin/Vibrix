@@ -4,6 +4,13 @@
 
 ## Design
 
+## Synchronization
+
+- Main commit synchronized from:
+- Latest open PRs checked:
+- Conflicts/overlap resolved:
+- Validation rerun after synchronization: yes/no
+
 ## Validation
 
 ## Safety
