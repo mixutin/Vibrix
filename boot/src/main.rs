@@ -88,7 +88,7 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     );
     console.write("VIBRIX: kernel segments staged\r\n");
 
-    let page_tables = match unsafe {
+    let mut page_tables = match unsafe {
         paging::build_kernel_page_tables(system_table, &kernel, &info, &loaded_kernel)
     } {
         Ok(page_tables) => page_tables,
@@ -97,14 +97,34 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
             return error.status();
         }
     };
-    let _ = (
-        page_tables.root_physical,
-        page_tables.table_pages,
-        page_tables.mapped_pages,
-    );
     console.write("VIBRIX: kernel page tables verified\r\n");
-    // Allocate permanent loader-owned BootInfo backing *before* acquiring the
-    // final map/key. Its eventual kernel virtual mapping is a separate M2 step.
+
+    // Preserve the loader's actual firmware-resident PE image when the new
+    // hierarchy becomes active, rather than identity-mapping arbitrary RAM.
+    let (loader_image_base, loader_image_size) =
+        match unsafe { uefi::loader_image_range(image, system_table) } {
+            Ok(region) => region,
+            Err(status) => {
+                console.write("VIBRIX: loader image range unavailable\r\n");
+                return status;
+            }
+        };
+    // A dedicated, loader-owned 64 KiB stack avoids depending on reclaimable
+    // firmware stack pages after ExitBootServices.
+    const STACK_PAGES: usize = 16;
+    let kernel_stack_base = match unsafe { uefi::allocate_loader_pages(system_table, STACK_PAGES) }
+    {
+        Ok(physical) => physical,
+        Err(status) => {
+            console.write("VIBRIX: kernel stack allocation failed\r\n");
+            return status;
+        }
+    };
+    let Some(_kernel_stack_top) = kernel_stack_base.checked_add(STACK_PAGES as u64 * 4096) else {
+        console.write("VIBRIX: kernel stack range invalid\r\n");
+        return EFI_LOAD_ERROR;
+    };
+    // Allocate permanent loader-owned BootInfo backing *before* final map.
     let boot_info_physical = match unsafe { uefi::allocate_loader_pages(system_table, 1) } {
         Ok(physical) => physical,
         Err(status) => {
@@ -121,7 +141,9 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
         return EFI_LOAD_ERROR;
     }
 
-    let memory_map = match unsafe { memory_map::capture(system_table) } {
+    // Reserve the map buffer early. Extending page tables may allocate more
+    // pages and invalidate this provisional key; refresh in place afterwards.
+    let mut memory_map = match unsafe { memory_map::capture(system_table) } {
         Ok(map) => map,
         Err(status) => {
             // No successful map/key is retained on failure, so console use is safe.
@@ -129,19 +151,74 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
             return status;
         }
     };
-    // Retain the complete final tuple from one successful call. Do not use
-    // Console here: firmware output could allocate and invalidate the map key.
-    // The map's page allocation has no Drop and stays owned while we spin.
+    // Narrow 4 KiB identity mappings support transition code, dedicated
+    // stack and physical handoff memory without identity-mapping all RAM.
+    // The GOP BAR is explicitly uncached (PCD), not treated as write-back RAM.
+    let identity_regions = [
+        paging::IdentityRegion {
+            physical_base: loader_image_base,
+            byte_len: loader_image_size,
+            writable: true, // Temporary pre-kernel PE code/data interval.
+            executable: true,
+            uncached: false,
+        },
+        paging::IdentityRegion {
+            physical_base: kernel_stack_base,
+            byte_len: STACK_PAGES as u64 * 4096,
+            writable: true,
+            executable: false,
+            uncached: false,
+        },
+        paging::IdentityRegion {
+            physical_base: boot_info_physical,
+            byte_len: 4096,
+            writable: true,
+            executable: false,
+            uncached: false,
+        },
+        paging::IdentityRegion {
+            physical_base: memory_map.physical_base,
+            byte_len: memory_map.capacity as u64,
+            writable: true,
+            executable: false,
+            uncached: false,
+        },
+        paging::IdentityRegion {
+            physical_base: rsdp_address,
+            byte_len: 4096,
+            writable: false,
+            executable: false,
+            uncached: false,
+        },
+        paging::IdentityRegion {
+            physical_base: framebuffer.base,
+            byte_len: framebuffer.size,
+            writable: true,
+            executable: false,
+            uncached: true,
+        },
+    ];
+    if let Err(error) =
+        unsafe { paging::map_identity_regions(system_table, &mut page_tables, &identity_regions) }
+    {
+        console.write(error.message());
+        return error.status();
+    }
     let _ = (
-        memory_map.buffer,
-        memory_map.physical_base,
+        page_tables.root_physical,
+        page_tables.table_pages,
+        page_tables.mapped_pages,
+        kernel_stack_base,
         memory_map.pages,
-        memory_map.capacity,
-        memory_map.byte_len,
-        memory_map.map_key,
-        memory_map.descriptor_size,
-        memory_map.descriptor_version,
     );
+    console.write("VIBRIX: transition mappings verified\r\n");
+
+    // GetMemoryMap from the *same preallocated buffer* after all allocations.
+    // This refresh performs no AllocatePages, FreePages or firmware logging.
+    if let Err(status) = unsafe { memory_map::refresh(&mut memory_map) } {
+        console.write("VIBRIX: final memory map refresh failed\r\n");
+        return status;
+    }
     uefi::debug_write("VIBRIX: final memory map captured\r\n");
 
     // No firmware calls after successful map acquisition: preserve exactly
@@ -177,8 +254,9 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     let _boot_info_page_owner = boot_info_physical;
     uefi::debug_write("VIBRIX: BootInfo v2 staged\r\n");
 
-    // Do not attempt to dereference the physical map address as a kernel
-    // pointer, activate incomplete page tables, or exit boot services here.
+    // The kernel PT_LOAD and identity transition regions are now software
+    // verified but CR3 remains untouched. ExitBootServices and the direct
+    // kernel jump belong to the subsequent separately validated step.
     loop {
         core::hint::spin_loop();
     }

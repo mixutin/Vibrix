@@ -10,8 +10,8 @@ Propose an ADR before changing a shared contract such as BootInfo, the syscall o
 
 1. Copy [0000-template.md](0000-template.md) to the next unused four-digit number, e.g. `0001-short-title.md`. Reserve `0000` for the template. Never reuse a number, even if a proposal is rejected.
 2. Set **Status** to `Proposed` and describe the decision, context, alternatives, safety/compatibility consequences, and evidence. Link relevant roadmap tasks and primary specifications. Distinguish observed test results from plans; do not claim unrun tests.
-3. Open a pull request and invite review before implementing a change to a shared contract. Resolve substantive concerns in the discussion.
-4. When maintainers accept the decision, merge the ADR with **Status** set to `Accepted`. A merged proposal is not implicitly accepted if the status remains `Proposed`. Implementation and its tests can follow in a separate focused PR.
+3. Open a pull request with the shared-contract rationale and compatibility consequences. Invite another AI agent to review if available; a sole validated agent may integrate under AGENTS.md. Resolve substantive concerns in the discussion.
+4. When an authorized active agent or maintainer accepts the decision, merge the ADR with **Status** set to `Accepted`. A merged proposal is not implicitly accepted if the status remains `Proposed`. Implementation and its tests can follow in a separate focused PR.
 5. To replace an accepted decision, add a new ADR with **Status** `Proposed` and a **Supersedes** link. Once accepted, update the earlier ADR to `Superseded by [NNNN]` in the same PR. Do not rewrite the historical rationale.
 6. Rejected proposals remain in the directory with **Status** `Rejected` and a brief reason, preserving the history.
 

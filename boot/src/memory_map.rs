@@ -19,7 +19,7 @@ use core::ptr;
 // Policy limits, not firmware guarantees. Growth beyond the headroom is retried
 // before any map/key is returned. Bound both memory use and firmware retries.
 const PAGE_SIZE: usize = 4096;
-const HEADROOM_DESCRIPTORS: usize = 8;
+const HEADROOM_DESCRIPTORS: usize = 64;
 const MAX_MAP_BYTES: usize = 16 * 1024 * 1024;
 const MAX_ATTEMPTS: usize = 4;
 
@@ -32,6 +32,7 @@ const MAX_ATTEMPTS: usize = 4;
 /// Bytes beyond `byte_len` are capacity, not memory-map descriptors.
 #[derive(Debug)]
 pub struct CapturedMemoryMap {
+    get_map: GetMemoryMap,
     pub buffer: *mut MemoryDescriptor,
     pub physical_base: u64,
     pub pages: usize,
@@ -75,6 +76,42 @@ pub unsafe fn capture(system_table: *mut SystemTable) -> Result<CapturedMemoryMa
     };
     // SAFETY: the same live-firmware and allocation invariants apply to these services.
     unsafe { capture_with_services(get_map, allocate, free) }
+}
+
+/// Refresh an already owned and mapped buffer without allocating or freeing.
+///
+/// Call this *after* extending page tables, directly before ExitBootServices,
+/// and after EFI_INVALID_PARAMETER using the same preallocated buffer.
+/// Preserve the prior complete tuple on any failure.
+///
+/// # Safety
+/// The retained firmware callback must still be callable, even after a
+/// rejected ExitBootServices attempt; firmware obeys the buffer's capacity.
+pub unsafe fn refresh(map: &mut CapturedMemoryMap) -> Result<(), Status> {
+    let mut byte_len = map.capacity;
+    let mut map_key = 0;
+    let mut descriptor_size = 0;
+    let mut descriptor_version = 0;
+    let status = unsafe {
+        (map.get_map)(
+            &mut byte_len,
+            map.buffer,
+            &mut map_key,
+            &mut descriptor_size,
+            &mut descriptor_version,
+        )
+    };
+    if status != EFI_SUCCESS {
+        return Err(status);
+    }
+    if !valid_map(byte_len, map.capacity, descriptor_size) {
+        return Err(EFI_LOAD_ERROR);
+    }
+    map.byte_len = byte_len;
+    map.map_key = map_key;
+    map.descriptor_size = descriptor_size;
+    map.descriptor_version = descriptor_version;
+    Ok(())
 }
 
 fn valid_stride(stride: usize) -> bool {
@@ -179,6 +216,7 @@ unsafe fn capture_with_services(
         if status == EFI_SUCCESS && valid_map(byte_len, capacity, stride) {
             // No firmware calls or destructors beyond this successful boundary.
             return Ok(CapturedMemoryMap {
+                get_map,
                 buffer: buffer.cast(),
                 physical_base,
                 pages,
@@ -503,12 +541,70 @@ mod tests {
     }
 
     #[test]
+    fn refresh_keeps_page_ownership_and_updates_the_entire_final_tuple() {
+        let mut map = run(Firmware::default()).unwrap();
+        assert_eq!(map.map_key, 22);
+        FW.with_borrow_mut(|fw| {
+            fw.version = Some(1);
+            fw.final_stride = Some(48);
+            fw.final_len = Some(144);
+            fw.calls.clear();
+        });
+        // SAFETY: mock retains the uniquely owned mapped buffer/callback.
+        unsafe { refresh(&mut map) }.unwrap();
+        assert_eq!(
+            (
+                map.byte_len,
+                map.map_key,
+                map.descriptor_size,
+                map.descriptor_version
+            ),
+            (144, 22, 48, 1)
+        );
+        FW.with_borrow(|fw| {
+            assert_eq!(fw.calls, ["map"]);
+            assert_eq!(fw.buffers.len(), 1);
+        });
+    }
+
+    #[test]
+    fn refresh_failure_never_publishes_a_partial_stale_tuple() {
+        let mut map = run(Firmware::default()).unwrap();
+        let old = (
+            map.byte_len,
+            map.map_key,
+            map.descriptor_size,
+            map.descriptor_version,
+        );
+        FW.with_borrow_mut(|fw| {
+            fw.grow = 1;
+            fw.calls.clear();
+        });
+        // SAFETY: mock supplies valid ABI and live allocation; a too-small
+        // refresh must not change the published tuple or free pages.
+        assert_eq!(unsafe { refresh(&mut map) }, Err(EFI_BUFFER_TOO_SMALL));
+        assert_eq!(
+            (
+                map.byte_len,
+                map.map_key,
+                map.descriptor_size,
+                map.descriptor_version
+            ),
+            old
+        );
+        FW.with_borrow(|fw| {
+            assert_eq!(fw.calls, ["map"]);
+            assert_eq!(fw.buffers.len(), 1);
+        });
+    }
+
+    #[test]
     fn capacity_validation_checks_stride_size_and_arithmetic() {
         assert_eq!(buffer_capacity(80, 40), Ok(PAGE_SIZE));
         // Required map fits one page, but descriptor headroom crosses its end.
         assert_eq!(buffer_capacity(4032, 48), Ok(2 * PAGE_SIZE));
-        // Headroom ending exactly on a page boundary must not add another page.
-        assert_eq!(buffer_capacity(3584, 64), Ok(PAGE_SIZE));
+        // Reserve extra descriptors for page-table allocation before final refresh.
+        assert_eq!(buffer_capacity(3584, 64), Ok(2 * PAGE_SIZE));
         for (required, stride) in [(0, 40), (80, 0), (80, 32), (80, 41), (81, 40)] {
             assert_eq!(buffer_capacity(required, stride), Err(EFI_LOAD_ERROR));
         }

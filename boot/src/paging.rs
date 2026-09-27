@@ -9,6 +9,7 @@ const ENTRIES_PER_TABLE: usize = 512;
 const ADDRESS_MASK: u64 = 0x000f_ffff_ffff_f000;
 const PRESENT: u64 = 1 << 0;
 const WRITABLE: u64 = 1 << 1;
+const UNCACHED: u64 = 1 << 4;
 const USER: u64 = 1 << 2;
 const HUGE_PAGE: u64 = 1 << 7;
 const NO_EXECUTE: u64 = 1 << 63;
@@ -54,6 +55,112 @@ pub struct KernelPageTables {
     pub root_physical: u64,
     pub table_pages: usize,
     pub mapped_pages: usize,
+}
+
+/// Physical identity mapping required for the post-firmware transition.
+///
+/// The caller owns the mapped memory; neither a physical address nor a PTE
+/// grants Rust pointer provenance without that separate lifetime invariant.
+#[derive(Clone, Copy)]
+pub struct IdentityRegion {
+    pub physical_base: u64,
+    pub byte_len: u64,
+    pub writable: bool,
+    pub executable: bool,
+    /// PCD for MMIO framebuffer pages: never map PCI framebuffer as WB.
+    pub uncached: bool,
+}
+
+const MAX_IDENTITY_REGION_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Extend an **inactive** hierarchy with narrow identity ranges and
+/// software-verify all leaf PTE flags. Existing higher-half PT_LOAD flags
+/// stay untouched. No firmware services are accessed after the final map.
+///
+/// # Safety
+/// The root/table allocations are owned and identity accessible under the
+/// *current firmware* page tables; the given regions belong to the caller
+/// and do not alias kernel high virtual addresses. Must run pre-EBS and CR3.
+pub unsafe fn map_identity_regions(
+    system_table: *mut SystemTable,
+    tables: &mut KernelPageTables,
+    regions: &[IdentityRegion],
+) -> Result<(), PagingError> {
+    if !valid_physical_page(tables.root_physical) {
+        return Err(PagingError::InvalidPhysicalAddress);
+    }
+    // Validate the entire worklist before touching any table.
+    for region in regions {
+        identity_span(region)?;
+    }
+    let (allocate, free) =
+        unsafe { uefi::page_services(system_table) }.map_err(PagingError::Firmware)?;
+    let mut allocator = TableAllocator::new(allocate, free);
+    let mut mapped = 0usize;
+    for region in regions {
+        let (mut page, end) = identity_span(region)?;
+        while page < end {
+            if unsafe {
+                map_page_with_cache(
+                    &mut allocator,
+                    tables.root_physical,
+                    page,
+                    page,
+                    region.writable,
+                    region.executable,
+                    region.uncached,
+                )?
+            } {
+                mapped = mapped
+                    .checked_add(1)
+                    .ok_or(PagingError::VerificationFailed)?;
+            }
+            let leaf = unsafe { walk_leaf(tables.root_physical, page)? };
+            if leaf & ADDRESS_MASK != page
+                || leaf & USER != 0
+                || (leaf & WRITABLE != 0) != region.writable
+                || (leaf & NO_EXECUTE == 0) != region.executable
+                || (leaf & UNCACHED != 0) != region.uncached
+            {
+                return Err(PagingError::VerificationFailed);
+            }
+            page = page
+                .checked_add(PAGE_SIZE)
+                .ok_or(PagingError::InvalidPhysicalAddress)?;
+        }
+    }
+    tables.table_pages = tables
+        .table_pages
+        .checked_add(allocator.count)
+        .ok_or(PagingError::TooManyTablePages)?;
+    tables.mapped_pages = tables
+        .mapped_pages
+        .checked_add(mapped)
+        .ok_or(PagingError::VerificationFailed)?;
+    Ok(())
+}
+
+fn identity_span(region: &IdentityRegion) -> Result<(u64, u64), PagingError> {
+    if region.physical_base == 0
+        || region.byte_len == 0
+        || region.byte_len > MAX_IDENTITY_REGION_BYTES
+    {
+        return Err(PagingError::InvalidPhysicalAddress);
+    }
+    let start = align_down(region.physical_base);
+    let end = region
+        .physical_base
+        .checked_add(region.byte_len)
+        .and_then(align_up)
+        .ok_or(PagingError::InvalidPhysicalAddress)?;
+    if !valid_physical_page(start)
+        || end <= start
+        || !is_canonical_48(end - 1)
+        || end - 1 > (ADDRESS_MASK | (PAGE_SIZE - 1))
+    {
+        return Err(PagingError::InvalidPhysicalAddress);
+    }
+    Ok((start, end))
 }
 
 struct TableAllocator {
@@ -254,6 +361,28 @@ unsafe fn map_page(
     writable: bool,
     executable: bool,
 ) -> Result<bool, PagingError> {
+    unsafe {
+        map_page_with_cache(
+            allocator,
+            root,
+            virtual_page,
+            physical_page,
+            writable,
+            executable,
+            false,
+        )
+    }
+}
+
+unsafe fn map_page_with_cache(
+    allocator: &mut TableAllocator,
+    root: u64,
+    virtual_page: u64,
+    physical_page: u64,
+    writable: bool,
+    executable: bool,
+    uncached: bool,
+) -> Result<bool, PagingError> {
     if !valid_canonical_page(virtual_page) {
         return Err(PagingError::InvalidVirtualAddress);
     }
@@ -274,6 +403,9 @@ unsafe fn map_page(
         flags |= NO_EXECUTE;
     }
 
+    if uncached {
+        flags |= UNCACHED;
+    }
     let desired = physical_page | flags;
     let current = unsafe { read_entry(pt, pt_index)? };
     if current == 0 {
@@ -462,6 +594,89 @@ fn align_up(address: u64) -> Option<u64> {
     address
         .checked_add(PAGE_SIZE - 1)
         .map(|value| value & !(PAGE_SIZE - 1))
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+    use crate::test_support::*;
+
+    #[test]
+    fn identity_span_rejects_zero_overflow_and_oversized_regions() {
+        for (base, len) in [
+            (0, 4096),
+            (4096, 0),
+            (4096, MAX_IDENTITY_REGION_BYTES + 1),
+            (u64::MAX - 100, 4096),
+        ] {
+            let region = IdentityRegion {
+                physical_base: base,
+                byte_len: len,
+                writable: true,
+                executable: false,
+                uncached: false,
+            };
+            assert!(matches!(
+                identity_span(&region),
+                Err(PagingError::InvalidPhysicalAddress)
+            ));
+        }
+        let region = IdentityRegion {
+            physical_base: 0x1234,
+            byte_len: 4096,
+            writable: true,
+            executable: false,
+            uncached: false,
+        };
+        assert!(matches!(identity_span(&region), Ok((0x1000, 0x3000))));
+    }
+
+    #[test]
+    fn production_mapper_sets_uc_and_nx_on_identity_mmio() {
+        reset();
+        let mut allocator = TableAllocator::new(allocate, free);
+        let root = unsafe { allocator.allocate_zeroed() }
+            .map_err(|error| error.message())
+            .unwrap();
+        assert!(
+            unsafe {
+                map_page_with_cache(
+                    &mut allocator,
+                    root,
+                    0xe000_0000,
+                    0xe000_0000,
+                    true,
+                    false,
+                    true,
+                )
+            }
+            .map_err(|error| error.message())
+            .unwrap()
+        );
+        let leaf = unsafe { walk_leaf(root, 0xe000_0000) }
+            .map_err(|error| error.message())
+            .unwrap();
+        assert_eq!(leaf & ADDRESS_MASK, 0xe000_0000);
+        assert_eq!(
+            leaf & (UNCACHED | NO_EXECUTE | WRITABLE | PRESENT),
+            UNCACHED | NO_EXECUTE | WRITABLE | PRESENT
+        );
+        assert_eq!(leaf & USER, 0);
+        assert!(matches!(
+            unsafe {
+                map_page_with_cache(
+                    &mut allocator,
+                    root,
+                    0xe000_0000,
+                    0xe000_0000,
+                    true,
+                    false,
+                    false,
+                )
+            },
+            Err(PagingError::MappingConflict)
+        ));
+    }
 }
 
 #[cfg(test)]

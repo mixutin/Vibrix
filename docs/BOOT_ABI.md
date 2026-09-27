@@ -56,10 +56,12 @@ The Rust ABI type has now migrated together on loader and kernel to v2.
 The loader stages a validated v2 value into a loader-owned
 `EfiLoaderData` page allocated **before** the final `GetMemoryMap`;
 it copies the physical map-buffer address, byte count, returned stride and
-returned descriptor version from the **same** successful capture. The
+returned descriptor version from the **same** final in-place map refresh. The
 QEMU-specific `VIBRIX: BootInfo v2 staged` marker proves loader-side
-population only. It does not prove that page is mapped under the future
-kernel CR3, that `ExitBootServices` succeeded or that the kernel read it.
+population only. The loader now software-verifies narrow identity mappings for BootInfo, the
+full map buffer, the dedicated stack, RSDP, loaded PE image and uncached GOP BAR
+under its **inactive** kernel page tables (ADR 0006). It does not prove CR3
+activation, successful `ExitBootServices` or that the kernel read BootInfo.
 
 ## Kernel image staging
 
@@ -71,9 +73,8 @@ code must preserve that distinction explicitly.
 The current staging step allocates loader-owned `EfiLoaderData` pages,
 zeroes the complete image span, copies validated file-backed `PT_LOAD` bytes
 and verifies BSS remains zero. The loader separately constructs and
-software-verifies **inactive** higher-half page tables; it has not switched
-CR3, mapped the BootInfo handoff page under the new tables or transferred
-execution to the kernel.
+software-verifies **inactive** higher-half and narrow transition identity
+mappings; it has not switched CR3 or transferred execution to the kernel.
 
 ## Handoff
 
