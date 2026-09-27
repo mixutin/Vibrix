@@ -31,6 +31,7 @@
 - [ ] Adds a runtime dependency
 - [ ] Adds a development-only dependency
 - [ ] No new dependencies
+- New/updated dependency license(s), source/revision, rationale, features, target compatibility, and lockfile updates:
 
 ## References
 

@@ -1,11 +1,12 @@
 # Independence Policy
 
-Vibrix exists to test how far an AI-assisted project can go while implementing an operating system from scratch.
+Vibrix exists to test how far an AI-assisted project can go while engineering its own Rust-native operating-system architecture. Using appropriately licensed community Rust libraries is compatible with this goal.
 
 ## Allowed
 
 - the Rust language and official Rust toolchain
 - Rust-provided `core` and compiler/runtime support that ships with the official toolchain
+- appropriately licensed community Rust crates (crates.io, Git or vendored), subject to dependency review and target compatibility
 - CPU and hardware manuals
 - UEFI and other interface specifications
 - standards and research papers
@@ -18,8 +19,6 @@ Vibrix exists to test how far an AI-assisted project can go while implementing a
 
 ## Not allowed in Vibrix
 
-- crates.io/community Rust packages
-- vendored third-party Rust crates
 - Linux or BSD kernel code
 - copied third-party drivers
 - GNU or BSD userspace code
@@ -27,19 +26,19 @@ Vibrix exists to test how far an AI-assisted project can go while implementing a
 - BusyBox
 - third-party bootloaders
 - copied filesystem implementations
-- third-party runtime libraries
+- third-party operating systems used as Vibrix's runtime or kernel
 
 ## Rust boundary
 
 Vibrix is Rust-native, but it does not attempt to reimplement the Rust language itself.
 
-Official components distributed as part of the Rust toolchain may be linked where the language requires them. Community crates are not allowed in shipped Vibrix code, even for common functionality such as ELF parsing, synchronization, bitfields, ACPI, PCI, UEFI helpers, allocation, networking or filesystems.
+Official Rust toolchain components and appropriately licensed community Rust crates may be linked into Vibrix. Crates can provide ELF parsing, synchronization, bitfields, ACPI, PCI, UEFI helpers, allocation, networking, filesystems and other functionality as needed. The Vibrix-owned boot chain, kernel integration, subsystem contracts and persistent USB system model remain Vibrix's responsibility.
 
-Those facilities are implemented by Vibrix.
+All dependency additions follow [DEPENDENCIES.md](DEPENDENCIES.md). A dependency is not exempt from `no_std`, UEFI/bare-metal ABI, memory-safety, licensing or testing requirements.
 
 Host-side development programs such as QEMU, OVMF, Git, GDB and shell utilities are tools used to build or test Vibrix; they are not part of the Vibrix runtime.
 
-Clean-room implementation means understanding documented behavior and writing Vibrix's implementation ourselves rather than translating or lightly rewriting existing source code.
+When writing first-party code, use documented behavior rather than copying or lightly rewriting other operating systems' source. Calling a community crate through its public API under its license is permitted and is not the same as copying its implementation into first-party Vibrix files.
 
 ## AI provenance
 
