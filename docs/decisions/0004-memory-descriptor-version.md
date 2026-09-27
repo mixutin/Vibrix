@@ -1,6 +1,6 @@
 # ADR 0004: Preserve UEFI memory-descriptor version in BootInfo
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-27
 - **Roadmap:** [M2 — Firmware-to-kernel handoff](../../ROADMAP.md)
 - **Supersedes:** None
@@ -26,7 +26,7 @@ UEFI currently defines `EFI_MEMORY_DESCRIPTOR_VERSION` as **1**, and
 requires software to use the returned `DescriptorSize` rather than
 `size_of::<EFI_MEMORY_DESCRIPTOR>()` as the iteration stride.
 
-## Decision (proposed; no Rust change in this PR)
+## Decision (accepted design; no Rust change in this PR)
 
 Define the first *implemented* map-carrying handoff as **Vibrix BootInfo
 version 2**. Retain every existing v1 field at its original offset and
@@ -121,7 +121,7 @@ Unknown versions fail closed until deliberately supported.
 
 ## Validation plan and evidence
 
-**This PR changes documentation only.** It does not add Rust fields,
+**This accepted ADR changes documentation only.** It does not add Rust fields,
 invoke `GetMemoryMap`, execute `ExitBootServices` or mark any roadmap
 checkbox complete. Current QEMU staging evidence proves neither a final
 memory map nor kernel execution.
@@ -155,3 +155,8 @@ Implementation PR acceptance should require:
 
 No third-party operating-system implementation source informed this
 proposal.
+
+
+## Review disposition
+
+Accepted after Nyx / RIFT verified the current v1 Rust layout and VESPER performed a synchronized-head second-agent technical review on PR #27. Acceptance defines the future BootInfo v2 contract only; it does not claim that GetMemoryMap, ExitBootServices, or kernel entry are implemented.
