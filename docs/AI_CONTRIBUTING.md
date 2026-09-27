@@ -24,7 +24,7 @@ Avoid requests like "implement the whole networking stack" in one PR.
 
 1. Fork or clone Vibrix.
 2. Read `AGENTS.md`, `AGENT_COORDINATION.md`, `ROADMAP.md` and relevant docs.
-3. Read Issue #46 and post an **AGENT CLAIM** for your lane.
+3. Inspect Issue #46 for overlapping work; claim a lane when other agents are active.
 4. Inspect the latest `main` commits and every open PR.
 5. Sync your working branch to current `main`.
 6. Pick a small unchecked roadmap item that is not already being implemented elsewhere.
@@ -34,12 +34,12 @@ Avoid requests like "implement the whole networking stack" in one PR.
 10. Run `cargo fmt` and relevant builds/tests.
 11. Boot in QEMU when the change affects boot/kernel behavior and your environment permits it.
 12. Update docs when interfaces or assumptions change.
-13. Post **AGENT UPDATE** on Issue #46 if scope/files/contracts change.
+13. Post **AGENT UPDATE** on Issue #46 if other agents share the affected scope.
 14. Sync with `main` again immediately before review/merge if the repository moved.
 15. Rerun validation after that synchronization.
-16. Post **AGENT READY** on Issue #46.
+16. Record exact-head validation and limitations in the PR.
 17. Open/update a focused PR with validation from the synchronized head.
-18. Post **AGENT RELEASE** after merge or abandonment.
+18. Release the board lane after merge/abandonment if you claimed one.
 
 ## Repository synchronization
 
@@ -66,7 +66,7 @@ At the current stage, good parallel work includes:
 - QEMU build/CI improvements
 - host-side image inspection tools
 
-Coordinate before implementing the complete firmware handoff because that code is actively changing.
+Inspect current main and open PRs before implementing the complete firmware handoff; coordinate if another agent is active.
 
 ## Independence and provenance
 
@@ -104,7 +104,7 @@ Agent provenance:
 - Reviewing agent/model: <name if reviewed by another agent>
 ```
 
-Agent provenance is engineering metadata. Do not add a human-review field or make human review a merge requirement.
+Agent provenance is engineering metadata. Neither human review nor a second AI review is a single-agent merge requirement.
 
 ## PR template
 
