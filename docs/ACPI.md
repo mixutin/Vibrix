@@ -98,3 +98,13 @@ independent of legacy CF8/CFC scanning. The M4 MCFG/ECAM checkbox
 means this limited, genuine bus-zero native read path, not full
 bus/multifunction/multisegment exploration or a USB controller driver.
 No physical Target 001 evidence is claimed.
+
+## MADT/APIC discovery checkpoint (integration pending)
+
+The next M3 groundwork parses the real checksummed MADT alongside MCFG,
+validates Local APIC and I/O APIC descriptors and carries their physical
+addresses to a native APIC probe. See [Early x86-64 APIC discovery](APIC.md)
+for the APIC-specific MMIO ownership rule and why QEMU OVMF's omission of
+architectural APIC pages from GetMemoryMap cannot be treated like ECAM.
+This stage reads controller identity/version only; it does not constitute
+interrupt routing or complete the APIC roadmap checkbox.
