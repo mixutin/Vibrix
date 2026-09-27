@@ -27,10 +27,13 @@ interrupts still disabled, it claims two different, nonzero, page-aligned
 type-7 frames, emitting **kernel-only** QEMU debugcon markers
 `VIBRIX: kernel frame allocator initialized` and
 `VIBRIX: kernel conventional frames allocated`. The normal-boot and
-panic-probe smoke tests require both markers; their CI run is recorded in
-ROADMAP.md.
+panic-probe smoke tests require both markers. [CI run 36339836880](https://github.com/mixutin/Vibrix/actions/runs/36339836880)
+passed exact-head Rust checks and both QEMU runs.
 
-The backing is loader-owned `EfiLoaderData` and deliberately withheld
+The state additionally reserves the entire map-byte span, the GOP
+framebuffer and the RSDP window as rounded-up physical pages; these
+exclude the corresponding ranges even if firmware reports an unexpected
+conventional-memory type. The backing is loader-owned `EfiLoaderData` and deliberately withheld
 from type-7 frame allocation for the entire early-kernel lifetime.
 The global holder is intentionally **single-core and IRQs-off only**:
 access functions are `unsafe` with that precondition. Before enabling
