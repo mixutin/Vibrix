@@ -167,6 +167,14 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         debugcon::write("VIBRIX: kernel PCI BARs parsed\r\n");
     }
 
+    // Static BSS backing is already supervisor RW/NX in the loader mappings.
+    // SAFETY: sole boot CPU, IF=0, no interrupt or reentrant heap users.
+    if unsafe { memory::heap::smoke_test() }.is_err() {
+        panic!("early kernel heap validation failed");
+    }
+    debugcon::write("VIBRIX: kernel heap allocation and reuse verified\r\n");
+    crate::println!("kernel heap: aligned allocations, RAM writes and reuse verified");
+
     // Physical GOP BAR is explicitly identity-mapped UC in the active PML4.
     if unsafe { framebuffer::draw_boot_marker(&info) }.is_ok() {
         debugcon::write("VIBRIX: kernel framebuffer wrote pixels\r\n");
