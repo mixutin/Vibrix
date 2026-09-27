@@ -70,14 +70,12 @@ fn virtual_ptr(offset: usize) -> Result<usize, ApicError> {
 }
 
 unsafe fn read_lapic(vm: &mut Window, physical: u64) -> Result<(u8, u8, u8), ApicError> {
-    if !physical.is_multiple_of(PAGE)
-        || !unsafe { memory::mmio_span_is_reserved(physical, PAGE) }
-    {
+    if !physical.is_multiple_of(PAGE) || !unsafe { memory::mmio_span_is_reserved(physical, PAGE) } {
         return Err(ApicError::MmioRange);
     }
+    let base = virtual_ptr(0)?;
     // SAFETY: validated firmware MMIO page and exclusive early window.
     unsafe { vm.map_mmio_readonly(0, physical) }.map_err(|_| ApicError::Mapping)?;
-    let base = virtual_ptr(0)?;
     // SAFETY: LAPIC ID/version are aligned read-only architectural registers.
     let id = unsafe { core::ptr::read_volatile((base + 0x20) as *const u32) };
     // SAFETY: same live UC mapping, version register at aligned offset 0x30.
@@ -102,14 +100,12 @@ unsafe fn ioapic_register(base: usize, selector: u32) -> u32 {
 }
 
 unsafe fn read_ioapic(vm: &mut Window, physical: u64) -> Result<(u8, u8, u8), ApicError> {
-    if !physical.is_multiple_of(PAGE)
-        || !unsafe { memory::mmio_span_is_reserved(physical, PAGE) }
-    {
+    if !physical.is_multiple_of(PAGE) || !unsafe { memory::mmio_span_is_reserved(physical, PAGE) } {
         return Err(ApicError::MmioRange);
     }
+    let base = virtual_ptr(0)?;
     // SAFETY: IOREGSEL itself is a required write even for register reads.
     unsafe { vm.map_mmio_writable(0, physical) }.map_err(|_| ApicError::Mapping)?;
-    let base = virtual_ptr(0)?;
     // SAFETY: selectors 0 and 1 are architectural ID/version registers.
     let id = unsafe { ioapic_register(base, 0) };
     let version = unsafe { ioapic_register(base, 1) };
@@ -155,8 +151,7 @@ pub unsafe fn probe(
     let mut vm = unsafe { crate::memory::virtual_memory::runtime::from_boot_info(info) }
         .map_err(|_| ApicError::Mapping)?;
     // SAFETY: each helper independently validates its full MMIO page.
-    let (lapic_id, lapic_version, lapic_max_lvt) =
-        unsafe { read_lapic(&mut vm, lapic_physical) }?;
+    let (lapic_id, lapic_version, lapic_max_lvt) = unsafe { read_lapic(&mut vm, lapic_physical) }?;
     // SAFETY: same empty window reused after LAPIC helper unmapped it.
     let (ioapic_id, ioapic_version, ioapic_max_redirection_entry) =
         unsafe { read_ioapic(&mut vm, ioapic_physical) }?;
