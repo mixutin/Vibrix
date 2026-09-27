@@ -65,10 +65,9 @@ impl BootInfo {
         rsdp: u64,
         map: FinalMemoryMap,
     ) -> Result<Self, BootInfoError> {
-        let byte_len = u64::try_from(map.byte_len)
-            .map_err(|_| BootInfoError::InvalidMemoryMap)?;
-        let descriptor_size = u64::try_from(map.descriptor_size)
-            .map_err(|_| BootInfoError::InvalidMemoryMap)?;
+        let byte_len = u64::try_from(map.byte_len).map_err(|_| BootInfoError::InvalidMemoryMap)?;
+        let descriptor_size =
+            u64::try_from(map.descriptor_size).map_err(|_| BootInfoError::InvalidMemoryMap)?;
         let info = Self {
             magic: BOOTINFO_MAGIC,
             version: BOOTINFO_VERSION,
