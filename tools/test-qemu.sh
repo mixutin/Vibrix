@@ -69,6 +69,7 @@ for expected in \
   "VIBRIX: GOP framebuffer discovered" \
   "VIBRIX: kernel segments staged" \
   "VIBRIX: kernel page tables verified" \
+  "VIBRIX: transition mappings verified" \
   "VIBRIX: final memory map captured" \
   "VIBRIX: BootInfo v2 staged"; do
   if ! grep -Fq "$expected" "$LOG"; then
