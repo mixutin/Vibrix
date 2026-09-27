@@ -7,7 +7,9 @@
 #[cfg(not(test))]
 use core::arch::asm;
 
+#[cfg(not(test))]
 const CONFIG_ADDRESS_PORT: u16 = 0xcf8;
+#[cfg(not(test))]
 const CONFIG_DATA_PORT: u16 = 0xcfc;
 const PCI_ENABLE_BIT: u32 = 0x8000_0000;
 const PCI_VENDOR_NONE: u16 = 0xffff;
@@ -295,7 +297,7 @@ mod tests {
     fn configuration_selects_only_valid_aligned_registers() {
         assert_eq!(
             configuration_address(bdf(0x12, 0x1f, 7), 0xfc),
-            Some(0x8012_ffff)
+            Some(0x8012_fffc)
         );
         assert_eq!(configuration_address(bdf(0, 32, 0), 0), None);
         assert_eq!(configuration_address(bdf(0, 0, 8), 0), None);
