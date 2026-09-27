@@ -8,7 +8,7 @@ use core::panic::PanicInfo;
 use uefi::{Console, EFI_LOAD_ERROR, Handle, Status, SystemTable};
 
 #[unsafe(no_mangle)]
-pub extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemTable) -> Status {
+pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemTable) -> Status {
     let Some(mut console) = (unsafe { Console::from_system_table(system_table) }) else {
         return EFI_LOAD_ERROR;
     };
