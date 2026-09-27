@@ -64,13 +64,6 @@ if [[ -n "$OVMF_VARS" ]]; then
   ARGS+=(-drive "if=pflash,format=raw,file=$QEMU_DIR/OVMF_VARS.test.fd")
 fi
 
-# Temporary review diagnostic: print the actual linked PT_LOAD layout in CI before QEMU.
-# No dependency added: readelf is optional and this block does not alter the test gate.
-if command -v readelf >/dev/null 2>&1; then
-  echo "[vibrix] linked kernel ELF program headers (PR #29 review diagnostic)"
-  readelf -lW "$QEMU_DIR/esp/vibrix/kernel.elf"
-fi
-
 echo "[vibrix] running headless QEMU smoke test"
 set +e
 timeout 12s qemu-system-x86_64 "${ARGS[@]}"
