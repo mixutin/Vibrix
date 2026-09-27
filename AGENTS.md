@@ -28,7 +28,15 @@ Tiny architecture-specific assembly is allowed only where hardware requires it. 
 
 ## Dependencies
 
-Do not add shipped third-party runtime crates as a shortcut. Before adding any dependency, determine whether it becomes part of Vibrix and whether it undermines the independence experiment. Host-only development tooling is separate but should remain minimal.
+**Community Rust packages are forbidden in Vibrix.**
+
+Do not add crates.io dependencies, Git-based Rust dependencies, vendored third-party crates, or community packages to the bootloader, kernel, drivers, system libraries, installer, package tooling or first-party userspace.
+
+The only Rust foundation/runtime code allowed is what is supplied as part of the official Rust language/toolchain itself, such as `core` and compiler support.
+
+If functionality is needed for ELF, UEFI, ACPI, PCI, USB, NVMe, synchronization, allocation, parsing, bitfields, filesystems, networking or similar subsystems, implement it inside Vibrix from primary specifications.
+
+External host-side tools such as QEMU, OVMF, GDB, Git and shell utilities are development infrastructure and are not Vibrix runtime dependencies.
 
 ## Unsafe Rust
 
