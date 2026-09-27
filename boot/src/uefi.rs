@@ -350,6 +350,7 @@ pub unsafe fn load_kernel(
 }
 
 fn debug_write(text: &str) {
+    #[cfg(feature = "qemu-debugcon")]
     for byte in text.bytes() {
         unsafe {
             core::arch::asm!(
@@ -360,4 +361,7 @@ fn debug_write(text: &str) {
             );
         }
     }
+
+    #[cfg(not(feature = "qemu-debugcon"))]
+    let _ = text;
 }
