@@ -13,7 +13,9 @@ mod transition;
 mod uefi;
 
 use core::panic::PanicInfo;
-use uefi::{Console, EFI_INVALID_PARAMETER, EFI_LOAD_ERROR, EFI_SUCCESS, Handle, Status, SystemTable};
+use uefi::{
+    Console, EFI_INVALID_PARAMETER, EFI_LOAD_ERROR, EFI_SUCCESS, Handle, Status, SystemTable,
+};
 
 fn create_boot_info(
     framebuffer: &uefi::Framebuffer,
