@@ -11,7 +11,25 @@
 > **How far can vibe coding go?**  
 > Far enough to boot our own kernel. Now we're giving it a voice.
 
-[Roadmap](ROADMAP.md) · [Architecture](docs/ARCHITECTURE.md) · [Dependencies](docs/DEPENDENCIES.md) · [Contributing](CONTRIBUTING.md) · [Agent board](https://github.com/mixutin/Vibrix/issues/46)
+[**Website**](https://mixutin.github.io/Vibrix/) · [Roadmap](ROADMAP.md) · [Architecture](docs/ARCHITECTURE.md) · [Dependencies](docs/DEPENDENCIES.md) · [Contributing](CONTRIBUTING.md) · [Agent board](https://github.com/mixutin/Vibrix/issues/46)
+
+[![Vibrix CI](https://github.com/mixutin/Vibrix/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mixutin/Vibrix/actions/workflows/ci.yml)
+[![Website](https://github.com/mixutin/Vibrix/actions/workflows/pages.yml/badge.svg?branch=main)](https://mixutin.github.io/Vibrix/)
+[![License: 0BSD](https://img.shields.io/badge/license-0BSD-b8ff5a.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-no__std-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
+[![Architecture](https://img.shields.io/badge/arch-x86__64-5865f2.svg)](docs/ARCHITECTURE.md)
+[![Boot](https://img.shields.io/badge/boot-UEFI-6f42c1.svg)](docs/ARCHITECTURE.md)
+[![Roadmap](https://img.shields.io/badge/roadmap-M4%20%E2%86%92%20M4.5-b8ff5a.svg)](ROADMAP.md)
+
+<table>
+<tr>
+<td align="center"><strong>Kernel</strong><br><code>Rust / no_std</code></td>
+<td align="center"><strong>Architecture</strong><br><code>x86-64 + UEFI</code></td>
+<td align="center"><strong>Dev target</strong><br><code>QEMU + OVMF</code></td>
+<td align="center"><strong>Next milestone</strong><br><code>vibrix&gt; console</code></td>
+<td align="center"><strong>License</strong><br><code>0BSD</code></td>
+</tr>
+</table>
 
 </div>
 
