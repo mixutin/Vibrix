@@ -125,12 +125,17 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         }
     }
     debugcon::write("VIBRIX: kernel frame allocator initialized\r\n");
-    if unsafe { memory::smoke_claim_two_frames() }.is_err() {
-        debugcon::write("VIBRIX: kernel conventional frame claims failed\r\n");
-        loop {
-            core::hint::spin_loop();
+    let claimed_frames = match unsafe { memory::smoke_claim_two_frames() } {
+        Ok(frames) => frames,
+        Err(_) => {
+            debugcon::write("VIBRIX: kernel conventional frame claims failed\r\n");
+            loop {
+                core::hint::spin_loop();
+            }
         }
-    }
+    };
+    let memory_descriptor_count =
+        info.memory_map_len / u64::from(info.memory_descriptor_size);
     debugcon::write("VIBRIX: kernel conventional frames allocated\r\n");
 
     // Legacy PCI config mechanism #1 reads segment-zero vendor/class/BAR
@@ -180,6 +185,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     // ACPI-type WB pages via the now-empty temporary v3 mapping window,
     // unmapping all leaves before later kernel facilities use that window.
     let mut timer_setup = None;
+    let mut acpi_console = None;
     let acpi_mcfg = unsafe { parse_boot_rsdp(&info) }.and_then(|rsdp| {
         // SAFETY: sole boot CPU, IF=0, physical allocator initialized and
         // mapping-window smoke test has unmapped every temporary leaf.
@@ -189,6 +195,12 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     });
     match acpi_mcfg {
         Ok(discovery) => {
+            acpi_console = Some((
+                discovery.allocations,
+                discovery.ecam.devices,
+                discovery.ioapics,
+                discovery.timer_gsi,
+            ));
             crate::println!(
                 "kernel ACPI: {} validated MCFG allocations",
                 discovery.allocations
@@ -385,7 +397,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                         match console::command(bytes) {
                             console::Command::Empty => {}
                             console::Command::Help => {
-                                crate::println!("commands: help info uptime");
+                                crate::println!("commands: help info mem pci acpi uptime");
                                 debugcon::write("VIBRIX: kernel console command help\r\n");
                             }
                             console::Command::Info => {
@@ -394,6 +406,42 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                                     env!("CARGO_PKG_VERSION")
                                 );
                                 debugcon::write("VIBRIX: kernel console command info\r\n");
+                            }
+                            console::Command::Mem => {
+                                crate::println!(
+                                    "mem: descriptors={} claimed_frames={:#x},{:#x} early_heap_bytes={}",
+                                    memory_descriptor_count,
+                                    claimed_frames.0,
+                                    claimed_frames.1,
+                                    memory::heap::CAPACITY
+                                );
+                                debugcon::write("VIBRIX: kernel console command mem\r\n");
+                            }
+                            console::Command::Pci => {
+                                crate::println!(
+                                    "pci: devices={} bars={} xhci={} malformed_bars={}",
+                                    pci.devices,
+                                    pci.assigned_bars,
+                                    pci.xhci_controllers,
+                                    pci.malformed_bars
+                                );
+                                debugcon::write("VIBRIX: kernel console command pci\r\n");
+                            }
+                            console::Command::Acpi => {
+                                if let Some((allocations, ecam_devices, ioapics, timer_gsi)) =
+                                    acpi_console
+                                {
+                                    crate::println!(
+                                        "acpi: mcfg_allocations={} ecam_bus0_devices={} ioapics={} timer_gsi={}",
+                                        allocations,
+                                        ecam_devices,
+                                        ioapics,
+                                        timer_gsi
+                                    );
+                                } else {
+                                    crate::println!("acpi: discovery unavailable");
+                                }
+                                debugcon::write("VIBRIX: kernel console command acpi\r\n");
                             }
                             console::Command::Uptime => {
                                 let ticks = arch::x86_64::irq::timer_ticks();
