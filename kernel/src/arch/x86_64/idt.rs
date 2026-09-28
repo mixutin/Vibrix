@@ -151,9 +151,7 @@ extern "x86-interrupt" fn ring3_probe_handler(frame: InterruptStackFrame) -> ! {
         );
         #[cfg(feature = "address-space-probe")]
         {
-            crate::debugcon::write(
-                "VIBRIX: kernel userspace CR3 preserved across CPL3 trap\r\n",
-            );
+            crate::debugcon::write("VIBRIX: kernel userspace CR3 preserved across CPL3 trap\r\n");
             crate::println!(
                 "kernel address space trap: expected_cr3={:#x} current_cr3={:#x}",
                 expected_root,
