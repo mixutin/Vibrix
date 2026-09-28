@@ -57,11 +57,13 @@ impl LineEditor {
 pub enum Command {
     Empty,
     Help,
+    Clear,
     Info,
     Mem,
     Pci,
     Acpi,
     Uptime,
+    Reboot,
     Unknown,
 }
 
@@ -75,6 +77,10 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: b"help",
         command: Command::Help,
+    },
+    CommandSpec {
+        name: b"clear",
+        command: Command::Clear,
     },
     CommandSpec {
         name: b"info",
@@ -95,6 +101,10 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: b"uptime",
         command: Command::Uptime,
+    },
+    CommandSpec {
+        name: b"reboot",
+        command: Command::Reboot,
     },
 ];
 
@@ -184,16 +194,19 @@ mod tests {
         assert_eq!(command(b"  "), Command::Empty);
         assert_eq!(command(b"help"), Command::Help);
         assert_eq!(command(b" help  "), Command::Help);
+        assert_eq!(command(b"clear"), Command::Clear);
         assert_eq!(command(b"info"), Command::Info);
         assert_eq!(command(b"mem"), Command::Mem);
         assert_eq!(command(b"pci"), Command::Pci);
         assert_eq!(command(b"acpi"), Command::Acpi);
         assert_eq!(command(b"uptime"), Command::Uptime);
+        assert_eq!(command(b"reboot"), Command::Reboot);
         for unknown in [
             b"HELP".as_slice(),
             b"hel".as_slice(),
             b"help me".as_slice(),
             b"uptime now".as_slice(),
+            b"reboot now".as_slice(),
         ] {
             assert_eq!(command(unknown), Command::Unknown);
         }
