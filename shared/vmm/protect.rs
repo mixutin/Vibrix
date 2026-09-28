@@ -76,7 +76,10 @@ mod tests {
     fn missing_or_corrupt_mapping_is_not_changed() {
         let mut vm = vm::<8>(8);
         let page = Page::new(ARENA_BASE).unwrap();
-        assert_eq!(vm.protect(page, Permissions::ReadOnly), Err(Error::NotMapped));
+        assert_eq!(
+            vm.protect(page, Permissions::ReadOnly),
+            Err(Error::NotMapped)
+        );
         assert!(vm.memory.events.is_empty());
         let physical = vm.map_zeroed(page, Permissions::ReadWrite).unwrap();
         let table = vm.path(page).unwrap().unwrap()[3];
