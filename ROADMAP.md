@@ -81,7 +81,7 @@ runtime tests; none of their checkboxes are changed by this batch.
 - [x] IDT + exception handlers
 - [x] Page-fault diagnostics
 - [x] Physical frame allocator
-- [ ] Virtual memory manager
+- [x] Virtual memory manager
 - [x] Kernel heap
 - [x] Local APIC + I/O APIC
 - [x] Timer + interrupt routing
@@ -103,6 +103,23 @@ preemptive scheduling, general IRQ subsystem, MSI/MSI-X, Target 001 hardware
 proof, or calibrated high-resolution clock.
 
 **Verified M3 mapping groundwork (PR #62):** [Actions run 36343397525](https://github.com/mixutin/Vibrix/actions/runs/36343397525) passed seven QEMU configurations, including actual supervisor-write and post-unmap page faults. BootInfo v3 provides one bounded 2 MiB mapping window; the kernel maps newly owned RAM frames, changes write permissions, unmaps and remaps with local TLB invalidation. CR0.WP is enabled. The general virtual-memory manager checkbox stays **unchecked**: dynamic page tables, address-space management, frame reuse and SMP shootdowns remain unfinished. See [ADR 0009](docs/decisions/0009-early-mapping-window.md).
+
+**Verified M3 bounded runtime virtual-memory manager (PR #122):**
+[Managed VM run 36437875475](https://github.com/mixutin/Vibrix/actions/runs/36437875475)
+and [CI run 36437875790](https://github.com/mixutin/Vibrix/actions/runs/36437875790)
+passed on the exact implementation head. Building on the earlier managed-VM
+slices, the production kernel dynamically creates and reclaims owned page-table
+levels and data mappings, enforces W^X-representable supervisor permissions,
+provides guarded allocations, and keeps a dedicated 96-frame managed pool alive
+after APIC activation. Runtime mutation owns one scratch mapping slot, masks and
+restores local interrupts, and was demonstrated by holding a guarded mapping
+across a real PIT interrupt, validating its contents afterward, unmapping it and
+recovering every pool frame.
+
+This checks the M3 **single-BSP kernel virtual-memory manager** boundary. It is
+one kernel CR3 and does not claim Ring 3/user address spaces, demand paging, a
+growing general heap, global physical-frame reclamation, SMP locking or TLB
+shootdowns. Those remain M5/M12 work; Target 001 remains untested.
 
 **Verified M3 bounded early heap (PR #60):** [Actions run 36342588023](https://github.com/mixutin/Vibrix/actions/runs/36342588023) passed production heap host tests, formatting, target Clippy/builds and five QEMU boots (normal, virtual xHCI, panic, breakpoint and page fault). The real kernel allocates aligned spans, writes/reads their RAM backing, frees and reuses an allocation, and reports success independently over debugcon and COM1. This is a **64 KiB fixed-capacity early kernel heap** over reserved, already mapped BSS, with free/reuse. It is single-CPU/IRQs-off, has no global Rust allocator and cannot grow from physical frames. Virtual memory, general-purpose/SMP allocation and physical Target 001 tests remain separate work. See [early heap contract](docs/EARLY_HEAP.md).
 
@@ -469,7 +486,26 @@ provide real cache-flush ordering. This checkbox records the **accepted design
 contract only**. Journal record implementation, interrupted-write tests,
 formatter/recovery tooling, VFS integration and USB persistence remain
 unchecked.
-- [ ] formatter + recovery tool
+- [x] formatter + recovery tool
+
+**Verified M8 journal-enabled formatter and host recovery (PR #121):**
+[Actions run 36442635348](https://github.com/mixutin/Vibrix/actions/runs/36442635348)
+passed the exact synchronized head, including format checks, the production
+VibrixFS wire/journal/image tests, target lint/build checks and the complete QEMU
+regression matrix. Fresh regular-file images now reserve an allocated 66-block
+redo journal and advertise the incompatible journal feature. The recovery tool
+validates the two superblocks independently, selects the highest compatible
+checkpoint, validates a committed transaction as a unit before any home write,
+replays complete after-images idempotently, checkpoints secondary then primary,
+and retires the journal only afterward. Tests destroy a metadata home block and
+prove committed replay repairs it; corrupt committed payloads fail before home
+replay, dirty checkpoints without a recoverable journal fail closed, and an
+uncommitted transaction is retired only after a clean checkpoint is published.
+
+This checkbox is **host regular-file formatter/recovery tooling**. It is not a
+kernel VFS driver, native USB storage path, writable USB-root mount, hardware
+flush/barrier proof, power-loss validation or Target 001 filesystem evidence.
+
 - [ ] VFS driver
 - [ ] persistent root mounted from USB
 
@@ -488,8 +524,9 @@ This verifies the byte-level **VibrixFS v1 on-disk specification** and its
 initial superblock/allocation metadata on host regular files. It does **not**
 establish general file/directory mutation, permissions enforcement, crash
 consistency/recovery, a kernel VFS driver, native USB block I/O, persistent root,
-or physical provisioning. The combined formatter + recovery item therefore
-remains unchecked.
+or physical provisioning. The later PR #121 recovery evidence above supersedes
+only that original formatter/recovery limitation; kernel VFS and USB persistence
+remain separate work.
 
 **Exit:** files created under the Vibrix root filesystem survive shutdown and reboot.
 
