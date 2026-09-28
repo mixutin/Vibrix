@@ -58,6 +58,9 @@ pub enum Command {
     Empty,
     Help,
     Info,
+    Mem,
+    Pci,
+    Acpi,
     Uptime,
     Unknown,
 }
@@ -76,6 +79,18 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: b"info",
         command: Command::Info,
+    },
+    CommandSpec {
+        name: b"mem",
+        command: Command::Mem,
+    },
+    CommandSpec {
+        name: b"pci",
+        command: Command::Pci,
+    },
+    CommandSpec {
+        name: b"acpi",
+        command: Command::Acpi,
     },
     CommandSpec {
         name: b"uptime",
@@ -170,6 +185,9 @@ mod tests {
         assert_eq!(command(b"help"), Command::Help);
         assert_eq!(command(b" help  "), Command::Help);
         assert_eq!(command(b"info"), Command::Info);
+        assert_eq!(command(b"mem"), Command::Mem);
+        assert_eq!(command(b"pci"), Command::Pci);
+        assert_eq!(command(b"acpi"), Command::Acpi);
         assert_eq!(command(b"uptime"), Command::Uptime);
         for unknown in [
             b"HELP".as_slice(),
