@@ -344,8 +344,8 @@ the first real userspace CLI.
 - [ ] AMD AHCI 1022:43eb as optional data device
 
 ## M5 — Processes and syscalls
-- [ ] Kernel threads
-- [ ] Context switching
+- [x] Kernel threads
+- [x] Context switching
 - [ ] Preemptive scheduler
 - [ ] Ring 3 userspace
 - [ ] Userspace address spaces
@@ -356,6 +356,24 @@ the first real userspace CLI.
 - [ ] Executable loading
 - [ ] argv/environment
 - [ ] wait/exit
+
+**Verified M5 cooperative kernel threads and context switching (PR #118):**
+[Actions run 36422864624](https://github.com/mixutin/Vibrix/actions/runs/36422864624)
+passed production host tests and a real post-ExitBootServices QEMU execution
+using the first-party x86-64 context-switch routine. Two independent 16 KiB
+kernel stacks executed guest-origin markers in the exact required order
+`A1 → B1 → A2 → B2`, then returned to the saved boot context. The proof
+requires **five real RSP/callee-saved context switches** (boot→A, A→B, B→A,
+exited A→B, exited B→boot), rejects missing/duplicate/reordered markers, and
+COM1 reports `switches=5 completed=2`.
+
+The scheduler is fixed-capacity and cooperative: up to four kernel threads,
+static supervisor RW/NX stacks zeroed before reuse, one shared kernel CR3,
+one BSP and IF=0. Public scheduler entry points reject IF=1; no Rust scheduler
+reference survives the raw assembly stack switch. This completes the **kernel
+threads** and **context switching** items only. Timer preemption, IRQ-safe
+scheduler synchronization, SMP, RSP0/IST privilege stacks, Ring 3, userspace
+address spaces, syscalls and process lifecycle remain unchecked.
 
 **Exit:** PID 1 executes in userspace and makes Vibrix syscalls.
 
