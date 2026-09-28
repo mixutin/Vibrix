@@ -403,7 +403,10 @@ jobs:
         env:
           VIBRIX_SKIP_BUILD: "1"
           VIBRIX_QEMU_KEYBOARD_PROBE: "1"
-        run: bash tools/test-qemu.sh
+        run: |
+          bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel PS2 byte entered TTY" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel TTY line discipline verified" build/qemu/debugcon.log
       - name: QEMU edited help command through real keyboard
         env:
           VIBRIX_SKIP_BUILD: "1"
