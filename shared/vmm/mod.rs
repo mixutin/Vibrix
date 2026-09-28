@@ -2,6 +2,7 @@
 //! Numeric addresses do not grant physical ownership or Rust references.
 pub mod address;
 pub mod frames;
+mod map;
 pub mod walk;
 
 pub use walk::{Memory, Translation, Vm};
