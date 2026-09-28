@@ -14,15 +14,18 @@ use std::path::Path;
 mod wire;
 
 use wire::{
-    BLOCK, Extent, INODE_BYTES, Inode, Range, Superblock, encode_inode, encode_superblock,
-    immutable_superblock_fields_match, parse_inode, parse_superblock,
+    BLOCK, Extent, INODE_BYTES, Inode, Range, Superblock, encode_dir_record, encode_inode,
+    encode_superblock, immutable_superblock_fields_match, parse_dir_record, parse_inode,
+    parse_superblock,
 };
 
 const TOTAL_INODES: u64 = 1024;
 const INODE_BITMAP_BLOCKS: u64 = 1;
 const INODE_TABLE_BLOCKS: u64 = (TOTAL_INODES * INODE_BYTES as u64).div_ceil(BLOCK as u64);
 const MAX_FORMAT_BLOCKS: u64 = 262_144; // 1 GiB early host-tool bound.
-const DIRECTORY_BYTES: usize = 48;
+const DIRECTORY_BYTES: usize = 80;
+const WELCOME_NAME: &str = "welcome.txt";
+const WELCOME_BYTES: &[u8] = b"Welcome to VibrixFS.\n";
 
 fn raw_device_like(path: &Path) -> bool {
     let s = path.to_string_lossy();
@@ -127,47 +130,17 @@ fn require_padding_bits(bitmap: &[u8], first_padding: u64) -> Result<(), String>
     Ok(())
 }
 
-fn put_dir_record(
-    block: &mut [u8; BLOCK],
-    offset: usize,
-    inode: u64,
-    file_type: u8,
-    name: &[u8],
-) -> Result<usize, String> {
-    if name.is_empty() || name.len() > 255 || name.contains(&0) || name.contains(&b'/') {
-        return Err("invalid directory name".into());
-    }
-    let used = 16usize
-        .checked_add(name.len())
-        .ok_or_else(|| "directory length overflow".to_string())?;
-    let record = used
-        .checked_add(7)
-        .map(|n| n & !7)
-        .ok_or_else(|| "directory alignment overflow".to_string())?;
-    let end = offset
-        .checked_add(record)
-        .ok_or_else(|| "directory record overflow".to_string())?;
-    let dst = block
-        .get_mut(offset..end)
-        .ok_or_else(|| "directory record exceeds block".to_string())?;
-    dst.fill(0);
-    dst[0..8].copy_from_slice(&inode.to_le_bytes());
-    dst[8..10].copy_from_slice(
-        &u16::try_from(record)
-            .map_err(|_| "directory record too large")?
-            .to_le_bytes(),
-    );
-    dst[10] = u8::try_from(name.len()).map_err(|_| "directory name too large")?;
-    dst[11] = file_type;
-    dst[16..16 + name.len()].copy_from_slice(name);
-    Ok(end)
-}
-
 fn root_directory_block() -> Result<[u8; BLOCK], String> {
     let mut block = [0u8; BLOCK];
-    let next = put_dir_record(&mut block, 0, 1, 2, b".")?;
-    let end = put_dir_record(&mut block, next, 1, 2, b"..")?;
-    if end != DIRECTORY_BYTES {
+    let mut offset = 0usize;
+    for (inode, file_type, name) in [(1, 2, "."), (1, 2, ".."), (2, 1, WELCOME_NAME)] {
+        let used = encode_dir_record(&mut block[offset..], inode, file_type, name)
+            .map_err(|e| format!("encode directory record: {e:?}"))?;
+        offset = offset
+            .checked_add(used)
+            .ok_or_else(|| "directory length overflow".to_string())?;
+    }
+    if offset != DIRECTORY_BYTES {
         return Err("unexpected root directory framing".into());
     }
     Ok(block)
@@ -176,58 +149,22 @@ fn root_directory_block() -> Result<[u8; BLOCK], String> {
 fn validate_root_directory(block: &[u8; BLOCK], size: u64) -> Result<(), String> {
     let size = usize::try_from(size).map_err(|_| "directory size overflow")?;
     if size != DIRECTORY_BYTES || size > block.len() {
-        return Err("base-v1 root directory must contain exactly dot and dot-dot".into());
+        return Err("base-v1 root directory shape is invalid".into());
     }
+    let expected = [(1u64, 2u8, "."), (1, 2, ".."), (2, 1, WELCOME_NAME)];
     let mut offset = 0usize;
-    let mut dot = false;
-    let mut dotdot = false;
-    while offset < size {
-        if !offset.is_multiple_of(8) || size - offset < 16 {
-            return Err("misaligned or truncated directory record".into());
+    for (inode, file_type, name) in expected {
+        let (entry, used) = parse_dir_record(&block[offset..size], TOTAL_INODES)
+            .map_err(|e| format!("directory record: {e:?}"))?;
+        if entry.inode != inode || entry.file_type != file_type || entry.name != name {
+            return Err("root directory entry identity/type/name mismatch".into());
         }
-        let inode = u64::from_le_bytes(
-            block[offset..offset + 8]
-                .try_into()
-                .map_err(|_| "truncated directory inode")?,
-        );
-        let record = usize::from(u16::from_le_bytes(
-            block[offset + 8..offset + 10]
-                .try_into()
-                .map_err(|_| "truncated directory record length")?,
-        ));
-        let name_len = usize::from(block[offset + 10]);
-        let file_type = block[offset + 11];
-        if record < 16
-            || !record.is_multiple_of(8)
-            || offset.checked_add(record).is_none_or(|end| end > size)
-            || 16usize
-                .checked_add(name_len)
-                .is_none_or(|used| used > record)
-            || block[offset + 12..offset + 16]
-                .iter()
-                .any(|&byte| byte != 0)
-        {
-            return Err("invalid directory record framing".into());
-        }
-        let name = &block[offset + 16..offset + 16 + name_len];
-        if inode != 1 || file_type != 2 {
-            return Err("root directory entry identity/type mismatch".into());
-        }
-        match name {
-            b"." if !dot => dot = true,
-            b".." if !dotdot => dotdot = true,
-            _ => return Err("unexpected or duplicate root directory entry".into()),
-        }
-        if block[offset + 16 + name_len..offset + record]
-            .iter()
-            .any(|&byte| byte != 0)
-        {
-            return Err("nonzero directory record padding".into());
-        }
-        offset += record;
+        offset = offset
+            .checked_add(used)
+            .ok_or_else(|| "directory offset overflow".to_string())?;
     }
-    if !dot || !dotdot {
-        return Err("missing dot or dot-dot root directory entry".into());
+    if offset != size {
+        return Err("unexpected trailing root directory records".into());
     }
     Ok(())
 }
@@ -268,9 +205,13 @@ fn layout(
         .start
         .checked_add(inode_table.blocks)
         .ok_or_else(|| "metadata geometry overflow".to_string())?;
-    if root_data >= total_blocks.saturating_sub(1) {
+    let welcome_data = root_data
+        .checked_add(1)
+        .ok_or_else(|| "data geometry overflow".to_string())?;
+    if welcome_data >= total_blocks.saturating_sub(1) {
         return Err("filesystem too small for base-v1 metadata".into());
     }
+    let _ = welcome_data;
     Ok((
         Superblock {
             minor: 0,
