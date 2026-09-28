@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn commands_use_retained_files_and_mounts() {
         let mut root = BootstrapRoot::new().unwrap();
-        let mut devices = DevFs;
+        let mut devices = DevFs::new();
         let mut files = bootstrap(&mut root, &mut devices).unwrap();
         let mut output = String::new();
         for command in [
@@ -151,7 +151,7 @@ mod tests {
         }
         assert_eq!(
             output,
-            "wrote 5 bytes (RAM)\nhello\nnull\nzero\npipe roundtrip\n"
+            "wrote 5 bytes (RAM)\nhello\nnull\nzero\ntty\npipe roundtrip\n"
         );
         output.clear();
         execute(&mut files, "rm /tmp/test/note", &mut output);
@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn command_failures_do_not_leak_descriptors_or_hang_on_zero() {
         let mut root = BootstrapRoot::new().unwrap();
-        let mut devices = DevFs;
+        let mut devices = DevFs::new();
         let mut files = bootstrap(&mut root, &mut devices).unwrap();
         for _ in 0..32 {
             let mut output = String::new();

@@ -520,7 +520,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         // ExitBootServices; input remains polled after timer IRQ enablement.
         let mut root =
             vibrix_kernel::vfs::console::BootstrapRoot::new().expect("bootstrap memory filesystem");
-        let mut devices = vibrix_kernel::vfs::devfs::DevFs;
+        let mut devices = vibrix_kernel::vfs::devfs::DevFs::new();
         let mut files = vibrix_kernel::vfs::console::bootstrap(&mut root, &mut devices)
             .expect("bootstrap filesystem mounts");
         struct FsOutput;
@@ -535,6 +535,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         debugcon::write("VIBRIX: kernel PS2 polling ready\r\n");
         crate::print!("vibrix> ");
         debugcon::write("VIBRIX: kernel console prompt ready\r\n");
+        let mut tty_input_seen = false;
         loop {
             // SAFETY: sole boot CPU; no interrupt handler consumes i8042 data.
             if let Some(scan) = unsafe { arch::x86_64::ps2::poll_scancode() }
@@ -542,6 +543,10 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             {
                 crate::println!("kernel PS2 ascii {}", ascii);
                 debugcon::write("VIBRIX: kernel PS2 ASCII accepted\r\n");
+                if files.device_input("/dev/tty", ascii).is_ok() && !tty_input_seen {
+                    tty_input_seen = true;
+                    debugcon::write("VIBRIX: kernel PS2 byte entered TTY\r\n");
+                }
                 match line.feed(ascii) {
                     console::Edit::Echo(ch) => crate::print!("{}", char::from(ch)),
                     console::Edit::Erase => {
@@ -550,6 +555,16 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                     }
                     console::Edit::Complete(bytes) => {
                         crate::println!();
+                        // The development console and /dev/tty observe the same
+                        // physical PS/2 stream. Drain the committed canonical
+                        // line here so repeated commands cannot fill the TTY.
+                        if let Ok(tty) =
+                            files.open("/dev/tty", vibrix_kernel::vfs::files::Open::READ)
+                        {
+                            let mut tty_line = [0u8; 128];
+                            let _ = files.read(tty, &mut tty_line);
+                            let _ = files.close(tty);
+                        }
                         match console::command(bytes) {
                             console::Command::Empty => {}
                             console::Command::Help => {
