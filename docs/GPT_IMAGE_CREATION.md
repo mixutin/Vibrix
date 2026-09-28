@@ -32,10 +32,13 @@ the eventual Vibrix kernel.
 - Primary GPT header at LBA 1 and a 128-entry × 128-byte array at LBA 2.
 - Partition 1: an **unformatted** 32 MiB EFI System Partition at a
   1 MiB-aligned offset, with the standard ESP GPT type GUID.
-- Partition 2: an **unformatted** generic Basic Data partition named
-  `Vibrix data (unformatted)`, starting at the next 1 MiB boundary and
-  ending on a 1 MiB boundary before backup metadata. Its generic GPT type
-  is **not** an adopted Vibrix on-disk root or filesystem specification.
+- Partition 2: an **unformatted** Vibrix System partition named
+  `Vibrix System`, starting at the next 1 MiB boundary and ending on a
+  1 MiB boundary before backup metadata. Its project-owned GPT type GUID is
+  `2e4a0f3b-6a3d-4e96-b99a-553d7c0b1201`. The type identifies the intended
+  removable Vibrix system/root partition only; it does not imply that the
+  partition is formatted, mountable, writable, or safe to select without the
+  disk/ESP/root unique-GUID identity checks in ADR 0005.
 - Identical backup entry array immediately before the reciprocal backup
   GPT header in the last block. Both headers and the 16 KiB entry arrays
   have separately calculated UEFI/GPT CRC-32 checksums.

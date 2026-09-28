@@ -15,9 +15,11 @@ const HEADER_BYTES: usize = 92;
 const ESP_TYPE: [u8; 16] = [
     0x28, 0x73, 0x2a, 0xc1, 0x1f, 0xf8, 0xd2, 0x11, 0xba, 0x4b, 0x00, 0xa0, 0xc9, 0x3e, 0xc9, 0x3b,
 ];
-// Standard generic GPT Basic Data type, NOT an adopted Vibrix filesystem type.
-const DATA_TYPE: [u8; 16] = [
-    0xa2, 0xa0, 0xd0, 0xeb, 0xe5, 0xb9, 0x33, 0x44, 0x87, 0xc0, 0x68, 0xb6, 0xb7, 0x26, 0x99, 0xc7,
+// Vibrix-owned GPT type for the removable system/root partition.
+// Text GUID: 2e4a0f3b-6a3d-4e96-b99a-553d7c0b1201.
+// GPT stores fields 1-3 little-endian on disk.
+const VIBRIX_SYSTEM_TYPE: [u8; 16] = [
+    0x3b, 0x0f, 0x4a, 0x2e, 0x3d, 0x6a, 0x96, 0x4e, 0xb9, 0x9a, 0x55, 0x3d, 0x7c, 0x0b, 0x12, 0x01,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -163,11 +165,11 @@ fn write_gpt(
     );
     write_partition(
         &mut entries[ENTRY_BYTES as usize..(2 * ENTRY_BYTES) as usize],
-        DATA_TYPE,
+        VIBRIX_SYSTEM_TYPE,
         data_guid,
         plan.data_first,
         plan.data_last,
-        "Vibrix data (unformatted)",
+        "Vibrix System",
     );
     let entries_crc = crc32(&entries);
 
@@ -258,7 +260,7 @@ fn main() {
         "Created NEW blank regular-file GPT image ({} MiB, {}-byte sectors): {}",
         size_mib, sector_size, args[1]
     );
-    println!("Partition 1: 32 MiB ESP placeholder; partition 2: generic data placeholder.");
+    println!("Partition 1: 32 MiB ESP placeholder; partition 2: Vibrix System (unformatted).");
     println!(
         "Neither partition is formatted; do not write this image directly to USB as an installer."
     );
