@@ -4,6 +4,7 @@ pub mod address;
 pub mod frames;
 mod map;
 mod protect;
+mod region;
 mod unmap;
 pub mod walk;
 
