@@ -111,6 +111,74 @@ fn matches_rule(identity: DeviceIdentity, rule: MatchRule) -> bool {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Binding {
+    pub identity: DeviceIdentity,
+    pub driver: DriverKind,
+    pub driver_name: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BindError {
+    NoDriver,
+    AlreadyBound,
+    Full,
+}
+
+pub const MAX_EARLY_BINDINGS: usize = 16;
+
+pub struct Binder {
+    bindings: [Option<Binding>; MAX_EARLY_BINDINGS],
+    used: usize,
+}
+
+impl Binder {
+    pub const fn new() -> Self {
+        Self {
+            bindings: [None; MAX_EARLY_BINDINGS],
+            used: 0,
+        }
+    }
+
+    pub fn bind_identity(&mut self, identity: DeviceIdentity) -> Result<Binding, BindError> {
+        let candidate = candidate(identity).ok_or(BindError::NoDriver)?;
+        self.bind(candidate)
+    }
+
+    pub fn bind(&mut self, candidate: Candidate) -> Result<Binding, BindError> {
+        if self.bindings[..self.used]
+            .iter()
+            .flatten()
+            .any(|binding| binding.identity == candidate.identity)
+        {
+            return Err(BindError::AlreadyBound);
+        }
+        if self.used == self.bindings.len() {
+            return Err(BindError::Full);
+        }
+        let binding = Binding {
+            identity: candidate.identity,
+            driver: candidate.driver,
+            driver_name: candidate.driver_name,
+        };
+        self.bindings[self.used] = Some(binding);
+        self.used += 1;
+        Ok(binding)
+    }
+
+    pub fn len(&self) -> usize {
+        self.used
+    }
+
+    pub fn count_driver(&self, driver: DriverKind) -> usize {
+        self.bindings[..self.used]
+            .iter()
+            .flatten()
+            .filter(|binding| binding.driver == driver)
+            .count()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DiscoverySummary {
     pub devices: u32,
@@ -211,6 +279,63 @@ mod tests {
                 xhci_candidates: 1,
                 rtl8168_candidates: 1,
             }
+        );
+    }
+
+    #[test]
+    fn binder_establishes_exclusive_device_to_driver_ownership() {
+        let identity = pci(0x1022, 0x43ee, 0x0c, 0x03, 0x30);
+        let mut binder = Binder::new();
+        let binding = binder.bind_identity(identity).unwrap();
+        assert_eq!(binding.driver, DriverKind::Xhci);
+        assert_eq!(binding.identity, identity);
+        assert_eq!(binder.len(), 1);
+        assert_eq!(binder.count_driver(DriverKind::Xhci), 1);
+        assert_eq!(
+            binder.bind_identity(identity),
+            Err(BindError::AlreadyBound)
+        );
+    }
+
+    #[test]
+    fn binder_rejects_unknown_devices_and_capacity_overflow() {
+        let mut binder = Binder::new();
+        assert_eq!(
+            binder.bind_identity(pci(0x1af4, 0x1000, 0x02, 0, 0)),
+            Err(BindError::NoDriver)
+        );
+        for function in 0..MAX_EARLY_BINDINGS {
+            let identity = DeviceIdentity::Pci(PciIdentity {
+                address: PciAddress {
+                    segment: 0,
+                    bus: 0,
+                    device: (function / 8) as u8,
+                    function: (function % 8) as u8,
+                },
+                vendor: 0x1234,
+                device_id: function as u16,
+                class: 0x0c,
+                subclass: 0x03,
+                programming_interface: 0x30,
+            });
+            binder.bind_identity(identity).unwrap();
+        }
+        assert_eq!(binder.len(), MAX_EARLY_BINDINGS);
+        assert_eq!(
+            binder.bind_identity(DeviceIdentity::Pci(PciIdentity {
+                address: PciAddress {
+                    segment: 0,
+                    bus: 0,
+                    device: 3,
+                    function: 0,
+                },
+                vendor: 0x1234,
+                device_id: 0xffff,
+                class: 0x0c,
+                subclass: 0x03,
+                programming_interface: 0x30,
+            })),
+            Err(BindError::Full)
         );
     }
 
