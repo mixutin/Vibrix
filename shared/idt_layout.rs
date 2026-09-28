@@ -7,6 +7,7 @@ pub const VECTOR_DOUBLE_FAULT: usize = 8;
 pub const VECTOR_GENERAL_PROTECTION: usize = 13;
 pub const VECTOR_PAGE_FAULT: usize = 14;
 pub const PRESENT_INTERRUPT_GATE: u8 = 0x8e;
+pub const PRESENT_USER_INTERRUPT_GATE: u8 = 0xee;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -37,6 +38,20 @@ impl IdtGate {
             selector: code_selector,
             ist: 0, // No configured TSS IST stack yet.
             options: PRESENT_INTERRUPT_GATE,
+            offset_mid: (handler >> 16) as u16,
+            offset_high: (handler >> 32) as u32,
+            reserved: 0,
+        }
+    }
+
+    /// Interrupt gate callable from CPL3. This changes only the descriptor's
+    /// DPL; the handler still enters the ring-0 code selector with IST=0.
+    pub const fn user_interrupt(handler: u64, code_selector: u16) -> Self {
+        Self {
+            offset_low: handler as u16,
+            selector: code_selector,
+            ist: 0,
+            options: PRESENT_USER_INTERRUPT_GATE,
             offset_mid: (handler >> 16) as u16,
             offset_high: (handler >> 32) as u32,
             reserved: 0,
@@ -114,6 +129,16 @@ mod tests {
         assert_eq!(gate.options, PRESENT_INTERRUPT_GATE);
         assert_eq!(gate.reserved, 0);
         assert_eq!(IdtGate::MISSING.options, 0);
+    }
+
+    #[test]
+    fn user_interrupt_gate_is_present_dpl3_and_uses_kernel_selector() {
+        let gate = IdtGate::user_interrupt(0xffff_ffff_8000_4567, 0x08);
+        assert_eq!(gate.options, PRESENT_USER_INTERRUPT_GATE);
+        assert_eq!(gate.options >> 5 & 0x3, 3);
+        assert_eq!(gate.selector, 0x08);
+        assert_eq!(gate.ist, 0);
+        assert_eq!(gate.handler_address(), 0xffff_ffff_8000_4567);
     }
 
     #[test]

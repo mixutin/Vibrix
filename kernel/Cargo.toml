@@ -21,6 +21,7 @@ managed-nx-probe = []
 pci-irq-probe = ["qemu-debugcon"]
 pci-msix-probe = ["qemu-debugcon"]
 preempt-thread-probe = ["qemu-debugcon"]
+ring3-probe = ["qemu-debugcon"]
 
 [dependencies]
 vibrix-vmm = { path = "../shared/vmm", version = "=0.0.1" }

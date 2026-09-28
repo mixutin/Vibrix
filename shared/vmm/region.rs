@@ -8,6 +8,25 @@ impl<M: Memory, const N: usize> Vm<M, N> {
     /// this operation's prefix; unrelated existing mappings remain unchanged.
     /// Backend faults are fail-stop and are not recoverable transaction errors.
     pub fn map_region(&mut self, range: PageRange, permissions: Permissions) -> Result<(), Error> {
+        self.map_region_with_privilege(range, permissions, false)
+    }
+
+    /// Map an entirely absent user-accessible range inside the VM's already
+    /// owned arena. This does not create or widen an address space.
+    pub fn map_user_region(
+        &mut self,
+        range: PageRange,
+        permissions: Permissions,
+    ) -> Result<(), Error> {
+        self.map_region_with_privilege(range, permissions, true)
+    }
+
+    fn map_region_with_privilege(
+        &mut self,
+        range: PageRange,
+        permissions: Permissions,
+        user: bool,
+    ) -> Result<(), Error> {
         for index in 0..range.count() {
             let page = range.page(index).ok_or(Error::InvalidRange)?;
             if self.query(page)?.is_some() {
@@ -16,7 +35,12 @@ impl<M: Memory, const N: usize> Vm<M, N> {
         }
         for index in 0..range.count() {
             let page = range.page(index).ok_or(Error::InvalidRange)?;
-            if let Err(error) = self.map_zeroed(page, permissions) {
+            let mapped = if user {
+                self.map_user_zeroed(page, permissions)
+            } else {
+                self.map_zeroed(page, permissions)
+            };
+            if let Err(error) = mapped {
                 for prior in (0..index).rev() {
                     let mapped = range.page(prior).expect("validated region index");
                     self.unmap(mapped)
@@ -69,6 +93,19 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn user_region_keeps_all_payload_leaves_user_accessible() {
+        let mut vm = vm::<12>(12);
+        let range = PageRange::new(Page::new(ARENA_BASE).unwrap(), 3).unwrap();
+        vm.map_user_region(range, Permissions::ReadWrite).unwrap();
+        for index in 0..range.count() {
+            let translation = vm.query(range.page(index).unwrap()).unwrap().unwrap();
+            assert_eq!(translation.privilege, crate::vmm::address::Privilege::User);
+        }
+        vm.unmap_region(range).unwrap();
+        assert_eq!(vm.free_frames(), 12);
     }
 
     #[test]

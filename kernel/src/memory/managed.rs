@@ -5,6 +5,8 @@ use crate::BootInfo;
 use core::arch::{asm, x86_64::__cpuid_count};
 use core::cell::UnsafeCell;
 use vibrix_vmm::address::{ARENA_BASE, ARENA_SLOT, Page, PageRange, Permissions, PhysicalFrame};
+#[cfg(feature = "ring3-probe")]
+use vibrix_vmm::address::{PAGE_BYTES, Privilege};
 use vibrix_vmm::frames::Frames;
 use vibrix_vmm::walk::ADDRESS_MASK;
 use vibrix_vmm::{Error, GuardedId, GuardedLayout, GuardedVm, Memory, Translation, Vm};
@@ -359,6 +361,67 @@ pub fn runtime_release(allocation: RuntimeAllocation) -> Result<(), RuntimeError
 pub fn runtime_query(address: u64) -> Result<Option<Translation>, RuntimeError> {
     let page = Page::new(address)?;
     with_runtime(|vm| vm.query(page))
+}
+
+#[cfg(feature = "ring3-probe")]
+pub fn prepare_ring3_probe() -> Result<(u64, u64), RuntimeError> {
+    const CODE_GUARD: u64 = ARENA_BASE + 8 * PAGE_BYTES;
+    const STACK_GUARD: u64 = ARENA_BASE + 12 * PAGE_BYTES;
+    const USER_CODE: [u8; 4] = [0xcd, 0x80, 0x0f, 0x0b]; // int 0x80; ud2
+
+    with_runtime(|vm| {
+        let code_layout = GuardedLayout::new(Page::new(CODE_GUARD)?, 1)?;
+        let stack_layout = GuardedLayout::new(Page::new(STACK_GUARD)?, 1)?;
+        let code_id = vm.allocate_user(code_layout)?;
+        let stack_id = match vm.allocate_user(stack_layout) {
+            Ok(id) => id,
+            Err(error) => {
+                vm.release(code_id)
+                    .expect("ring3 rollback owns code allocation");
+                return Err(error);
+            }
+        };
+
+        let result = (|| {
+            let code_page = code_layout.payload().page(0).ok_or(Error::InvalidRange)?;
+            let stack_page = stack_layout.payload().page(0).ok_or(Error::InvalidRange)?;
+            // SAFETY: code_page is a live, exclusively owned RW user mapping.
+            // Volatile byte stores finish before protection changes to RX.
+            unsafe {
+                for (index, byte) in USER_CODE.iter().copied().enumerate() {
+                    (code_page.address() as *mut u8)
+                        .add(index)
+                        .write_volatile(byte);
+                }
+            }
+            let previous = vm.protect(code_id, 0, Permissions::ReadExecute)?;
+            if previous.privilege != Privilege::User
+                || previous.permissions != Permissions::ReadWrite
+            {
+                return Err(Error::CorruptEntry);
+            }
+            let code = vm.query(code_page)?.ok_or(Error::NotMapped)?;
+            let stack = vm.query(stack_page)?.ok_or(Error::NotMapped)?;
+            if code.privilege != Privilege::User
+                || code.permissions != Permissions::ReadExecute
+                || stack.privilege != Privilege::User
+                || stack.permissions != Permissions::ReadWrite
+            {
+                return Err(Error::CorruptEntry);
+            }
+            Ok((code_page.address(), stack_layout.payload_end()))
+        })();
+
+        if result.is_err() {
+            vm.release(stack_id)
+                .expect("ring3 rollback owns stack allocation");
+            vm.release(code_id)
+                .expect("ring3 rollback owns code allocation");
+        }
+        // On success both allocations deliberately remain live: IRETQ consumes
+        // their virtual addresses and the diagnostic trap never returns.
+        result
+    })
 }
 
 pub fn runtime_smoke_test() -> Result<(), RuntimeError> {

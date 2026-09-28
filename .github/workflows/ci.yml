@@ -409,6 +409,13 @@ jobs:
           grep -Fq "VIBRIX: kernel page fault diagnostic" build/qemu/debugcon.log
           grep -Fq "kernel #PF cr2=0x10000000000" build/qemu/serial.log
           grep -Fq "present=false write=false user=false reserved=false exec=false" build/qemu/serial.log
+      - name: QEMU real CPL3 entry and TSS RSP0 trap proof
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,ring3-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel CPL3 mappings ready" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel CPL3 trap reached via TSS RSP0" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel ring3 probe: cs=0x1b ss=0x23 "
       - name: QEMU supervisor write-protection fault
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,vm-write-probe bash tools/build-qemu.sh

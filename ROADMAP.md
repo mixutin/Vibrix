@@ -364,7 +364,7 @@ the first real userspace CLI.
 - [x] Kernel threads
 - [x] Context switching
 - [x] Preemptive scheduler
-- [ ] Ring 3 userspace
+- [x] Ring 3 userspace
 - [ ] Userspace address spaces
 - [ ] Vibrix syscall ABI v1
 - [ ] syscall/sysret
@@ -407,6 +407,22 @@ This completes the **single-BSP kernel preemptive scheduler** item only. Threads
 still share one kernel CR3 and there are no priorities, sleep/wakeup queues,
 SMP run queues, FPU/XSAVE ownership, Ring 3, userspace address spaces, syscall
 ABI or process lifecycle yet.
+
+**Verified M5 bounded Ring 3 entry and kernel-stack return (PR #125):**
+[Actions run 36449700126](https://github.com/mixutin/Vibrix/actions/runs/36449700126)
+passed the full repository CI on implementation head `a30ba8ad4c71373c8adb1a1b86d6f4900ff4fb31`,
+including a dedicated real-QEMU CPL3 proof. The kernel creates guarded user RW
+mappings, writes a fixed `int 0x80; ud2` probe, changes the code page to RX,
+enters CPL3 with CS=`0x1b` and SS=`0x23` through an `IRETQ` frame, then
+takes the DPL3 diagnostic interrupt gate back to CPL0 on the dedicated TSS RSP0
+stack. QEMU requires independent debugcon and COM1 markers proving the user
+selectors and RSP0 trap path.
+
+This checks the bounded **Ring 3 userspace execution foundation** only. The
+probe still shares the kernel CR3 and managed VM arena; userspace address
+spaces, Vibrix syscall ABI, `syscall/sysret`, copy-in/out, process lifecycle,
+normal return-to-user scheduling, SMP and Target 001 remain separate unchecked
+work.
 
 **Exit:** PID 1 executes in userspace and makes Vibrix syscalls.
 
