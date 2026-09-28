@@ -497,7 +497,6 @@ fn validate_inode(inode: &Inode, fs: &Superblock) -> Result<(), Error> {
     Ok(())
 }
 
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DirEntry<'a> {
     pub inode: u64,
@@ -524,7 +523,10 @@ pub fn encode_dir_record(
         return Err(Error::Directory);
     }
     let used = 16usize.checked_add(bytes.len()).ok_or(Error::Directory)?;
-    let record = used.checked_add(7).map(|n| n & !7).ok_or(Error::Directory)?;
+    let record = used
+        .checked_add(7)
+        .map(|n| n & !7)
+        .ok_or(Error::Directory)?;
     let out = dst.get_mut(..record).ok_or(Error::Truncated)?;
     out.fill(0);
     out[..8].copy_from_slice(&inode.to_le_bytes());
@@ -555,7 +557,9 @@ pub fn parse_dir_record(data: &[u8], max_inode: u64) -> Result<(DirEntry<'_>, us
         || record < 16
         || !record.is_multiple_of(8)
         || record > data.len()
-        || 16usize.checked_add(name_len).is_none_or(|used| used > record)
+        || 16usize
+            .checked_add(name_len)
+            .is_none_or(|used| used > record)
         || data[12..16].iter().any(|&byte| byte != 0)
     {
         return Err(Error::Directory);
@@ -802,9 +806,18 @@ mod tests {
     #[test]
     fn directory_record_rejects_bad_names_bounds_types_and_padding() {
         let mut buf = [0u8; 64];
-        assert_eq!(encode_dir_record(&mut buf, 0, 1, "x"), Err(Error::Directory));
-        assert_eq!(encode_dir_record(&mut buf, 1, 9, "x"), Err(Error::Directory));
-        assert_eq!(encode_dir_record(&mut buf, 1, 1, "a/b"), Err(Error::Directory));
+        assert_eq!(
+            encode_dir_record(&mut buf, 0, 1, "x"),
+            Err(Error::Directory)
+        );
+        assert_eq!(
+            encode_dir_record(&mut buf, 1, 9, "x"),
+            Err(Error::Directory)
+        );
+        assert_eq!(
+            encode_dir_record(&mut buf, 1, 1, "a/b"),
+            Err(Error::Directory)
+        );
         assert_eq!(encode_dir_record(&mut buf, 1, 1, ""), Err(Error::Directory));
 
         let used = encode_dir_record(&mut buf, 2, 1, "ok").unwrap();
@@ -820,5 +833,4 @@ mod tests {
         buf[used - 1] = 1;
         assert_eq!(parse_dir_record(&buf[..used], 1024), Err(Error::Directory));
     }
-
 }
