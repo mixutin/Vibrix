@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn explicit_slot_rejects_pages_from_other_domains() {
-        use super::super::address::{USER_SLOT, Page};
+        use super::super::address::{Page, USER_SLOT};
         let (memory, frames) = memory_and_frames::<8>(8);
         let mut vm = Vm::new_in_slot(ROOT, memory, frames, USER_SLOT).unwrap();
         let user = Page::new_user(0x4000_0000).unwrap();
