@@ -159,6 +159,9 @@ jobs:
       - name: Test production PID/process lifecycle on host
         run: |
           cargo test --locked --package vibrix-kernel --lib process::
+      - name: Test process-facing syscall wait/exit policy
+        run: |
+          cargo test --locked --package vibrix-kernel --lib process_syscalls::
       - name: Test safe GPT image creation and inspect both copies
         run: |
           rustfmt --edition 2024 --check tools/create-usb-image.rs
