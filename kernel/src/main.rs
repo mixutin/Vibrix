@@ -300,8 +300,9 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     #[cfg(feature = "panic-probe")]
     panic!("VIBRIX: kernel panic probe");
 
-    #[cfg(not(feature = "panic-probe"))]
-    {
+    // Compile the IRQ path in every feature combination so all-feature
+    // Clippy validates it. Feature-probe binaries take the false branch and
+    // preserve IF=0; only the ordinary development kernel activates the PIT.
         // The default interactive QEMU kernel activates the validated timer
         // route only after all temporary mapping-window users and fault probes.
         // Feature-probe kernels preserve the historical IF=0 environment.
@@ -354,6 +355,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             debugcon::write("VIBRIX: kernel timer IRQ delivered\r\n");
         }
 
+    #[cfg(not(feature = "panic-probe"))]
+    {
         // Development QEMU keyboard: read only legacy i8042 ports after
         // ExitBootServices; IRQs remain disabled and no USB HID is implied.
         let mut ps2 = arch::x86_64::ps2::SetOne::new();
