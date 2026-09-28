@@ -448,13 +448,22 @@ mod tests {
         assert_eq!(format_guid(&raw), "12345678-9abc-def0-1122-334455667788");
     }
 
-    fn add_second_partition(image: &mut [u8], sector_size: usize, guid: [u8; 16]) {
+    fn add_second_partition_with_type(
+        image: &mut [u8],
+        sector_size: usize,
+        type_guid: [u8; 16],
+        guid: [u8; 16],
+    ) {
         let second = sector_size * 2 + 128;
-        image[second..second + 16].copy_from_slice(&[0x43; 16]);
+        image[second..second + 16].copy_from_slice(&type_guid);
         image[second + 16..second + 32].copy_from_slice(&guid);
         image[second + 32..second + 40].copy_from_slice(&72u64.to_le_bytes());
         image[second + 40..second + 48].copy_from_slice(&82u64.to_le_bytes());
         reset_checksums(image, sector_size);
+    }
+
+    fn add_second_partition(image: &mut [u8], sector_size: usize, guid: [u8; 16]) {
+        add_second_partition_with_type(image, sector_size, [0x43; 16], guid);
     }
 
     #[test]
@@ -473,6 +482,27 @@ mod tests {
             assert_eq!(
                 report.partition_guids,
                 vec![(1, [0x42; 16]), (2, [0x43; 16])]
+            );
+        }
+    }
+
+    #[test]
+    fn recognizes_dedicated_vibrix_system_partition_type() {
+        for sector_size in [512usize, 4096] {
+            let mut image = synthetic_gpt(sector_size);
+            add_second_partition_with_type(
+                &mut image,
+                sector_size,
+                VIBRIX_SYSTEM_TYPE_GUID,
+                [0x43; 16],
+            );
+            let report = check(image, sector_size as u64).unwrap();
+            assert_eq!(report.partitions, 2);
+            assert_eq!(report.efi_system_partitions, 1);
+            assert_eq!(report.vibrix_system_partitions, 1);
+            assert_eq!(
+                format_guid(&VIBRIX_SYSTEM_TYPE_GUID),
+                "2e4a0f3b-6a3d-4e96-b99a-553d7c0b1201"
             );
         }
     }
