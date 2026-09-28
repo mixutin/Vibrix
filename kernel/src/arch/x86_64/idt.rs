@@ -99,8 +99,11 @@ pub unsafe fn init() {
 extern "x86-interrupt" fn timer_handler(_frame: InterruptStackFrame) {
     crate::arch::x86_64::irq::record_timer_tick();
     // SAFETY: the timer vector is unmasked only after activate_pit_timer()
-    // permanently maps the LAPIC page on this sole BSP.
+    // permanently maps the LAPIC page on this sole BSP. EOI happens before
+    // any scheduler stack switch so the suspended handler owns no live LAPIC
+    // in-service state while another kernel thread executes.
     unsafe { crate::arch::x86_64::apic::eoi() };
+    crate::thread::on_timer_interrupt();
 }
 
 #[cfg(all(feature = "pci-irq-probe", not(feature = "panic-probe")))]
