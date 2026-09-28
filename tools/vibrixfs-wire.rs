@@ -11,6 +11,7 @@ const MAX_BLOCKS: u64 = 1u64 << 48;
 const MAGIC: &[u8; 8] = b"VIBRIXFS";
 const MAJOR: u16 = 1;
 const CLEAN: u32 = 1;
+const INCOMPAT_JOURNAL: u32 = 1;
 const INODE_EXTENTS: usize = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,6 +48,7 @@ pub struct Superblock {
     pub block_bitmap: Range,
     pub inode_bitmap: Range,
     pub inode_table: Range,
+    pub journal: Option<Range>,
     pub filesystem_uuid: [u8; 16],
     pub root_partition_guid: [u8; 16],
 }
@@ -198,6 +200,14 @@ fn validate_superblock(
             return Err(Error::Geometry);
         }
     }
+    if let Some(journal) = info.journal {
+        if journal.blocks < 3
+            || !journal.valid_metadata(info.total_blocks)
+            || regions.iter().any(|region| journal.overlaps(*region))
+        {
+            return Err(Error::Geometry);
+        }
+    }
     let bits_per_block = (BLOCK as u64) * 8;
     if info
         .block_bitmap
@@ -249,8 +259,11 @@ pub fn encode_superblock(
     out[80..88].copy_from_slice(&info.inode_table.start.to_le_bytes());
     out[88..96].copy_from_slice(&info.inode_table.blocks.to_le_bytes());
     out[96..104].copy_from_slice(&1u64.to_le_bytes());
-    // 104..120 journal fields remain zero in base v1.
-    // 124..136 feature words remain zero in base v1.
+    if let Some(journal) = info.journal {
+        out[104..112].copy_from_slice(&journal.start.to_le_bytes());
+        out[112..120].copy_from_slice(&journal.blocks.to_le_bytes());
+        out[132..136].copy_from_slice(&INCOMPAT_JOURNAL.to_le_bytes());
+    }
     out[136..152].copy_from_slice(&info.filesystem_uuid);
     out[152..168].copy_from_slice(&info.root_partition_guid);
     let checksum = block_crc(&out, 120..124);
@@ -281,12 +294,23 @@ pub fn parse_superblock(
     if flags & !CLEAN != 0 {
         return Err(Error::Reserved);
     }
-    if u64_at(block, 96)? != 1 || u64_at(block, 104)? != 0 || u64_at(block, 112)? != 0 {
+    if u64_at(block, 96)? != 1 {
         return Err(Error::Layout);
     }
-    if u32_at(block, 124)? != 0 || u32_at(block, 128)? != 0 || u32_at(block, 132)? != 0 {
+    if u32_at(block, 124)? != 0 || u32_at(block, 128)? != 0 {
         return Err(Error::Features);
     }
+    let incompat = u32_at(block, 132)?;
+    if incompat & !INCOMPAT_JOURNAL != 0 {
+        return Err(Error::Features);
+    }
+    let journal_start = u64_at(block, 104)?;
+    let journal_blocks = u64_at(block, 112)?;
+    let journal = match (incompat & INCOMPAT_JOURNAL != 0, journal_start, journal_blocks) {
+        (false, 0, 0) => None,
+        (true, start, blocks) if start != 0 && blocks != 0 => Some(Range { start, blocks }),
+        _ => return Err(Error::Layout),
+    };
     if block[168..].iter().any(|&byte| byte != 0) {
         return Err(Error::Reserved);
     }
@@ -315,6 +339,7 @@ pub fn parse_superblock(
             start: u64_at(block, 80)?,
             blocks: u64_at(block, 88)?,
         },
+        journal,
         filesystem_uuid,
         root_partition_guid,
     };
@@ -329,6 +354,7 @@ pub fn immutable_superblock_fields_match(a: &Superblock, b: &Superblock) -> bool
         && a.block_bitmap == b.block_bitmap
         && a.inode_bitmap == b.inode_bitmap
         && a.inode_table == b.inode_table
+        && a.journal == b.journal
         && a.filesystem_uuid == b.filesystem_uuid
         && a.root_partition_guid == b.root_partition_guid
 }
@@ -471,7 +497,10 @@ fn validate_inode(inode: &Inode, fs: &Superblock) -> Result<(), Error> {
         let Some(end) = range.end() else {
             return Err(Error::Extent);
         };
-        if end >= fs.total_blocks || metadata.iter().any(|m| range.overlaps(*m)) {
+        if end >= fs.total_blocks
+            || metadata.iter().any(|m| range.overlaps(*m))
+            || fs.journal.is_some_and(|journal| range.overlaps(journal))
+        {
             return Err(Error::Extent);
         }
         if index > 0 {
@@ -612,6 +641,7 @@ mod tests {
                 start: 3,
                 blocks: 64,
             },
+            journal: None,
             filesystem_uuid: [0x11; 16],
             root_partition_guid: ROOT_GUID,
         }
@@ -663,10 +693,34 @@ mod tests {
         assert_eq!(&bytes[16..20], &4096u32.to_le_bytes());
         assert_eq!(&bytes[32..40], &8192u64.to_le_bytes());
         assert_eq!(&bytes[96..104], &1u64.to_le_bytes());
+        assert_eq!(&bytes[104..120], &[0u8; 16]);
+        assert_eq!(&bytes[132..136], &0u32.to_le_bytes());
         assert_eq!(&bytes[136..152], &[0x11; 16]);
         assert_eq!(&bytes[152..168], &ROOT_GUID);
         assert_ne!(u32_at(&bytes, 120).unwrap(), 0);
         assert_eq!(parse_superblock(&bytes, 8192, &ROOT_GUID), Ok(sb));
+    }
+
+    #[test]
+    fn journal_feature_round_trips_and_reserves_its_geometry() {
+        let mut sb = sample_superblock();
+        sb.journal = Some(Range {
+            start: 67,
+            blocks: 66,
+        });
+        let bytes = encode_superblock(&sb, 8192, &ROOT_GUID).unwrap();
+        assert_eq!(&bytes[104..112], &67u64.to_le_bytes());
+        assert_eq!(&bytes[112..120], &66u64.to_le_bytes());
+        assert_eq!(&bytes[132..136], &INCOMPAT_JOURNAL.to_le_bytes());
+        assert_eq!(parse_superblock(&bytes, 8192, &ROOT_GUID), Ok(sb));
+
+        let mut inode = sample_inode();
+        inode.extents[0] = Extent {
+            start: 80,
+            blocks: 1,
+        };
+        inode.allocated_blocks = 1;
+        assert_eq!(encode_inode(&inode, &sb), Err(Error::Extent));
     }
 
     #[test]
