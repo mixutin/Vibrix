@@ -44,12 +44,6 @@ pub struct RuntimeAllocation {
     layout: GuardedLayout,
 }
 
-impl RuntimeAllocation {
-    pub const fn layout(self) -> GuardedLayout {
-        self.layout
-    }
-}
-
 /// Private: cannot escape the early validation routine or outlive IF=0.
 /// Scratch mappings and active arena mappings use the same WB memory type.
 /// All memory access is bounded volatile raw access; no Rust reference escapes.
@@ -140,7 +134,10 @@ impl Memory for RuntimeMemory {
         // SAFETY: every operation is wrapped by the single-BSP interrupt mask;
         // slot 511 is exclusively reserved for this backend after APIC setup.
         unsafe {
-            let address = self.window.map(frame, false).expect("runtime VM scratch map");
+            let address = self
+                .window
+                .map(frame, false)
+                .expect("runtime VM scratch map");
             let entry = (address as *const u64).add(index).read_volatile();
             self.window.unmap().expect("runtime VM scratch unmap");
             entry
@@ -152,7 +149,10 @@ impl Memory for RuntimeMemory {
         // SAFETY: same exclusive scratch slot; aligned entry publication
         // completes before the local invalidation performed by SlotWindow.
         unsafe {
-            let address = self.window.map(frame, true).expect("runtime VM scratch map");
+            let address = self
+                .window
+                .map(frame, true)
+                .expect("runtime VM scratch map");
             (address as *mut u64).add(index).write_volatile(value);
             self.window.unmap().expect("runtime VM scratch unmap");
         }
@@ -166,7 +166,10 @@ impl Memory for RuntimeMemory {
         // SAFETY: frame belongs to this retained pool and is unpublished while
         // zeroed. No raw access escapes the temporary scratch mapping.
         unsafe {
-            let address = self.window.map(frame, true).expect("runtime VM zero scratch");
+            let address = self
+                .window
+                .map(frame, true)
+                .expect("runtime VM zero scratch");
             for index in 0..512 {
                 (address as *mut u64).add(index).write_volatile(0);
             }
@@ -175,15 +178,17 @@ impl Memory for RuntimeMemory {
     }
 
     fn invalidate(&mut self, address: u64) {
-        assert!(Page::new(address).is_ok(), "foreign runtime VM invalidation");
+        assert!(
+            Page::new(address).is_ok(),
+            "foreign runtime VM invalidation"
+        );
         // SAFETY: one BSP only. Runtime mutation masks interrupts, so no local
         // preemption can observe a partially changed hierarchy.
         unsafe { asm!("invlpg [{}]", in(reg) address, options(nostack, preserves_flags)) };
     }
 }
 
-type KernelRuntimeVm =
-    GuardedVm<RuntimeMemory, RUNTIME_POOL_FRAMES, RUNTIME_GUARDED_SLOTS>;
+type KernelRuntimeVm = GuardedVm<RuntimeMemory, RUNTIME_POOL_FRAMES, RUNTIME_GUARDED_SLOTS>;
 
 struct RuntimeState(UnsafeCell<Option<KernelRuntimeVm>>);
 
@@ -290,9 +295,7 @@ unsafe fn cpu_configuration() -> Result<(u64, u8), Error> {
 /// # Safety
 /// Sole BSP with IF=0; the global early allocator has been initialized and no
 /// other caller may claim frames concurrently.
-unsafe fn reserve_pool<const N: usize>(
-    bits: u8,
-) -> Result<(Frames<N>, [u64; N]), Error> {
+unsafe fn reserve_pool<const N: usize>(bits: u8) -> Result<(Frames<N>, [u64; N]), Error> {
     let mut frames = Frames::<N>::new(bits)?;
     let mut reserved = [0; N];
     for slot in &mut reserved {
@@ -365,7 +368,9 @@ pub fn runtime_smoke_test() -> Result<(), RuntimeError> {
     let allocation = runtime_allocate(ARENA_BASE, 2)?;
     let payload = allocation.layout.payload();
     for index in 0..payload.count() {
-        let page = payload.page(index).ok_or(RuntimeError::Vm(Error::InvalidRange))?;
+        let page = payload
+            .page(index)
+            .ok_or(RuntimeError::Vm(Error::InvalidRange))?;
         // SAFETY: runtime allocation keeps this RW page mapped and exclusively
         // owned until release below; all volatile accesses finish beforehand.
         unsafe {
@@ -381,7 +386,9 @@ pub fn runtime_smoke_test() -> Result<(), RuntimeError> {
     }
 
     for index in 0..payload.count() {
-        let page = payload.page(index).ok_or(RuntimeError::Vm(Error::InvalidRange))?;
+        let page = payload
+            .page(index)
+            .ok_or(RuntimeError::Vm(Error::InvalidRange))?;
         // SAFETY: mapping remained live across the timer interrupt.
         unsafe { check(page, Some(0xa11c_0000 + index as u64))? };
     }
