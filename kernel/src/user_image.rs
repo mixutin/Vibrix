@@ -5,6 +5,7 @@
 //! W^X, bounded segment count/footprint, full validation before sink mutation,
 //! BSS zeroing, and sink abort on a backend failure.
 
+#[allow(dead_code)]
 #[path = "../../shared/elf.rs"]
 mod elf;
 
