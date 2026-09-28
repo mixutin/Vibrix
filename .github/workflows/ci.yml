@@ -112,6 +112,12 @@ jobs:
           rustc --edition=2024 -D warnings --test tools/vibrixfs-wire.rs -o "$RUNNER_TEMP/vibrixfs-wire-tests"
           "$RUNNER_TEMP/vibrixfs-wire-tests"
 
+      - name: Test VibrixFS redo-journal wire validation on host
+        run: |
+          rustfmt --edition 2024 --check tools/vibrixfs-journal.rs
+          rustc --edition=2024 -D warnings --test tools/vibrixfs-journal.rs -o "$RUNNER_TEMP/vibrixfs-journal-tests"
+          "$RUNNER_TEMP/vibrixfs-journal-tests"
+
       - name: Test VibrixFS regular-file format and inspect round trip
         run: |
           rustfmt --edition 2024 --check tools/vibrixfs-image.rs
