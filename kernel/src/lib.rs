@@ -7,6 +7,7 @@ pub mod block;
 pub mod config_policy;
 pub mod cpu_topology;
 pub mod nic;
+pub mod update_policy;
 
 /// QEMU-only caller supplies the real kernel's independent output paths.
 /// A marker is emitted only after the corresponding behavior succeeds.
@@ -17,4 +18,6 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel NIC abstraction verified");
     config_policy::self_test().expect("portable configuration policy self-test failed");
     report("VIBRIX: kernel portable configuration policy verified");
+    update_policy::self_test().expect("update policy model self-test failed");
+    report("VIBRIX: kernel update policy model verified");
 }
