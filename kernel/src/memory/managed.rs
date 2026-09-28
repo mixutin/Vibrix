@@ -5,7 +5,7 @@ use crate::BootInfo;
 use core::arch::{asm, x86_64::__cpuid_count};
 use core::cell::UnsafeCell;
 use vibrix_vmm::address::{ARENA_BASE, ARENA_SLOT, Page, PageRange, Permissions, PhysicalFrame};
-#[cfg(feature = "ring3-probe")]
+#[cfg(all(feature = "ring3-probe", not(feature = "address-space-probe")))]
 use vibrix_vmm::address::{PAGE_BYTES, Privilege};
 use vibrix_vmm::frames::Frames;
 use vibrix_vmm::walk::ADDRESS_MASK;
