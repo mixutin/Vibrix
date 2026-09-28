@@ -3,6 +3,7 @@
 #![feature(abi_x86_interrupt)]
 
 mod arch;
+#[cfg(not(feature = "panic-probe"))]
 mod console;
 mod debugcon;
 mod framebuffer;
