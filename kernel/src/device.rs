@@ -291,10 +291,7 @@ mod tests {
         assert_eq!(binding.identity, identity);
         assert_eq!(binder.len(), 1);
         assert_eq!(binder.count_driver(DriverKind::Xhci), 1);
-        assert_eq!(
-            binder.bind_identity(identity),
-            Err(BindError::AlreadyBound)
-        );
+        assert_eq!(binder.bind_identity(identity), Err(BindError::AlreadyBound));
     }
 
     #[test]
