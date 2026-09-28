@@ -135,8 +135,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             }
         }
     };
-    let memory_descriptor_count =
-        info.memory_map_len / u64::from(info.memory_descriptor_size);
+    let memory_descriptor_count = info.memory_map_len / u64::from(info.memory_descriptor_size);
     debugcon::write("VIBRIX: kernel conventional frames allocated\r\n");
 
     // Legacy PCI config mechanism #1 reads segment-zero vendor/class/BAR
