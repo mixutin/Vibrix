@@ -100,7 +100,7 @@ pub fn plan(data: &[u8]) -> Result<Plan, Error> {
         return Err(Error::UserAddress);
     }
 
-    let mut segments = [None; MAX_SEGMENTS];
+    let mut segments: [Option<Segment>; MAX_SEGMENTS] = [None; MAX_SEGMENTS];
     let mut count = 0usize;
     let mut memory_bytes = 0usize;
 
