@@ -73,6 +73,10 @@ jobs:
             target: x86_64-unknown-none
           - package: vibrix-syscall
             target: x86_64-unknown-none
+          - package: vibrix-init
+            target: x86_64-unknown-none
+          - package: vibrix-shell
+            target: x86_64-unknown-none
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -147,6 +151,11 @@ jobs:
         run: |
           cargo test --locked --package vibrix-syscall
           cargo clippy --locked --package vibrix-syscall --target x86_64-unknown-none -- -D warnings
+      - name: Test Rust shell parser and userspace targets
+        run: |
+          cargo test --locked --package vibrix-shell --lib
+          cargo clippy --locked --package vibrix-init --target x86_64-unknown-none -- -D warnings
+          cargo clippy --locked --package vibrix-shell --target x86_64-unknown-none -- -D warnings
       - name: Test production bootstrap VFS and stream lifetimes
         run: |
           cargo test --locked --package vibrix-kernel --lib vfs::

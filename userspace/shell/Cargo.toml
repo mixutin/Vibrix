@@ -1,0 +1,19 @@
+[package]
+name = "vibrix-shell"
+version = "0.0.1"
+edition = "2024"
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "vibrix-sh"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+vibrix-syscall = { path = "../syscall", version = "=0.0.1" }
