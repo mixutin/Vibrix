@@ -9,7 +9,7 @@ use core::arch::{asm, x86_64::__cpuid_count};
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicU64, Ordering};
 use vibrix_vmm::address::{
-    ARENA_BASE, ARENA_SLOT, PAGE_BYTES, Page, Permissions, PhysicalFrame, Privilege,
+    PAGE_BYTES, USER_SLOT, Page, Permissions, PhysicalFrame, Privilege,
 };
 use vibrix_vmm::frames::Frames;
 use vibrix_vmm::walk::{ADDRESS_MASK, Memory, USER};
@@ -57,7 +57,7 @@ impl AddressSpaceMemory {
     fn check_entry(&self, frame: u64, index: usize) {
         assert!(index < 512, "userspace VM entry index out of bounds");
         assert!(
-            self.reserved.contains(&frame) || (frame == self.root && index == ARENA_SLOT),
+            self.reserved.contains(&frame) || (frame == self.root && index == USER_SLOT),
             "userspace VM access outside owned hierarchy"
         );
     }
@@ -114,7 +114,7 @@ impl Memory for AddressSpaceMemory {
 
     fn invalidate(&mut self, address: u64) {
         assert!(
-            Page::new(address).is_ok(),
+            Page::new_user(address).is_ok(),
             "foreign userspace VM invalidation"
         );
         // SAFETY: one BSP only. Callers mask interrupts while this backend is
@@ -245,7 +245,7 @@ unsafe fn copy_kernel_root(
 
         for (offset, entry) in chunk.iter().copied().enumerate() {
             let index = base + offset;
-            if index != ARENA_SLOT && entry & USER != 0 {
+            if index != USER_SLOT && entry & USER != 0 {
                 return Err(AddressSpaceError::InvalidRoot);
             }
         }
@@ -258,7 +258,7 @@ unsafe fn copy_kernel_root(
                 .map_err(|_| AddressSpaceError::Scratch)?;
             for (offset, entry) in chunk.iter().copied().enumerate() {
                 let index = base + offset;
-                let value = if index == ARENA_SLOT { 0 } else { entry };
+                let value = if index == USER_SLOT { 0 } else { entry };
                 (target as *mut u64).add(index).write_volatile(value);
             }
             window.unmap().map_err(|_| AddressSpaceError::Scratch)?;
@@ -306,7 +306,7 @@ pub unsafe fn init(info: &BootInfo) -> Result<(), AddressSpaceError> {
         root: user_root,
         reserved,
     };
-    let vm = Vm::new(user_root, backend, frames)?;
+    let vm = Vm::new_in_slot(user_root, backend, frames, USER_SLOT)?;
     let vm = GuardedVm::new(vm)?;
     *state = Some(AddressSpace {
         vm,
@@ -324,8 +324,8 @@ pub unsafe fn init(info: &BootInfo) -> Result<(), AddressSpaceError> {
 /// mappings still live. On success the caller must immediately enter CPL3; the
 /// diagnostic probe intentionally never returns.
 pub unsafe fn activate_probe() -> Result<ActivatedProbe, AddressSpaceError> {
-    const CODE_GUARD: u64 = ARENA_BASE;
-    const STACK_GUARD: u64 = ARENA_BASE + 4 * PAGE_BYTES;
+    const CODE_GUARD: u64 = 0x003f_f000;
+    const STACK_GUARD: u64 = 0x007f_e000;
     #[cfg(not(feature = "syscall-probe"))]
     const USER_CODE: &[u8] = &[0xcd, 0x80, 0x0f, 0x0b];
     #[cfg(feature = "syscall-probe")]
@@ -355,8 +355,8 @@ pub unsafe fn activate_probe() -> Result<ActivatedProbe, AddressSpaceError> {
         }
     };
 
-    let code_layout = GuardedLayout::new(Page::new(CODE_GUARD)?, 1)?;
-    let stack_layout = GuardedLayout::new(Page::new(STACK_GUARD)?, 1)?;
+    let code_layout = GuardedLayout::new(Page::new_user(CODE_GUARD)?, 1)?;
+    let stack_layout = GuardedLayout::new(Page::new_user(STACK_GUARD)?, 1)?;
     let code_id = space.vm.allocate_user(code_layout)?;
     let stack_id = match space.vm.allocate_user(stack_layout) {
         Ok(id) => id,
@@ -400,7 +400,7 @@ pub unsafe fn activate_probe() -> Result<ActivatedProbe, AddressSpaceError> {
 
     ACTIVE_ROOT.store(space.user_root, Ordering::SeqCst);
     // SAFETY: the private root copied every supervisor kernel PML4 entry and
-    // owns a fresh arena slot. IF is disabled around the transition.
+    // owns a fresh lower-half user slot. IF is disabled around the transition.
     unsafe { switch_root(space.user_root) };
     if current_root() != space.user_root {
         ACTIVE_ROOT.store(0, Ordering::SeqCst);
