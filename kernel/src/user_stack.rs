@@ -7,6 +7,7 @@
 pub const MAX_ARGS: usize = 16;
 pub const MAX_ENV: usize = 16;
 pub const MAX_STRING_BYTES: usize = 2048;
+pub const USER_MIN: u64 = 0x1000;
 pub const USER_END: u64 = 0x0000_8000_0000_0000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -70,7 +71,7 @@ pub fn build(
     let stack_end = stack_base
         .checked_add(u64::try_from(stack.len()).map_err(|_| Error::AddressOverflow)?)
         .ok_or(Error::AddressOverflow)?;
-    if stack_base >= USER_END || stack_end > USER_END || stack_end <= stack_base {
+    if stack_base < USER_MIN || stack_base >= USER_END || stack_end > USER_END || stack_end <= stack_base {
         return Err(Error::UserAddress);
     }
 
