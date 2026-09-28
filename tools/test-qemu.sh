@@ -144,6 +144,7 @@ for expected in \
   "VIBRIX: kernel conventional frames allocated" \
   "VIBRIX: kernel PCI segment0 enumerated" \
   "VIBRIX: kernel PCI BARs parsed" \
+  "VIBRIX: kernel device model populated" \
   "VIBRIX: kernel virtual mappings verified" \
   "VIBRIX: kernel ACPI XSDT and MCFG mapped and parsed" \
   "VIBRIX: kernel PCI ECAM bus0 read" \
@@ -168,6 +169,7 @@ grep -Eq 'Vibrix ECAM segment0 bus0: [1-9][0-9]* devices, [0-9]+ xHCI' "$SERIAL_
 grep -Eq 'Vibrix APIC: LAPIC id=[0-9]+ version=0x[0-9a-f]+ max_lvt=[1-9][0-9]*, IOAPIC id=[0-9]+ version=0x[0-9a-f]+ max_redir=[1-9][0-9]*' "$SERIAL_LOG"
 if [[ "${VIBRIX_QEMU_XHCI:-0}" == "1" ]]; then
   grep -Eq 'Vibrix ECAM segment0 bus0: [1-9][0-9]* devices, [1-9][0-9]* xHCI' "$SERIAL_LOG"
+  grep -Eq 'Vibrix device model: [1-9][0-9]* devices, [1-9][0-9]* driver candidates, [1-9][0-9]* xHCI candidates, [0-9]+ RTL8168 candidates' "$SERIAL_LOG"
 fi
 grep -Fq "kernel heap: aligned allocations, RAM writes and reuse verified" "$SERIAL_LOG"
 if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" ]]; then
