@@ -156,7 +156,10 @@ unsafe fn read_bar0(device: Device) -> Result<u64, InitError> {
     } else {
         None
     };
-    match pci::decode_bar(low, high).map_err(|_| InitError::InvalidBar)?.0 {
+    match pci::decode_bar(low, high)
+        .map_err(|_| InitError::InvalidBar)?
+        .0
+    {
         Some(Bar::Memory32 { physical, .. }) => Ok(u64::from(physical)),
         Some(Bar::Memory64 { physical, .. }) => Ok(physical),
         _ => Err(InitError::InvalidBar),
@@ -368,15 +371,7 @@ mod tests {
 
     #[test]
     fn parses_capability_and_masks_array_offsets() {
-        let cap = parse_capability(
-            0x40,
-            0x0110,
-            32 | (8 << 24),
-            0,
-            0x1003,
-            0x200f,
-        )
-        .unwrap();
+        let cap = parse_capability(0x40, 0x0110, 32 | (8 << 24), 0, 0x1003, 0x200f).unwrap();
         assert_eq!(cap.cap_length, 0x40);
         assert_eq!(cap.version, 0x0110);
         assert_eq!(cap.max_slots, 32);
