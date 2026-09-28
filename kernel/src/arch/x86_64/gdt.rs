@@ -13,6 +13,11 @@
 
 use core::{arch::asm, cell::UnsafeCell};
 
+const RING0_STACK_BYTES: usize = 16 * 1024;
+
+#[repr(C, align(16))]
+struct Ring0Stack([u8; RING0_STACK_BYTES]);
+
 /// A single 8-byte GDT entry (segment descriptor).
 ///
 /// In 64-bit mode, the descriptor format is simplified:
@@ -157,8 +162,8 @@ pub struct Tss {
 }
 
 impl Tss {
-    /// Create a TSS with the I/O bitmap disabled. The zeroed stack slots must be
-    /// configured before any privilege-changing interrupt or user-mode entry.
+    /// Create a TSS with the I/O bitmap disabled. `init` installs the permanent
+    /// single-BSP RSP0 stack before loading TR; IST slots remain unconfigured.
     pub const fn new() -> Self {
         Self {
             reserved0: 0,
@@ -320,26 +325,39 @@ unsafe impl Sync for StaticTss {}
 // SAFETY: identical single-writer/one-time initialization invariant as StaticTss.
 unsafe impl Sync for StaticGdt {}
 
+struct StaticRing0Stack(UnsafeCell<Ring0Stack>);
+
+// SAFETY: one BSP owns the privilege-transition stack. It is not exposed as a
+// Rust slice/reference while hardware may use RSP0.
+unsafe impl Sync for StaticRing0Stack {}
+
 static TSS: StaticTss = StaticTss(UnsafeCell::new(Tss::new()));
 static GDT: StaticGdt = StaticGdt(UnsafeCell::new(Gdt::EMPTY));
+static RING0_STACK: StaticRing0Stack =
+    StaticRing0Stack(UnsafeCell::new(Ring0Stack([0; RING0_STACK_BYTES])));
+
+fn ring0_stack_top(stack: *mut Ring0Stack) -> u64 {
+    stack as u64 + RING0_STACK_BYTES as u64
+}
 
 /// Initialize the permanent GDT and TSS and load GDTR and TR.
 ///
 /// # Safety
 /// Must be called exactly once on the boot CPU before interrupts, other CPUs,
-/// or ring-3 entry. GDT/TSS must stay mapped and writable at fixed addresses
-/// for the kernel lifetime. This function is *not* proof that future RSP0 or
-/// IST stacks have been configured for interrupts or ring-3 transitions.
-/// RSP0/IST are zero and MUST be initialized before any privilege transition
-/// or interrupt gate which selects an IST stack.
+/// or ring-3 entry. GDT/TSS and the dedicated RSP0 stack stay mapped at fixed
+/// addresses for the kernel lifetime. IST slots remain zero and MUST be
+/// initialized before any interrupt gate which selects an IST stack.
 pub unsafe fn init() {
     let tss = TSS.0.get();
     let gdt = GDT.0.get();
+    let ring0_stack = RING0_STACK.0.get();
 
     // SAFETY: one boot CPU initializes dedicated, static UnsafeCell backing.
     // No references/interrupts to these objects exist before this point.
     unsafe {
         core::ptr::write(tss, Tss::new());
+        // Tss is packed, so write RSP0 without creating an unaligned reference.
+        core::ptr::addr_of_mut!((*tss).rsp0).write_unaligned(ring0_stack_top(ring0_stack));
         core::ptr::write(gdt, Gdt::new(&*tss));
         // Pass a raw pointer: LGDT/LTR may change GDT Accessed/busy bits.
         load_gdt(gdt);
@@ -364,6 +382,18 @@ mod tests {
         assert_eq!(Gdt::KERNEL_DATA_SELECTOR, 0x10);
         assert_eq!(Gdt::USER_CODE_SELECTOR, 0x1b);
         assert_eq!(Gdt::USER_DATA_SELECTOR, 0x23);
+    }
+
+    #[test]
+    fn ring0_privilege_stack_has_aligned_nonzero_top() {
+        let mut stack = Ring0Stack([0; RING0_STACK_BYTES]);
+        let base = &mut stack as *mut Ring0Stack as u64;
+        let top = ring0_stack_top(&mut stack);
+        assert_eq!(size_of::<Ring0Stack>(), RING0_STACK_BYTES);
+        assert_eq!(align_of::<Ring0Stack>(), 16);
+        assert_eq!(top - base, RING0_STACK_BYTES as u64);
+        assert_eq!(top & 0xf, 0);
+        assert_ne!(top, 0);
     }
 
     #[test]
