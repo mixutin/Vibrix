@@ -541,6 +541,28 @@ jobs:
           tr -d '\r' < build/qemu/serial.log | grep -Fq "hi"
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: exit pid=1 status=0"
 
+      - name: QEMU Rust shell core utilities over real syscalls and VFS
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,core-utils-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 VIBRIX_QEMU_CORE_UTILS_PROBE=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel Rust shell ELF loaded" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: userspace TTY read waiting for keyboard" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel utility kill target PID 3 ready" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "Vibrix bootstrap filesystem: files live in RAM until reboot."
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "copy"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "moved"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "/tmp/u"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "PID STATE"
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path("build/qemu/serial.log").read_text(errors="replace").replace("\r", "")
+          running = text.find("3 running")
+          zombie = text.find("3 zombie", running + 1)
+          if running < 0 or zombie < 0 or zombie <= running:
+              raise SystemExit("PID 3 did not transition running -> zombie in shell ps/kill proof")
+          PY
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: exit pid=1 status=0"
+
       - name: QEMU supervisor write-protection fault
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,vm-write-probe bash tools/build-qemu.sh
