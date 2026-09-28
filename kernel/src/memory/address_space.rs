@@ -152,6 +152,41 @@ static TRANSITION_STACK: StaticTransitionStack =
     StaticTransitionStack(UnsafeCell::new(TransitionStack([0; TRANSITION_STACK_BYTES])));
 static mut ADDRESS_SPACE_KERNEL_RSP: u64 = 0;
 
+global_asm!(
+    r#"
+    .global vibrix_address_space_enter
+    vibrix_address_space_enter:
+        cli
+        mov rsp, qword ptr [rip + {kernel_rsp}]
+        mov cr3, rdi
+        mov rdi, rsi
+        mov rsi, rdx
+        call {entered}
+        ud2
+    "#,
+    kernel_rsp = sym ADDRESS_SPACE_KERNEL_RSP,
+    entered = sym address_space_entered,
+);
+
+unsafe extern "C" {
+    fn vibrix_address_space_enter(user_root: u64, user_rip: u64, user_rsp: u64) -> !;
+}
+
+extern "C" fn address_space_entered(user_rip: u64, user_rsp: u64) -> ! {
+    let expected = ACTIVE_ROOT.load(Ordering::SeqCst);
+    let current = current_root();
+    if expected == 0 || current != expected {
+        panic!(
+            "userspace CR3 transition mismatch: expected={:#x} current={:#x}",
+            expected, current
+        );
+    }
+    crate::debugcon::write("VIBRIX: kernel userspace CR3 activated\r\n");
+    // SAFETY: enter_probe validated the live private root plus user RX/RW
+    // mappings and this helper runs on a kernel-mapped transition stack.
+    unsafe { crate::arch::x86_64::ring3::enter(user_rip, user_rsp) }
+}
+
 fn interrupts_enabled() -> bool {
     let flags: u64;
     // SAFETY: read-only RFLAGS inspection at CPL0.
@@ -164,12 +199,6 @@ fn current_root() -> u64 {
     // SAFETY: privileged read at CPL0.
     unsafe { asm!("mov {}, cr3", out(reg) root, options(nomem, nostack, preserves_flags)) };
     root & ADDRESS_MASK
-}
-
-unsafe fn switch_root(root: u64) {
-    // SAFETY: caller has validated a complete PML4 physical frame and retained
-    // the kernel mappings needed to execute across this CR3 switch.
-    unsafe { asm!("mov cr3, {}", in(reg) root, options(nostack, preserves_flags)) };
 }
 
 fn physical_bits_and_root() -> Result<(u8, u64), AddressSpaceError> {
@@ -310,7 +339,11 @@ pub unsafe fn init(info: &BootInfo) -> Result<(), AddressSpaceError> {
     // SAFETY: same allocator contract.
     let (frames, reserved) = unsafe { reserve_pool(bits) }?;
     // SAFETY: APIC uses its documented low slots; managed runtime owns 511.
+    // Slot 510 owns page-table scratch while slot 509 stages private data
+    // frames without activating the userspace CR3.
     let mut window = unsafe { runtime::slot_from_boot_info(info, ADDRESS_SPACE_SCRATCH_SLOT) }
+        .map_err(|_| AddressSpaceError::Scratch)?;
+    let staging = unsafe { runtime::slot_from_boot_info(info, ADDRESS_SPACE_DATA_SLOT) }
         .map_err(|_| AddressSpaceError::Scratch)?;
     // SAFETY: both roots are validated, and user_root is not active/published.
     unsafe { copy_kernel_root(&mut window, kernel_root, user_root) }?;
@@ -322,21 +355,32 @@ pub unsafe fn init(info: &BootInfo) -> Result<(), AddressSpaceError> {
     };
     let vm = Vm::new_in_slot(user_root, backend, frames, USER_SLOT)?;
     let vm = GuardedVm::new(vm)?;
+
+    let transition_top = TRANSITION_STACK.0.get() as u64 + TRANSITION_STACK_BYTES as u64;
+    if transition_top == 0 || transition_top & 0xf != 0 {
+        return Err(AddressSpaceError::InvalidRoot);
+    }
+    // SAFETY: initialization is sole-BSP and pre-STI. No private-root entry can
+    // occur until ADDRESS_SPACE is published below.
+    unsafe {
+        core::ptr::addr_of_mut!(ADDRESS_SPACE_KERNEL_RSP).write(transition_top);
+    }
+
     *state = Some(AddressSpace {
         vm,
+        staging,
         kernel_root,
         user_root,
     });
     Ok(())
 }
 
-/// Build guarded user code/stack, switch to the private CR3, stage code there,
-/// and leave IF=0 for the immediate IRETQ into CPL3.
+/// Build guarded user code/stack under the inactive private root and stage
+/// code through a kernel-root scratch mapping. No CR3 switch occurs here.
 ///
 /// # Safety
 /// Must run on the sole BSP after init(), with permanent GDT/TSS/IDT and kernel
-/// mappings still live. On success the caller must immediately enter CPL3; the
-/// diagnostic probe intentionally never returns.
+/// mappings still live. The returned probe must be consumed by enter_probe().
 pub unsafe fn activate_probe() -> Result<ActivatedProbe, AddressSpaceError> {
     const CODE_GUARD: u64 = 0x003f_f000;
     const STACK_GUARD: u64 = 0x007f_e000;
@@ -353,7 +397,7 @@ pub unsafe fn activate_probe() -> Result<ActivatedProbe, AddressSpaceError> {
     ];
 
     let restore_interrupts = interrupts_enabled();
-    // SAFETY: serialize the one static address-space owner and CR3 mutation.
+    // SAFETY: serialize the one static address-space owner and scratch slots.
     unsafe { asm!("cli", options(nomem, nostack)) };
 
     // SAFETY: local interrupts are now masked and no AP exists.
@@ -380,7 +424,6 @@ pub unsafe fn activate_probe() -> Result<ActivatedProbe, AddressSpaceError> {
                 .release(code_id)
                 .expect("userspace probe rollback owns code");
             if restore_interrupts {
-                // SAFETY: no CR3 change occurred.
                 unsafe { asm!("sti", options(nomem, nostack)) };
             }
             return Err(AddressSpaceError::Vm(error));
@@ -406,43 +449,28 @@ pub unsafe fn activate_probe() -> Result<ActivatedProbe, AddressSpaceError> {
             .release(code_id)
             .expect("userspace probe rollback owns code");
         if restore_interrupts {
-            // SAFETY: no CR3 change occurred.
             unsafe { asm!("sti", options(nomem, nostack)) };
         }
         return Err(AddressSpaceError::InvalidRoot);
     }
 
-    ACTIVE_ROOT.store(space.user_root, Ordering::SeqCst);
-    // SAFETY: the private root copied every supervisor kernel PML4 entry and
-    // owns a fresh lower-half user slot. IF is disabled around the transition.
-    unsafe { switch_root(space.user_root) };
-    if current_root() != space.user_root {
-        ACTIVE_ROOT.store(0, Ordering::SeqCst);
-        // SAFETY: restore known-good kernel root before returning.
-        unsafe { switch_root(space.kernel_root) };
-        if restore_interrupts {
-            unsafe { asm!("sti", options(nomem, nostack)) };
-        }
-        return Err(AddressSpaceError::InvalidRoot);
-    }
-
-    // SAFETY: code_page is now reachable only through the active private root
-    // as an exclusively owned user RW mapping. Volatile staging completes
-    // before the PTE is changed to RX.
+    // Stage bytes while the kernel CR3 and its low boot stack are still active.
+    // The private data frame is reached only through scratch slot 509.
+    let staged = unsafe { space.staging.map(before_code.physical, true) }
+        .map_err(|_| AddressSpaceError::Scratch)?;
     unsafe {
         for (index, byte) in USER_CODE.iter().copied().enumerate() {
-            (code_page.address() as *mut u8)
-                .add(index)
-                .write_volatile(byte);
+            (staged as *mut u8).add(index).write_volatile(byte);
         }
+        space
+            .staging
+            .unmap()
+            .map_err(|_| AddressSpaceError::Scratch)?;
     }
 
     let protected = match space.vm.protect(code_id, 0, Permissions::ReadExecute) {
         Ok(previous) => previous,
         Err(error) => {
-            ACTIVE_ROOT.store(0, Ordering::SeqCst);
-            // SAFETY: switch back before manipulating/restoring normal state.
-            unsafe { switch_root(space.kernel_root) };
             space
                 .vm
                 .release(stack_id)
@@ -463,13 +491,15 @@ pub unsafe fn activate_probe() -> Result<ActivatedProbe, AddressSpaceError> {
         || code.privilege != Privilege::User
         || code.permissions != Permissions::ReadExecute
     {
-        ACTIVE_ROOT.store(0, Ordering::SeqCst);
-        // SAFETY: restore the known-good root on validation failure.
-        unsafe { switch_root(space.kernel_root) };
         if restore_interrupts {
             unsafe { asm!("sti", options(nomem, nostack)) };
         }
         return Err(AddressSpaceError::InvalidRoot);
+    }
+
+    if restore_interrupts {
+        // No CR3 transition occurred here; restore the caller's original state.
+        unsafe { asm!("sti", options(nomem, nostack)) };
     }
 
     Ok(ActivatedProbe {
@@ -478,6 +508,19 @@ pub unsafe fn activate_probe() -> Result<ActivatedProbe, AddressSpaceError> {
         user_rip: code_page.address(),
         user_rsp: stack_layout.payload_end(),
     })
+}
+
+/// Switch first to a permanent higher-half kernel transition stack, then load
+/// the private CR3 and immediately enter CPL3. This function never returns.
+///
+/// # Safety
+/// probe must come from activate_probe() for the current initialized owner.
+/// GDT/TSS/IDT and the copied supervisor kernel mappings must remain live.
+pub unsafe fn enter_probe(probe: ActivatedProbe) -> ! {
+    ACTIVE_ROOT.store(probe.user_root, Ordering::SeqCst);
+    // SAFETY: assembly changes RSP before CR3, so clearing lower slot zero cannot
+    // unmap the live kernel stack. The called helper validates the new CR3.
+    unsafe { vibrix_address_space_enter(probe.user_root, probe.user_rip, probe.user_rsp) }
 }
 
 /// Used by the CPL3 diagnostic interrupt handler to prove the CPU returned to
