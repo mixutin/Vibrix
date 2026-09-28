@@ -1,0 +1,42 @@
+name: Managed VM evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main", "astra/vmm-*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vmm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  production-core:
+    name: Managed VM production core
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Show toolchain and tested revision
+        run: |
+          git rev-parse HEAD
+          rustup show active-toolchain
+          rustc --version
+      - name: Check production VM formatting
+        run: rustfmt --edition 2024 --check host-tests/vmm/lib.rs
+      - name: Run production VM host tests
+        run: |
+          rustc --edition=2024 -D warnings --test host-tests/vmm/lib.rs -o "$RUNNER_TEMP/vmm-tests"
+          "$RUNNER_TEMP/vmm-tests"
+      - name: Compile production VM without a host runtime
+        run: |
+          rustc --edition=2024 -D warnings --crate-type=rlib --target x86_64-unknown-none host-tests/vmm/lib.rs -o "$RUNNER_TEMP/libvmm.rlib"
+      - name: Lint production VM on bare metal
+        run: |
+          clippy-driver --edition=2024 --crate-type=rlib --target x86_64-unknown-none host-tests/vmm/lib.rs -o "$RUNNER_TEMP/libvmm-clippy.rlib" -D warnings
