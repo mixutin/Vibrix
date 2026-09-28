@@ -934,6 +934,60 @@ pub unsafe fn enter_probe(probe: ActivatedProbe) -> ! {
     unsafe { vibrix_address_space_enter(probe.user_root, probe.user_rip, probe.user_rsp) }
 }
 
+#[cfg(feature = "process-syscall-probe")]
+pub fn copy_to_user(mut address: u64, mut bytes: &[u8]) -> Result<(), AddressSpaceError> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+    let final_address = address
+        .checked_add(bytes.len() as u64 - 1)
+        .ok_or(AddressSpaceError::InvalidRoot)?;
+    Page::new_user(address)?;
+    Page::new_user(final_address)?;
+    if interrupts_enabled() {
+        return Err(AddressSpaceError::InterruptsEnabled);
+    }
+
+    // SAFETY: process syscalls run on the sole BSP with IF masked by FMASK.
+    let state = unsafe { &mut *ADDRESS_SPACE.0.get() };
+    let space = state.as_mut().ok_or(AddressSpaceError::NotInitialized)?;
+    let active = ACTIVE_ROOT.load(Ordering::SeqCst);
+    if active == 0 || active != space.user_root || current_root() != active {
+        return Err(AddressSpaceError::InvalidRoot);
+    }
+
+    while !bytes.is_empty() {
+        let page_address = address & !0xfff;
+        let offset = (address & 0xfff) as usize;
+        let page = Page::new_user(page_address)?;
+        let mapping = space.vm.query(page)?.ok_or(Error::NotMapped)?;
+        if mapping.privilege != Privilege::User || mapping.permissions != Permissions::ReadWrite {
+            return Err(AddressSpaceError::InvalidRoot);
+        }
+        let count = core::cmp::min(4096 - offset, bytes.len());
+        // SAFETY: the queried frame is owned by the active private user VM.
+        // Staging slot 509 is supervisor-only and exclusively owned here.
+        let staged = unsafe { space.staging.map(mapping.physical, true) }
+            .map_err(|_| AddressSpaceError::Scratch)?;
+        unsafe {
+            for (index, byte) in bytes[..count].iter().copied().enumerate() {
+                (staged as *mut u8)
+                    .add(offset + index)
+                    .write_volatile(byte);
+            }
+            space
+                .staging
+                .unmap()
+                .map_err(|_| AddressSpaceError::Scratch)?;
+        }
+        address = address
+            .checked_add(count as u64)
+            .ok_or(AddressSpaceError::InvalidRoot)?;
+        bytes = &bytes[count..];
+    }
+    Ok(())
+}
+
 /// Used by the CPL3 diagnostic interrupt handler to prove the CPU returned to
 /// CPL0 without silently switching back to the kernel address-space root.
 pub fn active_root_status() -> (u64, u64, bool) {
