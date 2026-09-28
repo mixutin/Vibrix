@@ -283,7 +283,10 @@ mod tests {
             }
         );
         assert_eq!(table.get(child), None);
-        assert_eq!(table.wait(init, WaitTarget::Pid(child)), Err(Error::NoChild));
+        assert_eq!(
+            table.wait(init, WaitTarget::Pid(child)),
+            Err(Error::NoChild)
+        );
     }
 
     #[test]
@@ -348,7 +351,10 @@ mod tests {
         let a = table.spawn_child(init).unwrap();
         let b = table.spawn_child(init).unwrap();
         let grandchild = table.spawn_child(a).unwrap();
-        assert_eq!(table.wait(b, WaitTarget::Pid(grandchild)), Err(Error::NoChild));
+        assert_eq!(
+            table.wait(b, WaitTarget::Pid(grandchild)),
+            Err(Error::NoChild)
+        );
         table.exit(a, 1).unwrap();
         assert_eq!(
             table.wait(a, WaitTarget::Pid(grandchild)),
