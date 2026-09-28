@@ -311,9 +311,7 @@ impl Madt<'_> {
                 .get(offset..offset + 2)
                 .ok_or(AcpiError::Truncated)?;
             let length = usize::from(header[1]);
-            let end = offset
-                .checked_add(length)
-                .ok_or(AcpiError::InvalidEntry)?;
+            let end = offset.checked_add(length).ok_or(AcpiError::InvalidEntry)?;
             let entry = self
                 .entries
                 .get(offset..end)
