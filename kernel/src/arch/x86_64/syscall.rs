@@ -291,6 +291,17 @@ mod native {
         table
             .exit(child, 23)
             .map_err(|_| InitError::VerificationFailed)?;
+        #[cfg(feature = "core-utils-probe")]
+        {
+            let live = table
+                .spawn_child(init)
+                .map_err(|_| InitError::VerificationFailed)?;
+            if live.get() != 3 {
+                PROCESS_READY.store(false, Ordering::SeqCst);
+                return Err(InitError::VerificationFailed);
+            }
+            crate::debugcon::write("VIBRIX: kernel utility kill target PID 3 ready\r\n");
+        }
         Ok(())
     }
 
