@@ -965,6 +965,52 @@ pub unsafe fn enter_probe(probe: ActivatedProbe) -> ! {
 }
 
 #[cfg(feature = "process-syscall-probe")]
+pub fn copy_from_user(address: u64, bytes: &mut [u8]) -> Result<(), AddressSpaceError> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+    let final_address = address
+        .checked_add(bytes.len() as u64 - 1)
+        .ok_or(AddressSpaceError::InvalidRoot)?;
+    Page::new_user(address & !0xfff)?;
+    Page::new_user(final_address & !0xfff)?;
+    if interrupts_enabled() {
+        return Err(AddressSpaceError::InterruptsEnabled);
+    }
+
+    // SAFETY: process syscalls run on the sole BSP with IF masked by FMASK.
+    let state = unsafe { &mut *ADDRESS_SPACE.0.get() };
+    let space = state.as_mut().ok_or(AddressSpaceError::NotInitialized)?;
+    let active = ACTIVE_ROOT.load(Ordering::SeqCst);
+    if active == 0 || active != space.user_root || current_root() != active {
+        return Err(AddressSpaceError::InvalidRoot);
+    }
+
+    let mut cursor = address;
+    loop {
+        let page = Page::new_user(cursor & !0xfff)?;
+        let mapping = space.vm.query(page)?.ok_or(Error::NotMapped)?;
+        if mapping.privilege != Privilege::User {
+            return Err(AddressSpaceError::InvalidRoot);
+        }
+        if (cursor & !0xfff) == (final_address & !0xfff) {
+            break;
+        }
+        cursor = (cursor & !0xfff)
+            .checked_add(4096)
+            .ok_or(AddressSpaceError::InvalidRoot)?;
+    }
+
+    // SAFETY: the complete source range is mapped user-accessible in the
+    // currently active private CR3. The destination is a disjoint kernel
+    // buffer and no Rust reference is constructed for userspace memory.
+    unsafe {
+        core::ptr::copy_nonoverlapping(address as *const u8, bytes.as_mut_ptr(), bytes.len());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "process-syscall-probe")]
 pub fn copy_to_user(address: u64, bytes: &[u8]) -> Result<(), AddressSpaceError> {
     if bytes.is_empty() {
         return Ok(());
