@@ -25,11 +25,11 @@ fn dispatch(line: &[u8]) -> bool {
             write(b"cat echo ls pwd cd mkdir cp mv rm ps kill exit help\n");
         }
         Some(Builtin::Echo) => {
-            for index in 1..command.argc {
-                if index != 1 {
+            for (offset, argument) in command.args[1..command.argc].iter().enumerate() {
+                if offset != 0 {
                     write(b" ");
                 }
-                write(command.args[index]);
+                write(argument);
             }
             write(b"\n");
         }
@@ -61,9 +61,7 @@ pub extern "C" fn _start() -> ! {
                     write(b"vibrix$ ");
                 }
                 8 | 127 => {
-                    if len != 0 {
-                        len -= 1;
-                    }
+                    len = len.saturating_sub(1);
                 }
                 value if len < line.len() => {
                     line[len] = value;
