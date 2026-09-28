@@ -18,6 +18,7 @@ pub fn bootstrap<'a>(
     let mut vfs = Vfs::<2>::new(root)?;
     vfs.create("/dev", Kind::Directory)?;
     vfs.create("/tmp", Kind::Directory)?;
+    vfs.create("/run", Kind::Directory)?;
     let welcome = vfs.create("/welcome", Kind::File)?;
     vfs.write(
         welcome,
