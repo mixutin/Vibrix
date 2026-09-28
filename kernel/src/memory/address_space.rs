@@ -386,6 +386,7 @@ pub unsafe fn init(info: &BootInfo) -> Result<(), AddressSpaceError> {
 /// # Safety
 /// Must run on the sole BSP after init(), with permanent GDT/TSS/IDT and kernel
 /// mappings still live. The returned probe must be consumed by enter_probe().
+#[cfg(not(feature = "elf-load-probe"))]
 pub unsafe fn activate_probe() -> Result<ActivatedProbe, AddressSpaceError> {
     const CODE_GUARD: u64 = 0x003f_f000;
     const STACK_GUARD: u64 = 0x007f_e000;
