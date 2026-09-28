@@ -39,12 +39,12 @@ mod native {
             asm!(
                 "syscall",
                 inlateout("rax") result,
-                in("rdi") arg0,
-                in("rsi") arg1,
-                in("rdx") arg2,
-                in("r10") arg3,
-                in("r8") arg4,
-                in("r9") arg5,
+                inlateout("rdi") arg0 => _,
+                inlateout("rsi") arg1 => _,
+                inlateout("rdx") arg2 => _,
+                inlateout("r10") arg3 => _,
+                inlateout("r8") arg4 => _,
+                inlateout("r9") arg5 => _,
                 lateout("rcx") _,
                 lateout("r11") _,
                 options(nostack)
@@ -81,11 +81,7 @@ mod native {
 #[inline(always)]
 pub unsafe fn raw_syscall6(number: u64, args: [u64; abi::MAX_ARGS]) -> u64 {
     // SAFETY: forwarded unchanged from the caller's raw ABI contract.
-    unsafe {
-        native::raw(
-            number, args[0], args[1], args[2], args[3], args[4], args[5],
-        )
-    }
+    unsafe { native::raw(number, args[0], args[1], args[2], args[3], args[4], args[5]) }
 }
 
 #[inline(always)]
@@ -117,14 +113,7 @@ pub fn getpid() -> Result<u64> {
 pub fn read(fd: u64, buffer: &mut [u8]) -> Result<usize> {
     let raw = call(
         abi::Syscall::Read,
-        [
-            fd,
-            buffer.as_mut_ptr() as u64,
-            buffer.len() as u64,
-            0,
-            0,
-            0,
-        ],
+        [fd, buffer.as_mut_ptr() as u64, buffer.len() as u64, 0, 0, 0],
     )?;
     Ok(raw as usize)
 }
@@ -132,14 +121,7 @@ pub fn read(fd: u64, buffer: &mut [u8]) -> Result<usize> {
 pub fn write(fd: u64, buffer: &[u8]) -> Result<usize> {
     let raw = call(
         abi::Syscall::Write,
-        [
-            fd,
-            buffer.as_ptr() as u64,
-            buffer.len() as u64,
-            0,
-            0,
-            0,
-        ],
+        [fd, buffer.as_ptr() as u64, buffer.len() as u64, 0, 0, 0],
     )?;
     Ok(raw as usize)
 }
@@ -147,14 +129,7 @@ pub fn write(fd: u64, buffer: &[u8]) -> Result<usize> {
 pub fn open(path: &[u8], flags: u64) -> Result<u64> {
     call(
         abi::Syscall::Open,
-        [
-            path.as_ptr() as u64,
-            path.len() as u64,
-            flags,
-            0,
-            0,
-            0,
-        ],
+        [path.as_ptr() as u64, path.len() as u64, flags, 0, 0, 0],
     )
 }
 
@@ -164,10 +139,7 @@ pub fn close(fd: u64) -> Result<()> {
 
 pub fn wait(pid: u64, status: Option<&mut i32>, options: u64) -> Result<u64> {
     let status_ptr = status.map_or(0, |value| value as *mut i32 as u64);
-    call(
-        abi::Syscall::Wait,
-        [pid, status_ptr, options, 0, 0, 0],
-    )
+    call(abi::Syscall::Wait, [pid, status_ptr, options, 0, 0, 0])
 }
 
 /// Execute a new image.
@@ -179,14 +151,7 @@ pub fn wait(pid: u64, status: Option<&mut i32>, options: u64) -> Result<u64> {
 pub unsafe fn exec(path: &[u8], argv: u64, envp: u64) -> Result<u64> {
     call(
         abi::Syscall::Exec,
-        [
-            path.as_ptr() as u64,
-            path.len() as u64,
-            argv,
-            envp,
-            0,
-            0,
-        ],
+        [path.as_ptr() as u64, path.len() as u64, argv, envp, 0, 0],
     )
 }
 
@@ -207,14 +172,8 @@ mod tests {
             read(3, &mut read_buffer),
             Err(abi::Errno::NotSupported.code())
         );
-        assert_eq!(
-            write(4, b"vibrix"),
-            Err(abi::Errno::NotSupported.code())
-        );
-        assert_eq!(
-            open(b"/test", 0),
-            Err(abi::Errno::NotSupported.code())
-        );
+        assert_eq!(write(4, b"vibrix"), Err(abi::Errno::NotSupported.code()));
+        assert_eq!(open(b"/test", 0), Err(abi::Errno::NotSupported.code()));
     }
 
     #[test]
