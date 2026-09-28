@@ -169,18 +169,18 @@ future userspace shell.
 - [ ] Hardware interrupt path usable in QEMU
 - [ ] Monotonic timer source available to the console
 - [x] QEMU keyboard input reaches the kernel without UEFI Boot Services
-- [ ] Kernel console input buffer and line editing
-- [ ] Command parser and dispatch table
-- [ ] `help`
+- [x] Kernel console input buffer and line editing
+- [x] Command parser and dispatch table
+- [x] `help`
 - [ ] `clear`
-- [ ] `info` / build information
+- [x] `info` / build information
 - [ ] `mem` memory diagnostics
 - [ ] `pci` PCI discovery output
 - [ ] `acpi` ACPI discovery output
 - [ ] `uptime`
 - [ ] `reboot`
-- [ ] Unknown-command and malformed-input handling
-- [ ] QEMU smoke test proves prompt → input → command → output
+- [x] Unknown-command and malformed-input handling
+- [x] QEMU smoke test proves prompt → input → command → output
 
 **Verified M4.5 QEMU keyboard input (PR #70):**
 [Actions run 36347623002](https://github.com/mixutin/Vibrix/actions/runs/36347623002)
@@ -196,6 +196,22 @@ The successful kernel/QEMU job also passed normal/xHCI boots and all fault
 probes. This is a **polled QEMU i8042 set-one ASCII subset** on the single
 CPU with IF=0, not USB HID, IRQ-driven keyboard input, line editing,
 a command parser, TTY, userspace shell or Target 001 PS/2 hardware.
+
+**Verified M4.5 bounded interactive console (PR #80):**
+[Actions run 36375400040](https://github.com/mixutin/Vibrix/actions/runs/36375400040)
+passed the synchronized production console host tests, target Clippy/builds,
+supply-chain checks, the full QEMU regression matrix, and a feature-specific
+real-keyboard interaction. QEMU waited for the kernel-origin `vibrix> `
+readiness marker, injected `helx`, Backspace, `p`, Return through HMP,
+and the kernel independently reported the accepted backspace, exact `help`
+dispatch, and COM1 output `commands: help info`. The fixed 80-byte ASCII
+line editor rejects overflow without writing past its buffer, ignores unsupported
+control bytes, resets after submission, and the parser matches whole commands;
+`info` and unknown-command behavior are host-tested through the same production
+module. These checkboxes mean a bounded **polled PS/2 development console**,
+not a TTY, IRQ keyboard, framebuffer terminal, userspace shell, USB HID path,
+or Target 001 console. `clear`, `mem`, `pci`, `acpi`, `uptime` and
+`reboot` remain unchecked until their actual behavior is implemented.
 
 **Exit:** after `ExitBootServices`, QEMU reaches a `vibrix>` prompt, accepts
 real keyboard input and executes diagnostic commands entirely in the Vibrix
@@ -255,14 +271,50 @@ the first real userspace CLI.
 **Exit:** Vibrix can access the same removable USB device it booted from after leaving firmware services.
 
 ## M8 — Vibrix filesystem
-- [ ] On-disk specification
-- [ ] Superblock/allocation metadata
-- [ ] files/directories
+- [x] On-disk specification
+- [x] Superblock/allocation metadata
+- [x] files/directories
 - [ ] permissions/timestamps
+
+**Verified M8 files/directories wire behavior (PR #83):**
+[Actions run 36375799757](https://github.com/mixutin/Vibrix/actions/runs/36375799757)
+passed the shared directory-record codec tests, regular-file formatter/inspector
+round trips for both 512- and 4096-byte logical-sector models, all existing
+metadata-corruption checks, target builds/Clippy and the full QEMU regression
+matrix. The host formatter creates root inode 1 with exact `.`, `..` and
+`welcome.txt` records, allocates inode 2 as a regular file on a distinct
+bitmap-owned data block, and writes a bounded payload. The independent inspector
+decodes the directory framing through the shared wire codec, follows the inode
+reference, requires file-type and allocation agreement, verifies the distinct
+extent and exact payload/zero tail, and rejects malformed UTF-8/name, slash/NUL,
+record alignment, reserved padding, inode-range and type fields. This checkbox
+means **VibrixFS v1 on-disk file/directory representation is implemented and
+demonstrated in bounded regular-file images**. It does not claim a kernel VFS,
+runtime mutation, crash consistency/recovery, USB block I/O, persistent root or
+Target 001 filesystem behavior.
+
 - [ ] crash-consistency design
 - [ ] formatter + recovery tool
 - [ ] VFS driver
 - [ ] persistent root mounted from USB
+
+**Verified M8 bounded on-disk metadata foundation (PR #81):**
+[Actions run 36370905041](https://github.com/mixutin/Vibrix/actions/runs/36370905041)
+passed the shared v1 wire-codec tests, the real regular-file formatter/inspector
+round trip for both **512-byte and 4096-byte logical-sector models**, both target
+Clippy/builds, supply-chain checks and the existing QEMU kernel matrix. The
+formatter creates a new file only, refuses overwrite/raw-device-looking paths,
+writes reciprocal 4 KiB superblocks plus block/inode bitmaps, a fixed inode
+table, root inode 1 and its allocated root-directory block; the inspector
+independently re-reads and validates checksums, externally supplied partition
+identity, geometry, mandatory/padding allocation bits and the root inode/data
+reference. CI also mutates reserved superblock bytes and requires rejection.
+This verifies the byte-level **VibrixFS v1 on-disk specification** and its
+initial superblock/allocation metadata on host regular files. It does **not**
+establish general file/directory mutation, permissions enforcement, crash
+consistency/recovery, a kernel VFS driver, native USB block I/O, persistent root,
+or physical provisioning. The combined formatter + recovery item therefore
+remains unchecked.
 
 **Exit:** files created under the Vibrix root filesystem survive shutdown and reboot.
 

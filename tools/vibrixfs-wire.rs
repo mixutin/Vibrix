@@ -3,9 +3,9 @@
 //! This host-only tool encodes/validates synthetic metadata in memory. It does
 //! not open a path, create a filesystem, format a partition, or write a device.
 
-const BLOCK: usize = 4096;
+pub const BLOCK: usize = 4096;
 const HEADER: u32 = 256;
-const INODE_BYTES: usize = 256;
+pub const INODE_BYTES: usize = 256;
 const MIN_BLOCKS: u64 = 4096;
 const MAX_BLOCKS: u64 = 1u64 << 48;
 const MAGIC: &[u8; 8] = b"VIBRIXFS";
@@ -14,9 +14,9 @@ const CLEAN: u32 = 1;
 const INODE_EXTENTS: usize = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Range {
-    start: u64,
-    blocks: u64,
+pub struct Range {
+    pub start: u64,
+    pub blocks: u64,
 }
 
 impl Range {
@@ -38,50 +38,50 @@ impl Range {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Superblock {
-    minor: u16,
-    clean: bool,
-    generation: u64,
-    total_blocks: u64,
-    total_inodes: u64,
-    block_bitmap: Range,
-    inode_bitmap: Range,
-    inode_table: Range,
-    filesystem_uuid: [u8; 16],
-    root_partition_guid: [u8; 16],
+pub struct Superblock {
+    pub minor: u16,
+    pub clean: bool,
+    pub generation: u64,
+    pub total_blocks: u64,
+    pub total_inodes: u64,
+    pub block_bitmap: Range,
+    pub inode_bitmap: Range,
+    pub inode_table: Range,
+    pub filesystem_uuid: [u8; 16],
+    pub root_partition_guid: [u8; 16],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Extent {
-    start: u64,
-    blocks: u32,
+pub struct Extent {
+    pub start: u64,
+    pub blocks: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Inode {
-    number: u64,
-    file_type: u8,
-    mode: u16,
-    uid: u32,
-    gid: u32,
-    links: u32,
-    size: u64,
-    allocated_blocks: u64,
-    atime_sec: i64,
-    atime_nsec: u32,
-    mtime_sec: i64,
-    mtime_nsec: u32,
-    ctime_sec: i64,
-    ctime_nsec: u32,
-    nonce: [u8; 16],
-    extents: [Extent; INODE_EXTENTS],
-    extent_count: u8,
-    device: u64,
-    flags: u32,
+pub struct Inode {
+    pub number: u64,
+    pub file_type: u8,
+    pub mode: u16,
+    pub uid: u32,
+    pub gid: u32,
+    pub links: u32,
+    pub size: u64,
+    pub allocated_blocks: u64,
+    pub atime_sec: i64,
+    pub atime_nsec: u32,
+    pub mtime_sec: i64,
+    pub mtime_nsec: u32,
+    pub ctime_sec: i64,
+    pub ctime_nsec: u32,
+    pub nonce: [u8; 16],
+    pub extents: [Extent; INODE_EXTENTS],
+    pub extent_count: u8,
+    pub device: u64,
+    pub flags: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Error {
+pub enum Error {
     Truncated,
     Magic,
     Version,
@@ -93,6 +93,7 @@ enum Error {
     Geometry,
     Inode,
     Extent,
+    Directory,
 }
 
 fn u16_at(data: &[u8], at: usize) -> Result<u16, Error> {
@@ -225,7 +226,7 @@ fn validate_superblock(
     Ok(())
 }
 
-fn encode_superblock(
+pub fn encode_superblock(
     info: &Superblock,
     partition_blocks: u64,
     expected_root_guid: &[u8; 16],
@@ -257,7 +258,7 @@ fn encode_superblock(
     Ok(out)
 }
 
-fn parse_superblock(
+pub fn parse_superblock(
     data: &[u8],
     partition_blocks: u64,
     expected_root_guid: &[u8; 16],
@@ -321,7 +322,7 @@ fn parse_superblock(
     Ok(result)
 }
 
-fn immutable_superblock_fields_match(a: &Superblock, b: &Superblock) -> bool {
+pub fn immutable_superblock_fields_match(a: &Superblock, b: &Superblock) -> bool {
     a.minor == b.minor
         && a.total_blocks == b.total_blocks
         && a.total_inodes == b.total_inodes
@@ -332,7 +333,7 @@ fn immutable_superblock_fields_match(a: &Superblock, b: &Superblock) -> bool {
         && a.root_partition_guid == b.root_partition_guid
 }
 
-fn encode_inode(inode: &Inode, fs: &Superblock) -> Result<[u8; INODE_BYTES], Error> {
+pub fn encode_inode(inode: &Inode, fs: &Superblock) -> Result<[u8; INODE_BYTES], Error> {
     validate_inode(inode, fs)?;
     let mut out = [0u8; INODE_BYTES];
     out[0..8].copy_from_slice(&inode.number.to_le_bytes());
@@ -369,7 +370,7 @@ fn encode_inode(inode: &Inode, fs: &Superblock) -> Result<[u8; INODE_BYTES], Err
     Ok(out)
 }
 
-fn parse_inode(data: &[u8], fs: &Superblock) -> Result<Inode, Error> {
+pub fn parse_inode(data: &[u8], fs: &Superblock) -> Result<Inode, Error> {
     let raw: &[u8; INODE_BYTES] = data
         .get(..INODE_BYTES)
         .ok_or(Error::Truncated)?
@@ -494,6 +495,91 @@ fn validate_inode(inode: &Inode, fs: &Superblock) -> Result<(), Error> {
         return Err(Error::Inode);
     }
     Ok(())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DirEntry<'a> {
+    pub inode: u64,
+    pub file_type: u8,
+    pub name: &'a str,
+}
+
+/// Encode one 8-byte-aligned directory record into the supplied slice.
+/// Returns the exact record byte length; callers concatenate records.
+pub fn encode_dir_record(
+    dst: &mut [u8],
+    inode: u64,
+    file_type: u8,
+    name: &str,
+) -> Result<usize, Error> {
+    let bytes = name.as_bytes();
+    if inode == 0
+        || !(1..=5).contains(&file_type)
+        || bytes.is_empty()
+        || bytes.len() > 255
+        || bytes.contains(&0)
+        || bytes.contains(&b'/')
+    {
+        return Err(Error::Directory);
+    }
+    let used = 16usize.checked_add(bytes.len()).ok_or(Error::Directory)?;
+    let record = used
+        .checked_add(7)
+        .map(|n| n & !7)
+        .ok_or(Error::Directory)?;
+    let out = dst.get_mut(..record).ok_or(Error::Truncated)?;
+    out.fill(0);
+    out[..8].copy_from_slice(&inode.to_le_bytes());
+    out[8..10].copy_from_slice(
+        &u16::try_from(record)
+            .map_err(|_| Error::Directory)?
+            .to_le_bytes(),
+    );
+    out[10] = u8::try_from(bytes.len()).map_err(|_| Error::Directory)?;
+    out[11] = file_type;
+    out[16..16 + bytes.len()].copy_from_slice(bytes);
+    Ok(record)
+}
+
+/// Decode one directory record without following its inode reference.
+/// The caller validates allocation and type agreement against the inode table.
+pub fn parse_dir_record(data: &[u8], max_inode: u64) -> Result<(DirEntry<'_>, usize), Error> {
+    if data.len() < 16 {
+        return Err(Error::Truncated);
+    }
+    let inode = u64_at(data, 0)?;
+    let record = usize::from(u16_at(data, 8)?);
+    let name_len = usize::from(data[10]);
+    let file_type = data[11];
+    if inode == 0
+        || inode > max_inode
+        || !(1..=5).contains(&file_type)
+        || record < 16
+        || !record.is_multiple_of(8)
+        || record > data.len()
+        || 16usize
+            .checked_add(name_len)
+            .is_none_or(|used| used > record)
+        || data[12..16].iter().any(|&byte| byte != 0)
+    {
+        return Err(Error::Directory);
+    }
+    let name_bytes = &data[16..16 + name_len];
+    if name_bytes.is_empty() || name_bytes.contains(&0) || name_bytes.contains(&b'/') {
+        return Err(Error::Directory);
+    }
+    let name = core::str::from_utf8(name_bytes).map_err(|_| Error::Directory)?;
+    if data[16 + name_len..record].iter().any(|&byte| byte != 0) {
+        return Err(Error::Directory);
+    }
+    Ok((
+        DirEntry {
+            inode,
+            file_type,
+            name,
+        },
+        record,
+    ))
 }
 
 #[cfg(not(test))]
@@ -699,5 +785,52 @@ mod tests {
         let mut inode = sample_inode();
         inode.allocated_blocks = 3;
         assert_eq!(encode_inode(&inode, &fs), Err(Error::Inode));
+    }
+    #[test]
+    fn directory_record_round_trip_and_alignment() {
+        let mut buf = [0u8; 64];
+        let used = encode_dir_record(&mut buf, 2, 1, "welcome.txt").unwrap();
+        assert_eq!(used % 8, 0);
+        let (entry, consumed) = parse_dir_record(&buf[..used], 1024).unwrap();
+        assert_eq!(consumed, used);
+        assert_eq!(
+            entry,
+            DirEntry {
+                inode: 2,
+                file_type: 1,
+                name: "welcome.txt",
+            }
+        );
+    }
+
+    #[test]
+    fn directory_record_rejects_bad_names_bounds_types_and_padding() {
+        let mut buf = [0u8; 64];
+        assert_eq!(
+            encode_dir_record(&mut buf, 0, 1, "x"),
+            Err(Error::Directory)
+        );
+        assert_eq!(
+            encode_dir_record(&mut buf, 1, 9, "x"),
+            Err(Error::Directory)
+        );
+        assert_eq!(
+            encode_dir_record(&mut buf, 1, 1, "a/b"),
+            Err(Error::Directory)
+        );
+        assert_eq!(encode_dir_record(&mut buf, 1, 1, ""), Err(Error::Directory));
+
+        let used = encode_dir_record(&mut buf, 2, 1, "ok").unwrap();
+        buf[12] = 1;
+        assert_eq!(parse_dir_record(&buf[..used], 1024), Err(Error::Directory));
+
+        let mut buf = [0u8; 64];
+        let used = encode_dir_record(&mut buf, 1025, 1, "ok").unwrap();
+        assert_eq!(parse_dir_record(&buf[..used], 1024), Err(Error::Directory));
+
+        let mut buf = [0u8; 64];
+        let used = encode_dir_record(&mut buf, 2, 1, "ok").unwrap();
+        buf[used - 1] = 1;
+        assert_eq!(parse_dir_record(&buf[..used], 1024), Err(Error::Directory));
     }
 }
