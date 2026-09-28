@@ -669,11 +669,26 @@ mod tests {
             flags: 0,
         };
         let bytes = encode_inode(&inode, &sb).unwrap();
-        assert_eq!(u16::from_le_bytes(bytes[10..12].try_into().unwrap()), WELCOME_MODE);
-        assert_eq!(u32::from_le_bytes(bytes[12..16].try_into().unwrap()), WELCOME_UID);
-        assert_eq!(u32::from_le_bytes(bytes[16..20].try_into().unwrap()), WELCOME_GID);
-        assert_eq!(i64::from_le_bytes(bytes[56..64].try_into().unwrap()), WELCOME_MTIME_SEC);
-        assert_eq!(u32::from_le_bytes(bytes[64..68].try_into().unwrap()), WELCOME_MTIME_NSEC);
+        assert_eq!(
+            u16::from_le_bytes(bytes[10..12].try_into().unwrap()),
+            WELCOME_MODE
+        );
+        assert_eq!(
+            u32::from_le_bytes(bytes[12..16].try_into().unwrap()),
+            WELCOME_UID
+        );
+        assert_eq!(
+            u32::from_le_bytes(bytes[16..20].try_into().unwrap()),
+            WELCOME_GID
+        );
+        assert_eq!(
+            i64::from_le_bytes(bytes[56..64].try_into().unwrap()),
+            WELCOME_MTIME_SEC
+        );
+        assert_eq!(
+            u32::from_le_bytes(bytes[64..68].try_into().unwrap()),
+            WELCOME_MTIME_NSEC
+        );
         assert_eq!(parse_inode(&bytes, &sb), Ok(inode));
     }
 
