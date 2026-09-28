@@ -413,15 +413,9 @@ pub unsafe fn activate_probe() -> Result<ActivatedProbe, AddressSpaceError> {
         0x0f, 0x05, // syscall; must not return
         0x0f, 0x0b, // ud2
     ];
-    #[cfg(all(
-        not(feature = "process-syscall-probe"),
-        not(feature = "syscall-probe")
-    ))]
+    #[cfg(all(not(feature = "process-syscall-probe"), not(feature = "syscall-probe")))]
     const USER_CODE: &[u8] = &[0xcd, 0x80, 0x0f, 0x0b];
-    #[cfg(all(
-        not(feature = "process-syscall-probe"),
-        feature = "syscall-probe"
-    ))]
+    #[cfg(all(not(feature = "process-syscall-probe"), feature = "syscall-probe"))]
     const USER_CODE: &[u8] = &[
         0x48, 0xc7, 0xc0, 0xff, 0xff, 0xff, 0xff, // mov rax, -1
         0x0f, 0x05, // syscall
@@ -1000,9 +994,7 @@ pub fn copy_to_user(mut address: u64, mut bytes: &[u8]) -> Result<(), AddressSpa
             .map_err(|_| AddressSpaceError::Scratch)?;
         unsafe {
             for (index, byte) in bytes[..count].iter().copied().enumerate() {
-                (staged as *mut u8)
-                    .add(offset + index)
-                    .write_volatile(byte);
+                (staged as *mut u8).add(offset + index).write_volatile(byte);
             }
             space
                 .staging
