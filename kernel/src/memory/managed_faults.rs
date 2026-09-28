@@ -53,7 +53,11 @@ pub(super) unsafe fn run(info: &BootInfo) -> Result<(), Error> {
             let mut guarded = GuardedVm::<_, POOL_FRAMES, 1>::new(vm)?;
             let layout = GuardedLayout::new(page, 1)?;
             let id = guarded.allocate(layout)?;
-            let payload = guarded.layout(id)?.payload().page(0).ok_or(Error::InvalidRange)?;
+            let payload = guarded
+                .layout(id)?
+                .payload()
+                .page(0)
+                .ok_or(Error::InvalidRange)?;
             fill(payload, 0x7788);
             check(payload, Some(0x7788))?;
             let address = layout.upper_guard().address();
