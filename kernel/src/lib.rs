@@ -8,6 +8,7 @@ pub mod config_policy;
 pub mod cpu_topology;
 pub mod nic;
 pub mod process;
+pub mod process_syscalls;
 pub mod update_policy;
 pub mod user_image;
 pub mod user_stack;
