@@ -72,6 +72,13 @@ pub unsafe fn init() {
         spurious_handler as *const () as usize as u64,
         Gdt::KERNEL_CODE_SELECTOR,
     );
+    #[cfg(feature = "ring3-probe")]
+    {
+        table.0[super::ring3::PROBE_VECTOR] = IdtGate::user_interrupt(
+            ring3_probe_handler as *const () as usize as u64,
+            Gdt::KERNEL_CODE_SELECTOR,
+        );
+    }
     #[cfg(all(feature = "pci-irq-probe", not(feature = "panic-probe")))]
     {
         table.0[usize::from(super::pci_irq_probe::VECTOR)] = IdtGate::interrupt(
@@ -118,6 +125,38 @@ extern "x86-interrupt" fn ivshmem_msix_handler(_frame: InterruptStackFrame) {
 
 extern "x86-interrupt" fn spurious_handler(_frame: InterruptStackFrame) {
     // Architectural spurious-vector interrupts do not require an EOI.
+}
+
+#[cfg(feature = "ring3-probe")]
+extern "x86-interrupt" fn ring3_probe_handler(frame: InterruptStackFrame) -> ! {
+    let kernel_rsp: u64;
+    // SAFETY: read-only inspection of the handler's current CPL0 stack pointer.
+    unsafe { asm!("mov {}, rsp", out(reg) kernel_rsp, options(nomem, nostack, preserves_flags)) };
+    let selectors_ok =
+        super::ring3::user_frame_selectors_valid(frame.code_segment, frame.stack_segment);
+    let rsp0_ok = super::gdt::ring0_stack_contains(kernel_rsp);
+    if selectors_ok && rsp0_ok {
+        crate::debugcon::write("VIBRIX: kernel CPL3 trap reached via TSS RSP0\r\n");
+        crate::println!(
+            "kernel ring3 probe: cs={:#x} ss={:#x} user_rsp={:#x} kernel_rsp={:#x}",
+            frame.code_segment,
+            frame.stack_segment,
+            frame.stack_pointer,
+            kernel_rsp
+        );
+    } else {
+        crate::debugcon::write("VIBRIX: kernel CPL3 trap validation failed\r\n");
+        crate::println!(
+            "kernel ring3 probe rejected: cs={:#x} ss={:#x} user_rsp={:#x} kernel_rsp={:#x}",
+            frame.code_segment,
+            frame.stack_segment,
+            frame.stack_pointer,
+            kernel_rsp
+        );
+    }
+    loop {
+        core::hint::spin_loop();
+    }
 }
 
 extern "x86-interrupt" fn breakpoint_handler(frame: InterruptStackFrame) {
