@@ -47,7 +47,9 @@ pub enum InitError {
     InvalidBar,
     UnsafeMmio,
     UnsupportedPat,
-    InvalidCapability,
+    InvalidCapabilityHeader,
+    UnsupportedPageSize,
+    RegisterReadback,
     UnsupportedScratchpads,
     Mapping,
     OutOfFrames,
@@ -103,7 +105,7 @@ pub fn parse_capability(
         || doorbell_offset < u32::from(cap_length)
         || runtime_offset < u32::from(cap_length)
     {
-        return Err(InitError::InvalidCapability);
+        return Err(InitError::InvalidCapabilityHeader);
     }
 
     Ok(Capability {
@@ -283,7 +285,7 @@ pub unsafe fn initialize(info: &BootInfo) -> Result<Summary, InitError> {
     }
     if unsafe { read32(op_base, PAGESIZE) } & 1 == 0 {
         let _ = unsafe { vm.unmap(0) };
-        return Err(InitError::InvalidCapability);
+        return Err(InitError::UnsupportedPageSize);
     }
 
     let dcbaa = unsafe { memory::allocate_frame() }.ok_or(InitError::OutOfFrames)?;
@@ -341,7 +343,7 @@ pub unsafe fn initialize(info: &BootInfo) -> Result<Summary, InitError> {
     if published_dcbaa != dcbaa || published_crcr != command_ring {
         let _ = unsafe { vm.unmap(2) };
         let _ = unsafe { vm.unmap(0) };
-        return Err(InitError::InvalidCapability);
+        return Err(InitError::RegisterReadback);
     }
 
     unsafe { write32(op_base, USBCMD, USBCMD_RUN) };
@@ -399,15 +401,15 @@ mod tests {
     fn rejects_unusable_capability_blocks() {
         assert_eq!(
             parse_capability(0x10, 0x0110, 1 | (1 << 24), 0, 0x1000, 0x2000),
-            Err(InitError::InvalidCapability)
+            Err(InitError::InvalidCapabilityHeader)
         );
         assert_eq!(
             parse_capability(0x40, 0x0110, 0, 0, 0x1000, 0x2000),
-            Err(InitError::InvalidCapability)
+            Err(InitError::InvalidCapabilityHeader)
         );
         assert_eq!(
             parse_capability(0x40, 0x0110, 1 | (1 << 24), 0, 0x20, 0x2000),
-            Err(InitError::InvalidCapability)
+            Err(InitError::InvalidCapabilityHeader)
         );
     }
 }
