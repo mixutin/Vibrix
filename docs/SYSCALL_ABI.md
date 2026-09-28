@@ -45,6 +45,15 @@ success values.
 | 6 | `close` | `close(fd)` |
 | 7 | `wait` | `wait(pid, status_ptr, options)` |
 | 8 | `exec` | `exec(path, path_length, argv, envp)` |
+| 9 | `create` | `create(path, path_length)` |
+| 10 | `mkdir` | `mkdir(path, path_length)` |
+| 11 | `remove` | `remove(path, path_length)` |
+| 12 | `rename` | `rename(old, old_length, new, new_length)` |
+| 13 | `getcwd` | `getcwd(buffer, length)` |
+| 14 | `chdir` | `chdir(path, path_length)` |
+| 15 | `readdir` | `readdir(path, path_length, index, entry)` |
+| 16 | `kill` | `kill(pid, status)` |
+| 17 | `process_info` | `process_info(index, info)` |
 
 These numbers reserve the ABI surface; they do **not** imply that the kernel
 implements the call yet.
@@ -59,6 +68,15 @@ the canonical lower 48-bit half for userspace.
 
 A zero-length buffer does not require the pointed address to be dereferenced.
 Non-zero ranges that overflow or enter the upper half are invalid.
+
+Directory iteration and process inspection use fixed-size, C-layout records from
+`shared/syscall_abi.rs`: `DirectoryEntry` carries a bounded 31-byte name and
+kind, while `ProcessInfo` carries PID, parent PID, state and exit status.
+Reserved bytes are always zeroed by the kernel before copy-out.
+
+Open flags are also part of ABI v1: access is read (0), write (1), or read/write
+(2), with optional truncate (bit 2) and append (bit 3). Unknown flag bits are
+rejected rather than ignored.
 
 ## Initial errno assignments
 
