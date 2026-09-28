@@ -34,6 +34,7 @@ static FILES: StaticCell<Option<BootstrapFiles<'static>>> =
     StaticCell(UnsafeCell::new(None));
 static KEYS: StaticCell<ps2::SetOne> = StaticCell(UnsafeCell::new(ps2::SetOne::new()));
 static READY: AtomicBool = AtomicBool::new(false);
+static INPUT_WAIT_REPORTED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InitError {
@@ -108,6 +109,9 @@ pub fn read(fd: usize, buffer: &mut [u8]) -> Result<usize> {
         match with_files(|files| files.read(fd, buffer)) {
             Ok(count) => return Ok(count),
             Err(Error::WouldBlock) if fd == 0 => {
+                if !INPUT_WAIT_REPORTED.swap(true, Ordering::SeqCst) {
+                    crate::debugcon::write("VIBRIX: userspace TTY read waiting for keyboard\r\n");
+                }
                 // SAFETY: this proof owns the sole post-UEFI i8042 consumer.
                 if let Some(scan) = unsafe { ps2::poll_scancode() } {
                     // SAFETY: same single-BSP ownership as FILES.
