@@ -424,8 +424,12 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                         match console::command(bytes) {
                             console::Command::Empty => {}
                             console::Command::Help => {
-                                crate::println!("commands: help info mem pci acpi uptime");
+                                crate::println!("commands: help clear info mem pci acpi uptime reboot");
                                 debugcon::write("VIBRIX: kernel console command help\r\n");
+                            }
+                            console::Command::Clear => {
+                                crate::print!("\x1b[2J\x1b[H");
+                                debugcon::write("VIBRIX: kernel console command clear\r\n");
                             }
                             console::Command::Info => {
                                 crate::println!(
@@ -479,6 +483,14 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                                     ticks % 100
                                 );
                                 debugcon::write("VIBRIX: kernel console command uptime\r\n");
+                            }
+                            console::Command::Reboot => {
+                                crate::println!("reboot: requesting i8042 reset");
+                                debugcon::write("VIBRIX: kernel console command reboot\r\n");
+                                // SAFETY: QEMU q35 exposes the legacy i8042 used
+                                // by this same development console. This command
+                                // is terminal and intentionally never returns.
+                                unsafe { arch::x86_64::reset::reboot_i8042() }
                             }
                             console::Command::Unknown => {
                                 crate::println!("unknown command");
