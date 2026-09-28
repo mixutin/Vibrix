@@ -219,3 +219,23 @@ This tool is deliberately limited to regular-file development images up to
 devices, does not implement crash recovery, and does not make a filesystem
 persistent under the kernel. Exact CI evidence is required before any M8
 roadmap checkbox changes.
+
+## 10. Named-file conformance checkpoint (candidate)
+
+The next host conformance increment extends the base-v1 image beyond an empty
+root directory. The formatter allocates inode 2 as a regular file,
+`welcome.txt`, gives it a separate allocated data block, and adds a third
+root-directory record after `.` and `..`. Directory record framing is now
+encoded/decoded by the shared wire codec rather than an image-tool-only helper.
+
+The inspector independently validates the inode-bitmap allocation, parses the
+directory record through the shared codec, requires its inode/type/name to match
+inode 2, verifies the file extent is separately allocated and non-aliasing, and
+checks the bounded file payload plus zero-filled block tail. Directory names
+must be valid UTF-8, 1–255 bytes, contain no NUL or slash, and all framing,
+padding, inode-number and file-type bounds fail closed.
+
+This is still host regular-file format validation. It is not a kernel VFS,
+mutable file creation API, crash-safe update protocol, USB persistence or
+recovery tool. The M8 files/directories checkbox remains pending exact-head CI
+for this branch.

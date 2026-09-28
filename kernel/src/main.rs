@@ -3,6 +3,8 @@
 #![feature(abi_x86_interrupt)]
 
 mod arch;
+#[cfg(not(feature = "panic-probe"))]
+mod console;
 mod debugcon;
 mod framebuffer;
 mod memory;
@@ -295,7 +297,10 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         // Development QEMU keyboard: read only legacy i8042 ports after
         // ExitBootServices; IRQs remain disabled and no USB HID is implied.
         let mut ps2 = arch::x86_64::ps2::SetOne::new();
+        let mut line = console::LineEditor::new();
         debugcon::write("VIBRIX: kernel PS2 polling ready\r\n");
+        crate::print!("vibrix> ");
+        debugcon::write("VIBRIX: kernel console prompt ready\r\n");
         loop {
             // SAFETY: sole boot CPU, IF=0, i8042 data has no other consumer.
             if let Some(scan) = unsafe { arch::x86_64::ps2::poll_scancode() }
@@ -303,6 +308,38 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             {
                 crate::println!("kernel PS2 ascii {}", ascii);
                 debugcon::write("VIBRIX: kernel PS2 ASCII accepted\r\n");
+                match line.feed(ascii) {
+                    console::Edit::Echo(ch) => crate::print!("{}", char::from(ch)),
+                    console::Edit::Erase => {
+                        crate::print!("\x08 \x08");
+                        debugcon::write("VIBRIX: kernel console backspace accepted\r\n");
+                    }
+                    console::Edit::Complete(bytes) => {
+                        crate::println!();
+                        match console::command(bytes) {
+                            console::Command::Empty => {}
+                            console::Command::Help => {
+                                crate::println!("commands: help info");
+                                debugcon::write("VIBRIX: kernel console command help\r\n");
+                            }
+                            console::Command::Info => {
+                                crate::println!(
+                                    "Vibrix kernel build {}",
+                                    env!("CARGO_PKG_VERSION")
+                                );
+                                debugcon::write("VIBRIX: kernel console command info\r\n");
+                            }
+                            console::Command::Unknown => {
+                                crate::println!("unknown command");
+                                debugcon::write("VIBRIX: kernel console unknown command\r\n");
+                            }
+                        }
+                        line.reset();
+                        crate::print!("vibrix> ");
+                    }
+                    console::Edit::Full => crate::print!("\x07"),
+                    console::Edit::Ignore => {}
+                }
             }
             core::hint::spin_loop();
         }

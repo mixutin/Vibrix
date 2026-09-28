@@ -14,15 +14,18 @@ use std::path::Path;
 mod wire;
 
 use wire::{
-    BLOCK, Extent, INODE_BYTES, Inode, Range, Superblock, encode_inode, encode_superblock,
-    immutable_superblock_fields_match, parse_inode, parse_superblock,
+    BLOCK, Extent, INODE_BYTES, Inode, Range, Superblock, encode_dir_record, encode_inode,
+    encode_superblock, immutable_superblock_fields_match, parse_dir_record, parse_inode,
+    parse_superblock,
 };
 
 const TOTAL_INODES: u64 = 1024;
 const INODE_BITMAP_BLOCKS: u64 = 1;
 const INODE_TABLE_BLOCKS: u64 = (TOTAL_INODES * INODE_BYTES as u64).div_ceil(BLOCK as u64);
 const MAX_FORMAT_BLOCKS: u64 = 262_144; // 1 GiB early host-tool bound.
-const DIRECTORY_BYTES: usize = 48;
+const DIRECTORY_BYTES: usize = 80;
+const WELCOME_NAME: &str = "welcome.txt";
+const WELCOME_BYTES: &[u8] = b"Welcome to VibrixFS.\n";
 
 fn raw_device_like(path: &Path) -> bool {
     let s = path.to_string_lossy();
@@ -127,47 +130,17 @@ fn require_padding_bits(bitmap: &[u8], first_padding: u64) -> Result<(), String>
     Ok(())
 }
 
-fn put_dir_record(
-    block: &mut [u8; BLOCK],
-    offset: usize,
-    inode: u64,
-    file_type: u8,
-    name: &[u8],
-) -> Result<usize, String> {
-    if name.is_empty() || name.len() > 255 || name.contains(&0) || name.contains(&b'/') {
-        return Err("invalid directory name".into());
-    }
-    let used = 16usize
-        .checked_add(name.len())
-        .ok_or_else(|| "directory length overflow".to_string())?;
-    let record = used
-        .checked_add(7)
-        .map(|n| n & !7)
-        .ok_or_else(|| "directory alignment overflow".to_string())?;
-    let end = offset
-        .checked_add(record)
-        .ok_or_else(|| "directory record overflow".to_string())?;
-    let dst = block
-        .get_mut(offset..end)
-        .ok_or_else(|| "directory record exceeds block".to_string())?;
-    dst.fill(0);
-    dst[0..8].copy_from_slice(&inode.to_le_bytes());
-    dst[8..10].copy_from_slice(
-        &u16::try_from(record)
-            .map_err(|_| "directory record too large")?
-            .to_le_bytes(),
-    );
-    dst[10] = u8::try_from(name.len()).map_err(|_| "directory name too large")?;
-    dst[11] = file_type;
-    dst[16..16 + name.len()].copy_from_slice(name);
-    Ok(end)
-}
-
 fn root_directory_block() -> Result<[u8; BLOCK], String> {
     let mut block = [0u8; BLOCK];
-    let next = put_dir_record(&mut block, 0, 1, 2, b".")?;
-    let end = put_dir_record(&mut block, next, 1, 2, b"..")?;
-    if end != DIRECTORY_BYTES {
+    let mut offset = 0usize;
+    for (inode, file_type, name) in [(1, 2, "."), (1, 2, ".."), (2, 1, WELCOME_NAME)] {
+        let used = encode_dir_record(&mut block[offset..], inode, file_type, name)
+            .map_err(|e| format!("encode directory record: {e:?}"))?;
+        offset = offset
+            .checked_add(used)
+            .ok_or_else(|| "directory length overflow".to_string())?;
+    }
+    if offset != DIRECTORY_BYTES {
         return Err("unexpected root directory framing".into());
     }
     Ok(block)
@@ -176,58 +149,22 @@ fn root_directory_block() -> Result<[u8; BLOCK], String> {
 fn validate_root_directory(block: &[u8; BLOCK], size: u64) -> Result<(), String> {
     let size = usize::try_from(size).map_err(|_| "directory size overflow")?;
     if size != DIRECTORY_BYTES || size > block.len() {
-        return Err("base-v1 root directory must contain exactly dot and dot-dot".into());
+        return Err("base-v1 root directory shape is invalid".into());
     }
+    let expected = [(1u64, 2u8, "."), (1, 2, ".."), (2, 1, WELCOME_NAME)];
     let mut offset = 0usize;
-    let mut dot = false;
-    let mut dotdot = false;
-    while offset < size {
-        if !offset.is_multiple_of(8) || size - offset < 16 {
-            return Err("misaligned or truncated directory record".into());
+    for (inode, file_type, name) in expected {
+        let (entry, used) = parse_dir_record(&block[offset..size], TOTAL_INODES)
+            .map_err(|e| format!("directory record: {e:?}"))?;
+        if entry.inode != inode || entry.file_type != file_type || entry.name != name {
+            return Err("root directory entry identity/type/name mismatch".into());
         }
-        let inode = u64::from_le_bytes(
-            block[offset..offset + 8]
-                .try_into()
-                .map_err(|_| "truncated directory inode")?,
-        );
-        let record = usize::from(u16::from_le_bytes(
-            block[offset + 8..offset + 10]
-                .try_into()
-                .map_err(|_| "truncated directory record length")?,
-        ));
-        let name_len = usize::from(block[offset + 10]);
-        let file_type = block[offset + 11];
-        if record < 16
-            || !record.is_multiple_of(8)
-            || offset.checked_add(record).is_none_or(|end| end > size)
-            || 16usize
-                .checked_add(name_len)
-                .is_none_or(|used| used > record)
-            || block[offset + 12..offset + 16]
-                .iter()
-                .any(|&byte| byte != 0)
-        {
-            return Err("invalid directory record framing".into());
-        }
-        let name = &block[offset + 16..offset + 16 + name_len];
-        if inode != 1 || file_type != 2 {
-            return Err("root directory entry identity/type mismatch".into());
-        }
-        match name {
-            b"." if !dot => dot = true,
-            b".." if !dotdot => dotdot = true,
-            _ => return Err("unexpected or duplicate root directory entry".into()),
-        }
-        if block[offset + 16 + name_len..offset + record]
-            .iter()
-            .any(|&byte| byte != 0)
-        {
-            return Err("nonzero directory record padding".into());
-        }
-        offset += record;
+        offset = offset
+            .checked_add(used)
+            .ok_or_else(|| "directory offset overflow".to_string())?;
     }
-    if !dot || !dotdot {
-        return Err("missing dot or dot-dot root directory entry".into());
+    if offset != size {
+        return Err("unexpected trailing root directory records".into());
     }
     Ok(())
 }
@@ -268,9 +205,13 @@ fn layout(
         .start
         .checked_add(inode_table.blocks)
         .ok_or_else(|| "metadata geometry overflow".to_string())?;
-    if root_data >= total_blocks.saturating_sub(1) {
+    let welcome_data = root_data
+        .checked_add(1)
+        .ok_or_else(|| "data geometry overflow".to_string())?;
+    if welcome_data >= total_blocks.saturating_sub(1) {
         return Err("filesystem too small for base-v1 metadata".into());
     }
+    let _ = welcome_data;
     Ok((
         Superblock {
             minor: 0,
@@ -302,6 +243,9 @@ fn format_image(
         return Err("refusing a path that looks like a raw device".into());
     }
     let (sb, root_data) = layout(total_blocks, filesystem_uuid, root_guid)?;
+    let welcome_data = root_data
+        .checked_add(1)
+        .ok_or_else(|| "data geometry overflow".to_string())?;
     let bytes = total_blocks
         .checked_mul(BLOCK as u64)
         .ok_or_else(|| "image length overflow".to_string())?;
@@ -336,12 +280,14 @@ fn format_image(
         set_bit(&mut block_bitmap, block)?;
     }
     set_bit(&mut block_bitmap, root_data)?;
+    set_bit(&mut block_bitmap, welcome_data)?;
     set_bit(&mut block_bitmap, total_blocks - 1)?;
     set_padding_bits(&mut block_bitmap, total_blocks)?;
 
     let mut inode_bitmap = vec![0u8; BLOCK * INODE_BITMAP_BLOCKS as usize];
     set_bit(&mut inode_bitmap, 0)?;
     set_bit(&mut inode_bitmap, 1)?;
+    set_bit(&mut inode_bitmap, 2)?;
     set_padding_bits(&mut inode_bitmap, TOTAL_INODES + 1)?;
 
     let mut extents = [Extent {
@@ -374,6 +320,37 @@ fn format_image(
         flags: 0,
     };
     let encoded_root = encode_inode(&root, &sb).map_err(|e| format!("encode root inode: {e:?}"))?;
+    let mut welcome_extents = [Extent {
+        start: 0,
+        blocks: 0,
+    }; 6];
+    welcome_extents[0] = Extent {
+        start: welcome_data,
+        blocks: 1,
+    };
+    let welcome = Inode {
+        number: 2,
+        file_type: 1,
+        mode: 0o644,
+        uid: 0,
+        gid: 0,
+        links: 1,
+        size: WELCOME_BYTES.len() as u64,
+        allocated_blocks: 1,
+        atime_sec: 0,
+        atime_nsec: 0,
+        mtime_sec: 0,
+        mtime_nsec: 0,
+        ctime_sec: 0,
+        ctime_nsec: 0,
+        nonce: [0x6b; 16],
+        extents: welcome_extents,
+        extent_count: 1,
+        device: 0,
+        flags: 0,
+    };
+    let encoded_welcome =
+        encode_inode(&welcome, &sb).map_err(|e| format!("encode welcome inode: {e:?}"))?;
     let inode_table_len = usize::try_from(
         sb.inode_table
             .blocks
@@ -383,13 +360,17 @@ fn format_image(
     .map_err(|_| "inode table too large for host")?;
     let mut inode_table = vec![0u8; inode_table_len];
     inode_table[..INODE_BYTES].copy_from_slice(&encoded_root);
+    inode_table[INODE_BYTES..INODE_BYTES * 2].copy_from_slice(&encoded_welcome);
     let directory = root_directory_block()?;
+    let mut welcome_block = [0u8; BLOCK];
+    welcome_block[..WELCOME_BYTES.len()].copy_from_slice(WELCOME_BYTES);
 
     write_at(&mut file, 0, &superblock)?;
     write_at(&mut file, sb.block_bitmap.start, &block_bitmap)?;
     write_at(&mut file, sb.inode_bitmap.start, &inode_bitmap)?;
     write_at(&mut file, sb.inode_table.start, &inode_table)?;
     write_at(&mut file, root_data, &directory)?;
+    write_at(&mut file, welcome_data, &welcome_block)?;
     write_at(&mut file, total_blocks - 1, &superblock)?;
     file.sync_all().map_err(|e| format!("sync image: {e}"))?;
     Ok(())
@@ -473,14 +454,29 @@ fn inspect_image(path: &Path, logical_sector: u64, root_guid: [u8; 16]) -> Resul
     require_padding_bits(&block_bitmap, sb.total_blocks)?;
 
     let inode_bitmap = read_region(&mut file, sb.inode_bitmap.start, sb.inode_bitmap.blocks)?;
-    if !bit_is_set(&inode_bitmap, 0)? || !bit_is_set(&inode_bitmap, 1)? {
-        return Err("reserved/root inode bitmap bits are not allocated".into());
+    if !bit_is_set(&inode_bitmap, 0)?
+        || !bit_is_set(&inode_bitmap, 1)?
+        || !bit_is_set(&inode_bitmap, 2)?
+    {
+        return Err("reserved/root/welcome inode bitmap bits are not allocated".into());
     }
     require_padding_bits(&inode_bitmap, sb.total_inodes + 1)?;
 
-    let mut root_raw = [0u8; INODE_BYTES];
-    read_at(&mut file, sb.inode_table.start, &mut root_raw)?;
-    let root = parse_inode(&root_raw, &sb).map_err(|e| format!("root inode: {e:?}"))?;
+    let inode_table = read_region(&mut file, sb.inode_table.start, sb.inode_table.blocks)?;
+    let root = parse_inode(
+        inode_table
+            .get(..INODE_BYTES)
+            .ok_or_else(|| "truncated root inode slot".to_string())?,
+        &sb,
+    )
+    .map_err(|e| format!("root inode: {e:?}"))?;
+    let welcome = parse_inode(
+        inode_table
+            .get(INODE_BYTES..INODE_BYTES * 2)
+            .ok_or_else(|| "truncated welcome inode slot".to_string())?,
+        &sb,
+    )
+    .map_err(|e| format!("welcome inode: {e:?}"))?;
     if root.number != 1
         || root.file_type != 2
         || root.extent_count != 1
@@ -496,12 +492,38 @@ fn inspect_image(path: &Path, logical_sector: u64, root_guid: [u8; 16]) -> Resul
     read_at(&mut file, root_extent.start, &mut directory)?;
     validate_root_directory(&directory, root.size)?;
 
+    if welcome.number != 2
+        || welcome.file_type != 1
+        || welcome.extent_count != 1
+        || welcome.allocated_blocks != 1
+        || welcome.size != WELCOME_BYTES.len() as u64
+    {
+        return Err("base-v1 welcome file inode shape is invalid".into());
+    }
+    let welcome_extent = welcome.extents[0];
+    if welcome_extent.start == root_extent.start
+        || !bit_is_set(&block_bitmap, welcome_extent.start)?
+    {
+        return Err("welcome file data block is unallocated or aliases root directory".into());
+    }
+    let mut welcome_block = [0u8; BLOCK];
+    read_at(&mut file, welcome_extent.start, &mut welcome_block)?;
+    let welcome_size =
+        usize::try_from(welcome.size).map_err(|_| "welcome file size overflow".to_string())?;
+    if welcome_block.get(..welcome_size) != Some(WELCOME_BYTES)
+        || welcome_block[welcome_size..].iter().any(|&byte| byte != 0)
+    {
+        return Err("welcome file payload or zero tail is invalid".into());
+    }
+
     println!(
-        "VibrixFS v1 valid: blocks={} logical_sector={} inodes={} root_block={} generation={} clean={}",
+        "VibrixFS v1 valid: blocks={} logical_sector={} inodes={} root_block={} file={} file_block={} generation={} clean={}",
         sb.total_blocks,
         logical_sector,
         sb.total_inodes,
         root_extent.start,
+        WELCOME_NAME,
+        welcome_extent.start,
         sb.generation,
         sb.clean
     );
