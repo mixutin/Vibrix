@@ -12,6 +12,7 @@ as offsets, allocation ownership or Rust references.
 - minimum filesystem size: 4096 blocks (16 MiB)
 - maximum v1 block number: 2^48 - 1
 - inode numbers: unsigned 64-bit; 0 invalid, 1 root
+- inode number `n` is stored in inode-table slot `n - 1`; slot 0 stores root inode 1
 - names: valid UTF-8, 1–255 bytes, no NUL, no slash
 - all reserved bytes/bits written as zero and checked as zero unless a future
   compatible feature explicitly redefines them
@@ -198,3 +199,23 @@ These remain separate M8/M9 work:
 
 Until crash consistency and recovery are implemented, a base-v1 writable
 implementation must fail closed after detecting an unclean shutdown.
+
+## 9. Host regular-file conformance images
+
+`tools/vibrixfs-image.rs` is a bounded host-only formatter/inspector for the
+base-v1 metadata contract. It creates a **new regular file only** and refuses
+paths shaped like raw devices. The initial image contains two identical
+superblocks, block/inode bitmaps, the fixed inode table, root inode 1, and one
+root-directory data block containing exactly `.` and `..`.
+
+The formatter accepts an explicit 512- or 4096-byte logical-sector model; the
+VibrixFS block remains 4096 bytes in either case. The inspector independently
+re-reads both superblocks, validates the externally supplied root-partition GUID,
+checks mandatory and padding bitmap bits, decodes root inode 1 using the wire
+codec, and validates root directory record framing/padding.
+
+This tool is deliberately limited to regular-file development images up to
+1 GiB. It is **not** the M9 USB provisioning utility, does not open block
+devices, does not implement crash recovery, and does not make a filesystem
+persistent under the kernel. Exact CI evidence is required before any M8
+roadmap checkbox changes.
