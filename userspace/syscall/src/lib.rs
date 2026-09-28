@@ -155,6 +155,92 @@ pub unsafe fn exec(path: &[u8], argv: u64, envp: u64) -> Result<u64> {
     )
 }
 
+pub fn create(path: &[u8]) -> Result<()> {
+    call(
+        abi::Syscall::Create,
+        [path.as_ptr() as u64, path.len() as u64, 0, 0, 0, 0],
+    )
+    .map(|_| ())
+}
+
+pub fn mkdir(path: &[u8]) -> Result<()> {
+    call(
+        abi::Syscall::Mkdir,
+        [path.as_ptr() as u64, path.len() as u64, 0, 0, 0, 0],
+    )
+    .map(|_| ())
+}
+
+pub fn remove(path: &[u8]) -> Result<()> {
+    call(
+        abi::Syscall::Remove,
+        [path.as_ptr() as u64, path.len() as u64, 0, 0, 0, 0],
+    )
+    .map(|_| ())
+}
+
+pub fn rename(old: &[u8], new: &[u8]) -> Result<()> {
+    call(
+        abi::Syscall::Rename,
+        [
+            old.as_ptr() as u64,
+            old.len() as u64,
+            new.as_ptr() as u64,
+            new.len() as u64,
+            0,
+            0,
+        ],
+    )
+    .map(|_| ())
+}
+
+pub fn getcwd(buffer: &mut [u8]) -> Result<usize> {
+    call(
+        abi::Syscall::GetCwd,
+        [buffer.as_mut_ptr() as u64, buffer.len() as u64, 0, 0, 0, 0],
+    )
+    .map(|count| count as usize)
+}
+
+pub fn chdir(path: &[u8]) -> Result<()> {
+    call(
+        abi::Syscall::Chdir,
+        [path.as_ptr() as u64, path.len() as u64, 0, 0, 0, 0],
+    )
+    .map(|_| ())
+}
+
+pub fn readdir(path: &[u8], index: u64, entry: &mut abi::DirectoryEntry) -> Result<bool> {
+    call(
+        abi::Syscall::ReadDir,
+        [
+            path.as_ptr() as u64,
+            path.len() as u64,
+            index,
+            entry as *mut abi::DirectoryEntry as u64,
+            0,
+            0,
+        ],
+    )
+    .map(|present| present != 0)
+}
+
+pub fn kill(pid: u64, status: i32) -> Result<()> {
+    call(
+        abi::Syscall::Kill,
+        [pid, status as u32 as u64, 0, 0, 0, 0],
+    )
+    .map(|_| ())
+}
+
+pub fn process_info(index: u64, info: &mut abi::ProcessInfo) -> Result<bool> {
+    call(
+        abi::Syscall::ProcessInfo,
+        [index, info as *mut abi::ProcessInfo as u64, 0, 0, 0, 0],
+    )
+    .map(|present| present != 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,5 +273,14 @@ mod tests {
         assert_eq!(abi::Syscall::Close.number(), 6);
         assert_eq!(abi::Syscall::Wait.number(), 7);
         assert_eq!(abi::Syscall::Exec.number(), 8);
+        assert_eq!(abi::Syscall::Create.number(), 9);
+        assert_eq!(abi::Syscall::Mkdir.number(), 10);
+        assert_eq!(abi::Syscall::Remove.number(), 11);
+        assert_eq!(abi::Syscall::Rename.number(), 12);
+        assert_eq!(abi::Syscall::GetCwd.number(), 13);
+        assert_eq!(abi::Syscall::Chdir.number(), 14);
+        assert_eq!(abi::Syscall::ReadDir.number(), 15);
+        assert_eq!(abi::Syscall::Kill.number(), 16);
+        assert_eq!(abi::Syscall::ProcessInfo.number(), 17);
     }
 }
