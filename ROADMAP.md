@@ -370,7 +370,7 @@ the first real userspace CLI.
 - [x] syscall/sysret
 - [x] Native Rust syscall library
 - [x] PID/process lifecycle
-- [ ] Executable loading
+- [x] Executable loading
 - [x] argv/environment
 - [ ] wait/exit
 
@@ -532,6 +532,20 @@ lookup, reuse and invalid-state rejection.
 This checks the **bounded PID/process lifecycle model** only. Scheduler-integrated
 process execution, executable image replacement, wait/exit syscall semantics
 and PID 1 execution remain separate work.
+
+**Verified M5 validated ELF execution (PR #160):**
+[Actions run 36490303799](https://github.com/mixutin/Vibrix/actions/runs/36490303799)
+passed the full exact-head matrix on
+`ef780dbc298a33bf92eb40d9d7f7db75c6cd969b`. The production userspace ELF
+validator stages PT_LOAD segments into the independently owned lower-half
+address space, zeroes BSS, commits final W^X permissions, enters the validated
+ELF entry at CPL3 under the private CR3, and still completes the real
+SYSCALL/SYSRETQ round trip. The same run passed the existing protection,
+unmap, host, Clippy, build and dependency gates.
+
+This checks **Executable loading** as the bounded x86-64 ELF64 loading
+foundation. Filesystem-backed exec, general process replacement and normal
+multi-process scheduling remain later work.
 
 **Exit:** PID 1 executes in userspace and makes Vibrix syscalls.
 
@@ -741,7 +755,7 @@ portability claim. Runtime root selection must still use ADR 0005's disk/ESP/
 root unique-GUID identity checks; a partition type alone never selects a disk.
 - [ ] Persistent /home
 - [ ] Persistent package database
-- [ ] RAM-backed /tmp and runtime state
+- [x] RAM-backed /tmp and runtime state
 - [ ] Flash-write reduction
 - [ ] Hardware rediscovery every boot
 - [x] Portable configuration policy
@@ -752,6 +766,17 @@ root unique-GUID identity checks; a partition type alone never selects a disk.
 - [ ] Move the same USB drive between two compatible machines
 
 **Exit:** boot from USB, modify files/configuration/apps, power off, move or reboot the drive, and retain all state without touching an internal system disk.
+
+**Verified M9 volatile runtime-state foundation (PR #157):**
+[Actions run 36489168560](https://github.com/mixutin/Vibrix/actions/runs/36489168560)
+passed the full exact-head matrix on
+`7ea18b078f0d091b14dd30abdb95327dd308ef13`. The retained bootstrap VFS
+creates bounded RAM-backed `/tmp` and `/run` directories and the
+production-linked self-test writes and reads volatile `/run/boot-state`
+without any persistent block-device writes.
+
+This checks **RAM-backed /tmp and runtime state** only. Persistent root/home,
+package state, native USB storage and flash-write policy remain separate.
 
 ## M10 — Networking
 - [x] NIC abstraction
