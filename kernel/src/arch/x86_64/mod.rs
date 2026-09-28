@@ -9,4 +9,6 @@ pub mod irq;
 pub mod pci;
 #[cfg(not(feature = "panic-probe"))]
 pub mod ps2;
+#[cfg(not(feature = "panic-probe"))]
+pub mod reset;
 pub mod serial;
