@@ -178,11 +178,7 @@ impl<const N: usize> Table<N> {
     /// Syscall code can validate/copy the status value to userspace first and
     /// only then call reap(). This prevents a bad userspace pointer from
     /// irreversibly losing a child exit status.
-    pub fn observe_wait(
-        &self,
-        parent: Pid,
-        target: WaitTarget,
-    ) -> Result<WaitObservation, Error> {
+    pub fn observe_wait(&self, parent: Pid, target: WaitTarget) -> Result<WaitObservation, Error> {
         match self.get(parent) {
             Some(Process {
                 state: State::Running,
