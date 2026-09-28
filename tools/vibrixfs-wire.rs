@@ -755,10 +755,7 @@ mod tests {
         bad[128] = INCOMPAT_JOURNAL as u8;
         let crc = block_crc(&bad, 120..124);
         bad[120..124].copy_from_slice(&crc.to_le_bytes());
-        assert_eq!(
-            parse_superblock(&bad, 8192, &ROOT_GUID),
-            Err(Error::Layout)
-        );
+        assert_eq!(parse_superblock(&bad, 8192, &ROOT_GUID), Err(Error::Layout));
 
         let mut bad = good;
         bad[24] ^= 1;
