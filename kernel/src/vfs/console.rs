@@ -151,7 +151,7 @@ mod tests {
         }
         assert_eq!(
             output,
-            "wrote 5 bytes (RAM)\nhello\nnull\nzero\npipe roundtrip\n"
+            "wrote 5 bytes (RAM)\nhello\nnull\nzero\ntty\npipe roundtrip\n"
         );
         output.clear();
         execute(&mut files, "rm /tmp/test/note", &mut output);
