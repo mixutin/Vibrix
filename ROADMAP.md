@@ -6,6 +6,28 @@ Vibrix is an independent Rust-native Unix-like operating system that **lives on 
 
 There is no internal-disk edition. A checkbox is completed only when functionality is implemented and demonstrated on its stated target.
 
+## Verified abstraction and policy batch — PRs #92–#96
+
+Authoring AI: **GPT-6 Astra Pro**. These five checkboxes have deliberately
+bounded meanings; they do not imply USB persistence, real networking, SMP
+execution, persisted configuration, an operational updater or Target 001 support.
+The implementation evidence below precedes this documentation-only roadmap
+update. Exact implementation heads and full regression results are retained in
+the PR descriptions. No independent review is claimed.
+
+| Roadmap item | Observed evidence | Completion boundary |
+| --- | --- | --- |
+| M7 block-device abstraction, [PR #92](https://github.com/mixutin/Vibrix/pull/92) | [Run 36408760964](https://github.com/mixutin/Vibrix/actions/runs/36408760964): five production host tests, bare-metal Clippy and real QEMU kernel write/read comparison, neighboring-sector preservation and invalid-operation rejection. | Checked synchronous block API plus exclusive RAM backend. RAM never claims durable flush. No USB/SCSI or physical block driver. See [contract](docs/BLOCK_DEVICE.md). |
+| M10 NIC abstraction, [PR #93](https://github.com/mixutin/Vibrix/pull/93) | [Run 36409221073](https://github.com/mixutin/Vibrix/actions/runs/36409221073): five production host tests, target Clippy and a real post-firmware kernel trait-based frame round trip with short-buffer retry. | Bounded software loopback and NIC interface, not RTL8168, Ethernet/ARP/IP or external network traffic. See [contract](docs/NIC_ABSTRACTION.md). |
+| M12 CPU enumeration, [PR #94](https://github.com/mixutin/Vibrix/pull/94) | [Run 36409539352](https://github.com/mixutin/Vibrix/actions/runs/36409539352): production MADT tests and QEMU with exactly 1, 4 and 16 distinct enabled firmware CPU records; timer IRQ and console readiness also required. | Up to 64 xAPIC/x2APIC firmware identities and availability states. Only the BSP executes Vibrix; AP startup and SMP remain unchecked. See [contract](docs/CPU_ENUMERATION.md). |
+| M9 portable configuration policy, [PR #95](https://github.com/mixutin/Vibrix/pull/95) | [Run 36409812567](https://github.com/mixutin/Vibrix/actions/runs/36409812567): five host tests and QEMU kernel execution of bounded schema parsing, hardware-key rejection and current-boot network-consent policy. | Accepted [ADR 0014](docs/decisions/0014-portable-configuration.md) and executable policy. No settings are loaded from USB or applied to real devices yet. |
+| M9 system update + rollback strategy, [PR #96](https://github.com/mixutin/Vibrix/pull/96) | [Run 36409989644](https://github.com/mixutin/Vibrix/actions/runs/36409989644): seven host tests, including all 32 prerequisite combinations and stale/re-staged trial tickets; QEMU kernel executes failed-trial fallback and healthy-promotion simulations. | Accepted [ADR 0015](docs/decisions/0015-update-rollback-strategy.md) and executable state model only. No real signature verifier, disk update, persistent boot selector, recovery environment or rollback reboot. |
+
+Every QEMU proof requires independent kernel COM1 and debugcon output. Policy
+model assertions are not authentication or durability evidence. Future native
+storage, networking, userspace and security milestones still require their own
+runtime tests; none of their checkboxes are changed by this batch.
+
 ## M0 — Bootstrap
 - [x] Project identity and independence policy
 - [x] Rust-native system policy
@@ -327,7 +349,7 @@ the first real userspace CLI.
 - [ ] USB HID mouse
 - [ ] USB mass-storage transport
 - [ ] SCSI transparent command subset for mass storage
-- [ ] Block-device abstraction
+- [x] Block-device abstraction
 - [ ] Detect the boot USB device robustly
 - [ ] Read/write blocks on the Vibrix USB device
 
@@ -460,17 +482,17 @@ root unique-GUID identity checks; a partition type alone never selects a disk.
 - [ ] RAM-backed /tmp and runtime state
 - [ ] Flash-write reduction
 - [ ] Hardware rediscovery every boot
-- [ ] Portable configuration policy
+- [x] Portable configuration policy
 - [ ] Safe USB provisioning/imaging tool
 - [ ] Recovery partition/environment
-- [ ] System update + rollback strategy
+- [x] System update + rollback strategy
 - [ ] Target 001 real USB boot
 - [ ] Move the same USB drive between two compatible machines
 
 **Exit:** boot from USB, modify files/configuration/apps, power off, move or reboot the drive, and retain all state without touching an internal system disk.
 
 ## M10 — Networking
-- [ ] NIC abstraction
+- [x] NIC abstraction
 - [ ] RTL8168-family driver
 - [ ] Ethernet + ARP
 - [ ] IPv4 + ICMP
@@ -493,7 +515,7 @@ root unique-GUID identity checks; a partition type alone never selects a disk.
 - [ ] optional USB system encryption design
 
 ## M12 — SMP and performance
-- [ ] CPU enumeration
+- [x] CPU enumeration
 - [ ] AP startup
 - [ ] per-CPU structures
 - [ ] SMP scheduler

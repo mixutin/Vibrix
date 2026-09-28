@@ -1,0 +1,31 @@
+name: Update rollback policy evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  update-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Test production update policy model
+        run: |
+          rustfmt --edition 2024 --check kernel/src/update_policy.rs
+          rustc --edition=2024 -D warnings --test kernel/src/update_policy.rs -o "$RUNNER_TEMP/update-tests"
+          "$RUNNER_TEMP/update-tests"
+          cargo clippy -p vibrix-kernel --lib --target x86_64-unknown-none -- -D warnings
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+      - name: Execute rollback model inside the post-firmware kernel
+        run: |
+          ./tools/test-qemu.sh
+          tr -d '\r' < build/qemu/debugcon.log | grep -Fx 'VIBRIX: kernel update policy model verified'
+          tr -d '\r' < build/qemu/serial.log | grep -Fx 'VIBRIX: kernel update policy model verified'
