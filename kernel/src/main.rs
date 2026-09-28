@@ -420,8 +420,9 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         .unwrap_or_else(|error| panic!("timer routing activation failed: {:?}", error));
         // SAFETY: APIC setup has retained only its documented window slots;
         // IF is still clear and runtime VM scratch slot 511 is unused.
-        unsafe { memory::managed::init_runtime(&info) }
-            .unwrap_or_else(|error| panic!("runtime managed VM initialization failed: {:?}", error));
+        unsafe { memory::managed::init_runtime(&info) }.unwrap_or_else(|error| {
+            panic!("runtime managed VM initialization failed: {:?}", error)
+        });
         debugcon::write("VIBRIX: kernel managed VM runtime initialized\r\n");
         let before = arch::x86_64::irq::timer_ticks();
         // SAFETY: the only unmasked external source is the validated PIT
