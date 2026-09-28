@@ -111,8 +111,8 @@ fn invalid_paths_names_and_trailing_slashes_fail_closed() {
 #[test]
 fn mounted_backend_overrides_only_the_exact_directory() {
     let mut fs = MemFs::<8, 8>::new().unwrap();
-    let mut dev = DevFs;
-    let mut second = DevFs;
+    let mut dev = DevFs::new();
+    let mut second = DevFs::new();
     let mut vfs = Vfs::<3>::new(&mut fs).unwrap();
     vfs.create("/dev", Kind::Directory).unwrap();
     let hidden = vfs.create("/dev/hidden", Kind::File).unwrap();
@@ -138,7 +138,7 @@ fn mounted_backend_overrides_only_the_exact_directory() {
 fn nested_mount_dotdot_walks_back_to_namespace_parent() {
     let mut root = MemFs::<4, 4>::new().unwrap();
     let mut middle = MemFs::<4, 4>::new().unwrap();
-    let mut dev = DevFs;
+    let mut dev = DevFs::new();
     let mut vfs = Vfs::<3>::new(&mut root).unwrap();
     vfs.create("/mnt", Kind::Directory).unwrap();
     vfs.mount("/mnt", &mut middle).unwrap();
@@ -313,7 +313,7 @@ fn pipe_wraparound_full_and_oversized_writes_preserve_order() {
 
 #[test]
 fn devfs_has_only_fixed_devices_and_no_seek_or_mutation() {
-    let mut dev = DevFs;
+    let mut dev = DevFs::new();
     let null = dev.lookup(dev.root(), "null").unwrap();
     let zero = dev.lookup(dev.root(), "zero").unwrap();
     let mut buffer = [42; 32];
