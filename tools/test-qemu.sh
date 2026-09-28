@@ -175,8 +175,7 @@ cat "$SERIAL_LOG"
 
 if [[ "${VIBRIX_EXPECT_TIMER_IRQ:-0}" == "1" ]]; then
   grep -Fq "VIBRIX: kernel timer IRQ delivered" "$LOG"
-  grep -Eq '^kernel timer: tick [1-9][0-9]*?
- "$SERIAL_LOG"
+  tr -d '\r' < "$SERIAL_LOG" | grep -Eq '^kernel timer: tick [1-9][0-9]*$'
 fi
 
 echo "[vibrix] QEMU post-firmware kernel handoff smoke test passed"
