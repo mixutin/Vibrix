@@ -372,7 +372,7 @@ the first real userspace CLI.
 - [x] PID/process lifecycle
 - [x] Executable loading
 - [x] argv/environment
-- [ ] wait/exit
+- [x] wait/exit
 
 **Verified M5 cooperative kernel threads and context switching (PR #118):**
 [Actions run 36422864624](https://github.com/mixutin/Vibrix/actions/runs/36422864624)
@@ -546,6 +546,19 @@ unmap, host, Clippy, build and dependency gates.
 This checks **Executable loading** as the bounded x86-64 ELF64 loading
 foundation. Filesystem-backed exec, general process replacement and normal
 multi-process scheduling remain later work.
+
+**Verified M5 wait/exit syscall lifecycle (PR #161):**
+[Actions run 36492985708](https://github.com/mixutin/Vibrix/actions/runs/36492985708)
+passed the full repository CI on implementation head
+`c5941b53689aa6fafdb03e052cb15edd907c51ef`. The real CPL3 syscall proof
+executes `getpid`, waits on a zombie child, copies the exit status back through
+the validated private userspace CR3, reaps only after successful copy-out, then
+terminates PID 1 through the real `exit` syscall. QEMU requires exact debugcon
+and COM1 evidence for getpid, wait/reap and terminal exit behavior.
+
+This completes the bounded single-BSP **wait/exit** milestone. General
+multi-process scheduling, fork/clone semantics, signals and SMP process
+coordination remain later work.
 
 **Exit:** PID 1 executes in userspace and makes Vibrix syscalls.
 
