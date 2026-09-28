@@ -1,6 +1,10 @@
 #![no_std]
 
+#[cfg(test)]
+extern crate std;
+
 pub mod block;
+pub mod cpu_topology;
 pub mod nic;
 
 /// QEMU-only caller supplies the real kernel's independent output paths.
