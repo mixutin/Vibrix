@@ -11,12 +11,14 @@ bash tools/build-qemu.sh
 OUT="$ROOT/build/qemu"
 cp -- "$OVMF_VARS" "$OUT/OVMF_VARS.pci.fd"
 
+# QEMU's emulated AHCI disk needs a writable backend. This is only the
+# generated test ESP directory, matching test-qemu.sh; never a physical disk.
 set +e
 timeout 25s qemu-system-x86_64 \
   -machine q35 -accel tcg -cpu max -smp 1 -m 512M \
   -drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE" \
   -drive "if=pflash,format=raw,file=$OUT/OVMF_VARS.pci.fd" \
-  -drive "format=raw,file=fat:$OUT/esp,readonly=on" \
+  -drive "format=raw,file=fat:rw:$OUT/esp" \
   -device edu -net none -display none -monitor none -no-reboot \
   -serial "file:$OUT/pci-serial.log" \
   -chardev "file,id=pcidbg,path=$OUT/pci-debugcon.log" \
