@@ -325,4 +325,24 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
     pub fn entry(&self, path: &str, index: usize) -> Result<Option<Entry>> {
         self.vfs.entry(self.vfs.resolve(path)?, index)
     }
+
+    /// Kernel-owned device drivers use this to inject bytes into a mounted
+    /// device while ordinary consumers continue to read through descriptors.
+    pub fn device_input(&mut self, path: &str, byte: u8) -> Result<()> {
+        let node = self.vfs.resolve(path)?;
+        if self.vfs.metadata(node)?.kind != Kind::Device {
+            return Err(Error::Unsupported);
+        }
+        self.vfs.device_input(node, byte)
+    }
+
+    /// Drain output produced by a mounted device to a kernel-owned hardware
+    /// sink. This is intentionally not a userspace descriptor operation.
+    pub fn device_output(&mut self, path: &str, buffer: &mut [u8]) -> Result<usize> {
+        let node = self.vfs.resolve(path)?;
+        if self.vfs.metadata(node)?.kind != Kind::Device {
+            return Err(Error::Unsupported);
+        }
+        self.vfs.device_output(node, buffer)
+    }
 }
