@@ -50,6 +50,14 @@ fn hex16(raw: &str) -> Result<[u8; 16], String> {
     Ok(out)
 }
 
+fn sector_size(raw: &str) -> Result<u64, String> {
+    match raw.parse::<u64>() {
+        Ok(512) => Ok(512),
+        Ok(4096) => Ok(4096),
+        _ => Err("logical sector size must be 512 or 4096".into()),
+    }
+}
+
 fn byte_offset(block: u64) -> Result<u64, String> {
     block
         .checked_mul(BLOCK as u64)
@@ -275,9 +283,13 @@ fn layout(total_blocks: u64, filesystem_uuid: [u8; 16], root_guid: [u8; 16]) -> 
 fn format_image(
     path: &Path,
     total_blocks: u64,
+    logical_sector: u64,
     filesystem_uuid: [u8; 16],
     root_guid: [u8; 16],
 ) -> Result<(), String> {
+    if BLOCK as u64 % logical_sector != 0 {
+        return Err("filesystem block is not an integer number of logical sectors".into());
+    }
     if raw_device_like(path) {
         return Err("refusing a path that looks like a raw device".into());
     }
@@ -401,7 +413,10 @@ fn require_allocated_range(bitmap: &[u8], range: Range) -> Result<(), String> {
     Ok(())
 }
 
-fn inspect_image(path: &Path, root_guid: [u8; 16]) -> Result<(), String> {
+fn inspect_image(path: &Path, logical_sector: u64, root_guid: [u8; 16]) -> Result<(), String> {
+    if BLOCK as u64 % logical_sector != 0 {
+        return Err("filesystem block is not an integer number of logical sectors".into());
+    }
     if raw_device_like(path) {
         return Err("refusing a path that looks like a raw device".into());
     }
@@ -469,32 +484,36 @@ fn inspect_image(path: &Path, root_guid: [u8; 16]) -> Result<(), String> {
     validate_root_directory(&directory, root.size)?;
 
     println!(
-        "VibrixFS v1 valid: blocks={} inodes={} root_block={} generation={} clean={}",
-        sb.total_blocks, sb.total_inodes, root_extent.start, sb.generation, sb.clean
+        "VibrixFS v1 valid: blocks={} logical_sector={} inodes={} root_block={} generation={} clean={}",
+        sb.total_blocks, logical_sector, sb.total_inodes, root_extent.start, sb.generation, sb.clean
     );
     Ok(())
 }
 
 fn usage() -> String {
-    "usage: vibrixfs-image format <new-regular-file> <blocks> <fs-uuid-hex32> <root-guid-wire-hex32>\n       vibrixfs-image inspect <regular-file> <root-guid-wire-hex32>".into()
+    "usage: vibrixfs-image format <new-regular-file> <blocks> <logical-sector:512|4096> <fs-uuid-hex32> <root-guid-wire-hex32>\n       vibrixfs-image inspect <regular-file> <logical-sector:512|4096> <root-guid-wire-hex32>".into()
 }
 
 fn run() -> Result<(), String> {
     let args: Vec<String> = env::args().collect();
     match args.get(1).map(String::as_str) {
-        Some("format") if args.len() == 6 => {
+        Some("format") if args.len() == 7 => {
             let blocks = args[3]
                 .parse::<u64>()
                 .map_err(|_| "blocks must be an unsigned integer".to_string())?;
+            let sector = sector_size(&args[4])?;
             format_image(
                 Path::new(&args[2]),
                 blocks,
-                hex16(&args[4])?,
+                sector,
                 hex16(&args[5])?,
+                hex16(&args[6])?,
             )?;
-            inspect_image(Path::new(&args[2]), hex16(&args[5])?)
+            inspect_image(Path::new(&args[2]), sector, hex16(&args[6])?)
         }
-        Some("inspect") if args.len() == 4 => inspect_image(Path::new(&args[2]), hex16(&args[3])?),
+        Some("inspect") if args.len() == 5 => {
+            inspect_image(Path::new(&args[2]), sector_size(&args[3])?, hex16(&args[4])?)
+        }
         _ => Err(usage()),
     }
 }
@@ -545,5 +564,8 @@ mod tests {
         assert!(!raw_device_like(Path::new("build/vibrixfs.img")));
         assert!(layout(4095, [1; 16], [2; 16]).is_err());
         assert!(layout(MAX_FORMAT_BLOCKS + 1, [1; 16], [2; 16]).is_err());
+        assert_eq!(sector_size("512"), Ok(512));
+        assert_eq!(sector_size("4096"), Ok(4096));
+        assert!(sector_size("2048").is_err());
     }
 }
