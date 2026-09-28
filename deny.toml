@@ -29,3 +29,7 @@ highlight = "all"
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# Git crates are allowed after provenance review. Add each reviewed repository
+# here in the dependency PR; pin a full commit in Cargo.toml and Cargo.lock.
+required-git-spec = "rev"
+allow-git = []

@@ -1,27 +1,62 @@
-name: Deploy website to GitHub Pages
+name: Website validation and Pages
+
 on:
   push:
     branches: [main]
     paths:
-      - "site/**"
-      - ".github/workflows/pages.yml"
+      - 'site/**'
+      - 'tools/check_site.py'
+      - 'tools/test_check_site.py'
+      - 'tools/test-site.cjs'
+      - '.github/workflows/pages.yml'
+  pull_request:
+  merge_group:
   workflow_dispatch:
+
 permissions:
   contents: read
-  pages: write
-  id-token: write
+
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
+
 jobs:
+  check:
+    name: Website checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test offline website validator
+        run: python3 -m unittest discover -s tools -p 'test_check_site.py' -v
+      - name: Check local links, fragments, structured data and status metadata
+        run: python3 tools/check_site.py
+      - name: Check and test browser-data helpers
+        run: |
+          node --check site/script.js
+          node --test tools/test-site.cjs
+
   deploy:
+    name: Deploy verified website
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    needs: check
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
-      - name: Checkout
+      - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - name: Upload site

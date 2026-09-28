@@ -2,43 +2,98 @@ name: Vibrix CI
 
 on:
   push:
-    branches: ["main"]
+    branches: [main]
   pull_request:
+  merge_group:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   supply-chain:
     name: Dependency supply-chain gate
-    runs-on: ubuntu-latest
+    uses: ./.github/workflows/dependencies.yml
+
+  repository-quality:
+    name: Workflow and policy checks
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Check out source
+      - name: Check out source without persisted credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Generate locked dependency graph
-        run: cargo generate-lockfile
-
-      - name: Install pinned audit tools
+        with:
+          persist-credentials: false
+      - name: Test dependency-policy helpers and enforce action pins
         run: |
-          cargo install --locked --version 0.22.2 cargo-audit
-          cargo install --locked --version 0.19.4 cargo-deny
+          python3 -m unittest discover -s tools -p 'test_dependency_inventory.py' -v
+          python3 tools/dependency_inventory.py --workflows .github/workflows
+          git ls-files --error-unmatch Cargo.lock
+      - name: Install pinned workflow linter
+        env:
+          GOBIN: ${{ runner.temp }}/bin
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+      - name: Validate workflow syntax and expressions
+        run: '"$RUNNER_TEMP/bin/actionlint" -shellcheck="" -pyflakes=""'
+      - name: Check website JavaScript syntax
+        run: node --check site/script.js
 
-      - name: Scan RustSec advisories
-        run: cargo audit --file Cargo.lock
+  dependency-review:
+    name: Review dependency changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Reject newly introduced known vulnerabilities in every scope
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: low
+          fail-on-scopes: runtime, development, unknown
+          license-check: false
+          comment-summary-in-pr: never
+          show-openssf-scorecard: false
 
-      - name: Enforce licenses, sources, bans and advisories
-        run: cargo deny --all-features check advisories bans licenses sources
-
-  build-and-smoke-test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
+  minimal-features:
+    name: Minimal features (${{ matrix.package }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: vibrix-boot
+            target: x86_64-unknown-uefi
+          - package: vibrix-kernel
+            target: x86_64-unknown-none
+          - package: vibrix-vmm
+            target: x86_64-unknown-none
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install repository-pinned Rust toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rust-src,rustfmt,clippy --target x86_64-unknown-uefi,x86_64-unknown-none
+      - name: Check actual target without default features
+        env:
+          PACKAGE: ${{ matrix.package }}
+          TARGET: ${{ matrix.target }}
+        run: cargo check --locked --package "$PACKAGE" --no-default-features --target "$TARGET"
 
+  build-and-smoke-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Check development script modes and syntax
         run: |
           for script in tools/*.sh; do
@@ -49,45 +104,38 @@ jobs:
             fi
             bash -n "$script"
           done
-
       - name: Test host OVMF firmware discovery
         run: |
           bash -n tools/ovmf.inc
           bash -n host-tests/ovmf-discovery.sh
           bash host-tests/ovmf-discovery.sh
-
       - name: Install QEMU and OVMF
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-system-x86 ovmf
-
-      - name: Show Rust toolchain
+      - name: Install repository-pinned Rust toolchain
         run: |
-          rustup show active-toolchain
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rust-src,rustfmt,clippy --target x86_64-unknown-uefi,x86_64-unknown-none
           rustc --version
           cargo --version
-
       - name: Check formatting
         run: cargo fmt --all -- --check
-
       - name: Test ELF64 parser on host
         run: |
           rustc --edition=2024 --test boot/src/elf.rs -o "$RUNNER_TEMP/vibrix-elf-tests"
           "$RUNNER_TEMP/vibrix-elf-tests"
-
       - name: Test read-only GPT image inspector on host
         run: |
           rustfmt --check tools/inspect-gpt.rs
           rustc --edition=2024 --test tools/inspect-gpt.rs -o "$RUNNER_TEMP/vibrix-gpt-tests"
           "$RUNNER_TEMP/vibrix-gpt-tests"
           rustc --edition=2024 -D warnings tools/inspect-gpt.rs -o "$RUNNER_TEMP/vibrix-inspect-gpt"
-
       - name: Test shared BootInfo v3 ABI and validation on host
         run: |
           rustfmt --edition 2024 --check shared/bootinfo.rs
           rustc --edition=2024 --test shared/bootinfo.rs -o "$RUNNER_TEMP/vibrix-bootinfo-tests"
           "$RUNNER_TEMP/vibrix-bootinfo-tests"
-
       - name: Test safe GPT image creation and inspect both copies
         run: |
           rustfmt --edition 2024 --check tools/create-usb-image.rs
@@ -105,7 +153,6 @@ jobs:
             fi
             "$RUNNER_TEMP/vibrix-inspect-gpt" "$image" "$sector" >/dev/null
           done
-
       - name: Test EFI System Partition tooling on host
         run: |
           rustfmt --edition 2024 --check tools/populate-esp.rs tools/inspect-esp.rs
@@ -137,13 +184,11 @@ jobs:
           rustfmt --edition 2024 --check tools/vibrixfs-wire.rs
           rustc --edition=2024 -D warnings --test tools/vibrixfs-wire.rs -o "$RUNNER_TEMP/vibrixfs-wire-tests"
           "$RUNNER_TEMP/vibrixfs-wire-tests"
-
       - name: Test VibrixFS redo-journal wire validation on host
         run: |
           rustfmt --edition 2024 --check tools/vibrixfs-journal.rs
           rustc --edition=2024 -D warnings --test tools/vibrixfs-journal.rs -o "$RUNNER_TEMP/vibrixfs-journal-tests"
           "$RUNNER_TEMP/vibrixfs-journal-tests"
-
       - name: Test VibrixFS regular-file format and inspect round trip
         run: |
           rustfmt --edition 2024 --check tools/vibrixfs-image.rs
@@ -169,68 +214,56 @@ jobs:
             echo "corrupt VibrixFS metadata was accepted" >&2
             exit 1
           fi
-
       - name: Test UEFI memory-map acquisition on host
         run: |
           rustc --edition=2024 --test boot/src/memory_map.rs -o "$RUNNER_TEMP/vibrix-memory-map-tests"
           "$RUNNER_TEMP/vibrix-memory-map-tests"
-
       - name: Test loader page-release ownership on host
         run: |
           rustfmt --edition 2024 --check host-tests/loader_cleanup.rs
           rustc --edition=2024 --test host-tests/loader_cleanup.rs -o "$RUNNER_TEMP/vibrix-loader-cleanup-tests"
           "$RUNNER_TEMP/vibrix-loader-cleanup-tests"
-
       - name: Test production CPU transition preflight on host
         run: |
           rustfmt --edition 2024 --check boot/src/transition.rs host-tests/transition.rs
           rustc --edition=2024 --test host-tests/transition.rs -o "$RUNNER_TEMP/vibrix-transition-tests"
           "$RUNNER_TEMP/vibrix-transition-tests"
-
       - name: Test mapped framebuffer writes on host
         run: |
           rustfmt --edition 2024 --check kernel/src/framebuffer.rs kernel/src/debugcon.rs
           rustc --edition=2024 --test kernel/src/framebuffer.rs -o "$RUNNER_TEMP/vibrix-framebuffer-tests"
           "$RUNNER_TEMP/vibrix-framebuffer-tests"
-
       - name: Lint bootloader
-        run: cargo clippy -p vibrix-boot --features qemu-debugcon --target x86_64-unknown-uefi -- -D warnings
-
+        run: cargo clippy --locked -p vibrix-boot --features qemu-debugcon --target x86_64-unknown-uefi -- -D warnings
       - name: Test production-linked ACPI tables and MCFG parser on host
         run: |
           rustfmt --edition 2024 --check kernel/src/arch/x86_64/acpi.rs
           rustc --edition=2024 --test kernel/src/arch/x86_64/acpi.rs -o "$RUNNER_TEMP/vibrix-acpi-tests"
           "$RUNNER_TEMP/vibrix-acpi-tests"
-
       - name: Test production-linked early physical frame allocation on host
         run: |
           rustfmt --edition 2024 --check kernel/src/memory/frame_allocator.rs
           rustc --edition=2024 --test kernel/src/memory/frame_allocator.rs -o "$RUNNER_TEMP/vibrix-frame-tests"
           "$RUNNER_TEMP/vibrix-frame-tests"
-
       - name: Test native PCI enumeration and BAR parsing on host
         run: |
           rustfmt --edition 2024 --check kernel/src/arch/x86_64/pci.rs
           rustc --edition=2024 --test kernel/src/arch/x86_64/pci.rs -o "$RUNNER_TEMP/vibrix-pci-tests"
           "$RUNNER_TEMP/vibrix-pci-tests"
-
       - name: Test production early kernel heap on host
         run: |
           rustfmt --edition 2024 --check kernel/src/memory/heap.rs
           rustc --edition=2024 --test kernel/src/memory/heap.rs -o "$RUNNER_TEMP/vibrix-heap-tests"
           "$RUNNER_TEMP/vibrix-heap-tests"
-
       - name: Test production virtual mapping window on host
         run: |
           rustfmt --edition 2024 --check shared/vm_window.rs kernel/src/memory/virtual_memory.rs
           rustc --edition=2024 --test kernel/src/memory/virtual_memory.rs -o "$RUNNER_TEMP/vibrix-vm-tests"
           "$RUNNER_TEMP/vibrix-vm-tests"
-
       - name: Test CPUID discovery on host
         run: |
           rustc --edition=2024 --test kernel/src/arch/x86_64/cpuid.rs -o "$RUNNER_TEMP/vibrix-cpuid-tests"
           "$RUNNER_TEMP/vibrix-cpuid-tests"
-
       - name: Test production-linked GDT/TSS on host
         run: |
           rustfmt --check host-tests/gdt_layout.rs host-tests/gdt_tss.rs
@@ -238,30 +271,25 @@ jobs:
           "$RUNNER_TEMP/vibrix-gdt-layout-tests"
           rustc --edition=2024 --test host-tests/gdt_tss.rs -o "$RUNNER_TEMP/vibrix-gdt-tss-tests"
           "$RUNNER_TEMP/vibrix-gdt-tss-tests"
-
       - name: Test APIC IRQ routing policy on host
         run: |
           rustfmt --edition 2024 --check kernel/src/arch/x86_64/irq.rs
           rustc --edition=2024 -D warnings --test kernel/src/arch/x86_64/irq.rs -o "$RUNNER_TEMP/vibrix-irq-tests"
           "$RUNNER_TEMP/vibrix-irq-tests"
-
       - name: Test bounded kernel console line editor and commands on host
         run: |
           rustfmt --edition 2024 --check kernel/src/console.rs
           rustc --edition=2024 -D warnings --test kernel/src/console.rs -o "$RUNNER_TEMP/vibrix-console-tests"
           "$RUNNER_TEMP/vibrix-console-tests"
-
       - name: Test production serial console logic on host
         run: |
           rustc --edition=2024 --test kernel/src/arch/x86_64/serial.rs -o "$RUNNER_TEMP/vibrix-serial-tests"
           "$RUNNER_TEMP/vibrix-serial-tests"
-
       - name: Test native QEMU PS2 scan-code decoder on host
         run: |
           rustfmt --edition 2024 --check kernel/src/arch/x86_64/ps2.rs
           rustc --edition=2024 --test kernel/src/arch/x86_64/ps2.rs -o "$RUNNER_TEMP/vibrix-ps2-tests"
           "$RUNNER_TEMP/vibrix-ps2-tests"
-
       - name: Test legacy self-contained host fixtures (not production-linked)
         run: |
           set -euo pipefail
@@ -273,25 +301,20 @@ jobs:
             rustc --edition=2024 "$fixture" -o "$RUNNER_TEMP/vibrix-host-fixture"
             "$RUNNER_TEMP/vibrix-host-fixture"
           done
-
       - name: Test device and driver candidate model on host
         run: |
           rustfmt --edition 2024 --check kernel/src/device.rs
           rustc --edition=2024 -D warnings --test kernel/src/device.rs -o "$RUNNER_TEMP/vibrix-device-tests"
           "$RUNNER_TEMP/vibrix-device-tests"
-
       - name: Test production IDT layout and page-fault bit decoding on host
         run: |
           rustfmt --edition 2024 --check shared/idt_layout.rs kernel/src/arch/x86_64/idt.rs
           rustc --edition=2024 --test shared/idt_layout.rs -o "$RUNNER_TEMP/vibrix-idt-layout-tests"
           "$RUNNER_TEMP/vibrix-idt-layout-tests"
-
       - name: Lint kernel
-        run: cargo clippy -p vibrix-kernel --all-features --target x86_64-unknown-none -- -D warnings
-
+        run: cargo clippy --locked -p vibrix-kernel --all-features --target x86_64-unknown-none -- -D warnings
       - name: Build Vibrix
         run: bash tools/build-qemu.sh
-
       - name: QEMU boot from populated GPT EFI System Partition
         run: |
           image="$RUNNER_TEMP/vibrix-bootable-esp.img"
@@ -346,7 +369,6 @@ jobs:
           VIBRIX_SKIP_BUILD: "1"
           VIBRIX_EXPECT_TIMER_IRQ: "1"
         run: bash tools/test-qemu.sh
-
       - name: QEMU native PCI scan with virtual xHCI controller
         env:
           VIBRIX_SKIP_BUILD: "1"
@@ -354,33 +376,28 @@ jobs:
         run: |
           bash tools/test-qemu.sh
           grep -Eq 'Vibrix PCI segment0: [1-9][0-9]* devices, [1-9][0-9]* assigned BARs, [1-9][0-9]* xHCI' build/qemu/serial.log
-
       - name: QEMU real keyboard injection after ExitBootServices
         env:
           VIBRIX_SKIP_BUILD: "1"
           VIBRIX_QEMU_KEYBOARD_PROBE: "1"
         run: bash tools/test-qemu.sh
-
       - name: QEMU edited help command through real keyboard
         env:
           VIBRIX_SKIP_BUILD: "1"
           VIBRIX_QEMU_CONSOLE_PROBE: "1"
         run: bash tools/test-qemu.sh
-
       - name: QEMU post-firmware kernel panic test
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,panic-probe bash tools/build-qemu.sh
           VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
           grep -Fq "VIBRIX: kernel panic" build/qemu/debugcon.log
           grep -Fq "kernel panic:" build/qemu/serial.log
-
       - name: QEMU native breakpoint trap test
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,breakpoint-probe bash tools/build-qemu.sh
           VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
           grep -Fq "VIBRIX: kernel breakpoint exception handled" build/qemu/debugcon.log
           grep -Fq "kernel #BP breakpoint rip=" build/qemu/serial.log
-
       - name: QEMU native page-fault diagnostic test
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,page-fault-probe bash tools/build-qemu.sh
@@ -388,17 +405,51 @@ jobs:
           grep -Fq "VIBRIX: kernel page fault diagnostic" build/qemu/debugcon.log
           grep -Fq "kernel #PF cr2=0x10000000000" build/qemu/serial.log
           grep -Fq "present=false write=false user=false reserved=false exec=false" build/qemu/serial.log
-
       - name: QEMU supervisor write-protection fault
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,vm-write-probe bash tools/build-qemu.sh
           VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
           grep -Fq "kernel #PF cr2=0xffffc00000000000" build/qemu/serial.log
           grep -Fq "present=true write=true user=false reserved=false exec=false" build/qemu/serial.log
-
       - name: QEMU access after unmap fault
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,vm-unmap-probe bash tools/build-qemu.sh
           VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
           grep -Fq "kernel #PF cr2=0xffffc00000000000" build/qemu/serial.log
           grep -Fq "present=false write=false user=false reserved=false exec=false" build/qemu/serial.log
+      - name: Preserve most recent QEMU diagnostics on success or failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qemu-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/qemu/*.log
+          if-no-files-found: warn
+          retention-days: 7
+
+  ci-gate:
+    name: CI gate
+    if: always()
+    needs: [repository-quality, supply-chain, dependency-review, minimal-features, build-and-smoke-test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every applicable check to succeed
+        env:
+          CHECKS: ${{ toJSON(needs) }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          checks = json.loads(os.environ["CHECKS"])
+          failed = []
+          for name, check in checks.items():
+              allowed = {"success"}
+              if name == "dependency-review" and os.environ["EVENT"] != "pull_request":
+                  allowed = {"skipped"}
+              if check["result"] not in allowed:
+                  failed.append(f'{name}: {check["result"]}')
+          if failed:
+              print("Required checks did not pass:\n" + "\n".join(failed))
+              sys.exit(1)
+          print("All applicable CI checks passed.")
+          PY
