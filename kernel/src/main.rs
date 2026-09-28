@@ -494,7 +494,6 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                 unsafe { memory::address_space::activate_probe() }.unwrap_or_else(|error| {
                     panic!("address-space probe activation failed: {:?}", error)
                 });
-            debugcon::write("VIBRIX: kernel userspace CR3 activated\r\n");
             crate::println!(
                 "kernel address space probe: kernel_cr3={:#x} user_cr3={:#x} rip={:#x} rsp={:#x}",
                 probe.kernel_root,
@@ -502,10 +501,10 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                 probe.user_rip,
                 probe.user_rsp
             );
-            // SAFETY: activate_probe verified RX/RW user mappings under the
-            // independently owned active CR3; GDT/TSS/IDT remain shared,
-            // supervisor-only kernel mappings.
-            unsafe { arch::x86_64::ring3::enter(probe.user_rip, probe.user_rsp) };
+            // SAFETY: activate_probe staged and validated the private mappings.
+            // enter_probe moves to a higher-half kernel stack before loading
+            // the private CR3, then immediately enters CPL3.
+            unsafe { memory::address_space::enter_probe(probe) };
         }
     }
 

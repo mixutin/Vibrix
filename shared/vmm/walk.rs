@@ -40,26 +40,45 @@ pub struct Vm<M: Memory, const N: usize> {
     pub(super) memory: M,
     pub(super) frames: Frames<N>,
     pub(super) root: u64,
+    pub(super) slot: usize,
 }
 
 impl<M: Memory, const N: usize> Vm<M, N> {
-    pub fn new(root: u64, mut memory: M, frames: Frames<N>) -> Result<Self, Error> {
+    pub fn new(root: u64, memory: M, frames: Frames<N>) -> Result<Self, Error> {
+        Self::new_in_slot(root, memory, frames, ARENA_SLOT)
+    }
+
+    /// Construct a VM that owns exactly one initially empty PML4 slot.
+    ///
+    /// The caller selects the virtual-address domain; every later Page must
+    /// resolve through this same root slot.
+    pub fn new_in_slot(
+        root: u64,
+        mut memory: M,
+        frames: Frames<N>,
+        slot: usize,
+    ) -> Result<Self, Error> {
         PhysicalFrame::new(root, frames.physical_bits())?;
-        if frames.contains(root) || frames.available() != frames.total() {
+        if slot >= 512 || frames.contains(root) || frames.available() != frames.total() {
             return Err(Error::InvalidRoot);
         }
-        if memory.read_entry(root, ARENA_SLOT) != 0 {
+        if memory.read_entry(root, slot) != 0 {
             return Err(Error::AlreadyMapped);
         }
         Ok(Self {
             memory,
             frames,
             root,
+            slot,
         })
     }
 
     pub const fn root_address(&self) -> u64 {
         self.root
+    }
+
+    pub const fn owned_slot(&self) -> usize {
+        self.slot
     }
 
     pub fn free_frames(&self) -> usize {
@@ -89,6 +108,9 @@ impl<M: Memory, const N: usize> Vm<M, N> {
 
     pub(super) fn path(&mut self, page: Page) -> Result<Option<[u64; 4]>, Error> {
         let indices = page.indices();
+        if indices[0] != self.slot {
+            return Err(Error::InvalidAddress);
+        }
         let mut tables = [0; 4];
         tables[0] = self.root;
         for level in 0..3 {
@@ -190,6 +212,20 @@ mod tests {
             Vm::new(ROOT, memory, frames),
             Err(Error::InvalidRoot)
         ));
+    }
+
+    #[test]
+    fn explicit_slot_rejects_pages_from_other_domains() {
+        use super::super::address::{Page, USER_SLOT};
+        let (memory, frames) = memory_and_frames::<8>(8);
+        let mut vm = Vm::new_in_slot(ROOT, memory, frames, USER_SLOT).unwrap();
+        let user = Page::new_user(0x4000_0000).unwrap();
+        assert_eq!(vm.owned_slot(), USER_SLOT);
+        assert_eq!(vm.query(user), Ok(None));
+        assert_eq!(
+            vm.query(Page::new(super::super::address::ARENA_BASE).unwrap()),
+            Err(Error::InvalidAddress)
+        );
     }
 
     #[test]
