@@ -485,11 +485,9 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             unsafe { arch::x86_64::ring3::enter(user_rip, user_rsp) };
         }
 
-        #[cfg(feature = "address-space-probe")]
+        #[cfg(all(feature = "address-space-probe", not(feature = "elf-load-probe")))]
         {
-            // SAFETY: the feature-gated owner was initialized pre-STI. This
-            // masks local interrupts, switches to its private CR3 and leaves
-            // IF=0 for the immediate privilege transition below.
+            // SAFETY: the feature-gated owner was initialized pre-STI.
             let probe =
                 unsafe { memory::address_space::activate_probe() }.unwrap_or_else(|error| {
                     panic!("address-space probe activation failed: {:?}", error)
@@ -504,6 +502,24 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             // SAFETY: activate_probe staged and validated the private mappings.
             // enter_probe moves to a higher-half kernel stack before loading
             // the private CR3, then immediately enters CPL3.
+            unsafe { memory::address_space::enter_probe(probe) };
+        }
+
+        #[cfg(feature = "elf-load-probe")]
+        {
+            // SAFETY: the private address-space owner is initialized and the
+            // ELF loader stages only into its owned inactive lower-half root.
+            let probe = unsafe { memory::address_space::load_elf_probe() }
+                .unwrap_or_else(|error| panic!("userspace ELF load probe failed: {:?}", error));
+            debugcon::write("VIBRIX: kernel userspace ELF loaded\r\n");
+            crate::println!(
+                "kernel ELF probe: kernel_cr3={:#x} user_cr3={:#x} entry={:#x} rsp={:#x}",
+                probe.kernel_root,
+                probe.user_root,
+                probe.user_rip,
+                probe.user_rsp
+            );
+            // SAFETY: load_elf_probe committed W^X mappings and a guarded stack.
             unsafe { memory::address_space::enter_probe(probe) };
         }
     }

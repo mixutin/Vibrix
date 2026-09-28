@@ -23,6 +23,7 @@ pci-msix-probe = ["qemu-debugcon"]
 preempt-thread-probe = ["qemu-debugcon"]
 ring3-probe = ["qemu-debugcon"]
 address-space-probe = ["qemu-debugcon"]
+elf-load-probe = ["qemu-debugcon", "address-space-probe"]
 syscall-probe = ["qemu-debugcon", "address-space-probe"]
 
 [dependencies]
