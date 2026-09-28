@@ -25,7 +25,7 @@ cp -- "$OVMF_VARS" "$QEMU_DIR/OVMF_VARS.test.fd"
 
 # Opt-in *real QEMU keyboard injection*, never manufactured kernel log text.
 MONITOR=none
-if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" ]]; then
+if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" ]]; then
   MONITOR_SOCKET="$QEMU_DIR/keyboard-monitor.sock"
   rm -f "$MONITOR_SOCKET"
   MONITOR="unix:$MONITOR_SOCKET,server=on,wait=off"
@@ -58,11 +58,11 @@ echo "[vibrix] OVMF VARS: $OVMF_VARS"
 echo "[vibrix] QEMU CPU: ${VIBRIX_QEMU_CPU:-max}"
 echo "[vibrix] QEMU RAM: ${VIBRIX_QEMU_RAM:-512M}"
 echo "[vibrix] running headless QEMU smoke test"
-if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" ]]; then
+if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" ]]; then
   # Connect through QEMU's HMP monitor and send an actual emulated key
   # only after the independent native kernel reports its poll loop ready.
   # Python is host test infrastructure, not part of the Vibrix runtime.
-  python3 - "$LOG" "$MONITOR_SOCKET" "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" <<'PY' &
+  python3 - "$LOG" "$MONITOR_SOCKET" "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" "${VIBRIX_QEMU_FILES_PROBE:-0}" <<'PY' &
 import pathlib
 import socket
 import sys
@@ -72,12 +72,17 @@ log = pathlib.Path(sys.argv[1])
 monitor = sys.argv[2]
 deadline = time.monotonic() + 9
 while time.monotonic() < deadline:
-    marker = "VIBRIX: kernel console prompt ready" if sys.argv[3] == "1" else "VIBRIX: kernel PS2 polling ready"
+    marker = "VIBRIX: kernel console prompt ready" if sys.argv[3] == "1" or sys.argv[4] == "1" else "VIBRIX: kernel PS2 polling ready"
     if log.exists() and marker in log.read_text(errors="replace"):
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
                 client.connect(monitor)
-                if sys.argv[3] == "1":
+                if sys.argv[4] == "1":
+                    commands = ["write /tmp/note hello", "cat /tmp/note", "ls /dev",
+                                "pipe", "rm /tmp/note", "cat /tmp/note", "reboot"]
+                    special = {" ": "spc", "/": "slash", "\n": "ret"}
+                    keys = tuple(special.get(ch, ch) for ch in "\n".join(commands) + "\n")
+                elif sys.argv[3] == "1":
                     # Real virtual keyboard: edited help, clear, diagnostics,
                     # uptime, then an actual terminal reboot request.
                     keys = (
@@ -105,11 +110,15 @@ PY
   KEYBOARD_PID=$!
 fi
 set +e
-timeout 12s qemu-system-x86_64 "${ARGS[@]}"
+QEMU_TIMEOUT=12s
+if [[ "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" ]]; then
+  QEMU_TIMEOUT=40s
+fi
+timeout "$QEMU_TIMEOUT" qemu-system-x86_64 "${ARGS[@]}"
 RC=$?
 set -e
 
-if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" ]]; then
+if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" ]]; then
   if ! wait "$KEYBOARD_PID"; then
     echo "[vibrix] QEMU native keyboard injection failed" >&2
     [[ -f "$LOG" ]] && cat "$LOG"
@@ -118,7 +127,7 @@ if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:
   fi
 fi
 
-if [[ "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" && "$RC" -eq 124 ]]; then
+if [[ ( "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" ) && "$RC" -eq 124 ]]; then
   echo "[vibrix] console reboot command did not reset QEMU before timeout" >&2
   [[ -f "$LOG" ]] && cat "$LOG"
   [[ -f "$SERIAL_LOG" ]] && cat "$SERIAL_LOG"
@@ -169,6 +178,10 @@ for expected in \
   "VIBRIX: kernel LAPIC and IOAPIC registers read" \
   "VIBRIX: kernel heap allocation and reuse verified" \
   "VIBRIX: kernel cooperative threads verified" \
+  "VIBRIX: kernel VFS and memory filesystem verified" \
+  "VIBRIX: kernel file descriptors verified" \
+  "VIBRIX: kernel devfs null and zero verified" \
+  "VIBRIX: kernel pipe lifecycle verified" \
   "VIBRIX: kernel framebuffer wrote pixels" \
   "VIBRIX: kernel framebuffer status banner drawn"; do
   if ! grep -Fq "$expected" "$LOG"; then
@@ -247,3 +260,20 @@ if [[ "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" ]]; then
 fi
 
 echo "[vibrix] QEMU post-firmware kernel handoff smoke test passed"
+
+if [[ "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" ]]; then
+  for marker in \
+    'VIBRIX: kernel VFS and memory filesystem verified' \
+    'VIBRIX: kernel file descriptors verified' \
+    'VIBRIX: kernel devfs null and zero verified' \
+    'VIBRIX: kernel pipe lifecycle verified'; do
+    tr -d '\r' < "$LOG" | grep -Fx "$marker"
+    tr -d '\r' < "$SERIAL_LOG" | grep -Fx "$marker"
+  done
+  for line in 'wrote 5 bytes (RAM)' 'hello' 'null' 'zero' 'pipe roundtrip' 'fs: NotFound'; do
+    tr -d '\r' < "$SERIAL_LOG" | grep -Fx "$line"
+  done
+  grep -Fq 'VIBRIX: kernel filesystem command completed' "$LOG"
+  grep -Fq 'VIBRIX: kernel console command reboot' "$LOG"
+  echo '[vibrix] QEMU retained RAM file and mounted device commands passed'
+fi

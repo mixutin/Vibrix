@@ -8,10 +8,12 @@ pub mod config_policy;
 pub mod cpu_topology;
 pub mod nic;
 pub mod update_policy;
+pub mod vfs;
 
 /// QEMU-only caller supplies the real kernel's independent output paths.
 /// A marker is emitted only after the corresponding behavior succeeds.
 pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
+    vfs::self_test(&mut report).expect("bootstrap VFS self-test failed");
     block::self_test().expect("block abstraction self-test failed");
     report("VIBRIX: kernel block abstraction verified");
     nic::self_test().expect("NIC abstraction self-test failed");
