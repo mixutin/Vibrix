@@ -3,9 +3,21 @@
 //! Hardware programming stays in the APIC/PIT modules. This module validates
 //! vectors, GSI coverage and I/O-APIC redirection words without privileged I/O.
 
+use core::sync::atomic::{AtomicU64, Ordering};
+
 pub const TIMER_VECTOR: u8 = 0x40;
 pub const SPURIOUS_VECTOR: u8 = 0xff;
 pub const LEGACY_TIMER_IRQ: u8 = 0;
+
+static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
+
+pub fn timer_ticks() -> u64 {
+    TIMER_TICKS.load(Ordering::Relaxed)
+}
+
+pub(crate) fn record_timer_tick() {
+    TIMER_TICKS.fetch_add(1, Ordering::Relaxed);
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RouteError {
@@ -71,6 +83,13 @@ impl Route {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn monotonic_tick_counter_advances() {
+        let before = timer_ticks();
+        record_timer_tick();
+        assert_eq!(timer_ticks(), before + 1);
+    }
 
     #[test]
     fn timer_vector_is_outside_exceptions_and_spurious_slot() {
