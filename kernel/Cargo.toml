@@ -23,6 +23,7 @@ pci-msix-probe = ["qemu-debugcon"]
 preempt-thread-probe = ["qemu-debugcon"]
 ring3-probe = ["qemu-debugcon"]
 address-space-probe = ["qemu-debugcon"]
+syscall-probe = ["qemu-debugcon", "address-space-probe"]
 
 [dependencies]
 vibrix-vmm = { path = "../shared/vmm", version = "=0.0.1" }
