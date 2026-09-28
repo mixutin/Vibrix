@@ -61,16 +61,35 @@ pub enum Command {
     Unknown,
 }
 
-/// Match whole words only, allowing harmless leading/trailing ASCII spaces.
-/// No allocator, UTF-8 guesswork, shell expansions or argument parsing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CommandSpec {
+    pub name: &'static [u8],
+    pub command: Command,
+}
+
+pub const COMMANDS: &[CommandSpec] = &[
+    CommandSpec {
+        name: b"help",
+        command: Command::Help,
+    },
+    CommandSpec {
+        name: b"info",
+        command: Command::Info,
+    },
+];
+
+/// Match whole words only against the fixed dispatch registry, allowing
+/// harmless leading/trailing ASCII spaces. No allocator, UTF-8 guesswork,
+/// shell expansions or argument parsing.
 pub fn command(bytes: &[u8]) -> Command {
     let trimmed = bytes.trim_ascii();
-    match trimmed {
-        b"" => Command::Empty,
-        b"help" => Command::Help,
-        b"info" => Command::Info,
-        _ => Command::Unknown,
+    if trimmed.is_empty() {
+        return Command::Empty;
     }
+    COMMANDS
+        .iter()
+        .find(|spec| spec.name == trimmed)
+        .map_or(Command::Unknown, |spec| spec.command)
 }
 
 #[cfg(test)]
@@ -118,6 +137,21 @@ mod tests {
         assert_eq!(line.feed(b'\r'), Edit::Complete(b""));
         assert_eq!(line.feed(b'i'), Edit::Echo(b'i'));
         assert_eq!(line.feed(b'\n'), Edit::Complete(b"i"));
+    }
+
+    #[test]
+    fn dispatch_registry_has_unique_exact_names() {
+        for (index, command) in COMMANDS.iter().enumerate() {
+            assert!(!command.name.is_empty());
+            assert!(command
+                .name
+                .iter()
+                .all(|byte| byte.is_ascii_graphic() && *byte != b' '));
+            assert!(!COMMANDS[..index]
+                .iter()
+                .any(|earlier| earlier.name == command.name));
+            assert_eq!(super::command(command.name), command.command);
+        }
     }
 
     #[test]
