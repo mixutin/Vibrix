@@ -11,11 +11,11 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 #[allow(dead_code)]
-#[path = "vibrixfs-wire.rs"]
-mod wire;
-#[allow(dead_code)]
 #[path = "vibrixfs-journal.rs"]
 mod journal;
+#[allow(dead_code)]
+#[path = "vibrixfs-wire.rs"]
+mod wire;
 
 use wire::{
     BLOCK, Extent, INODE_BYTES, Inode, Range, Superblock, encode_dir_record, encode_inode,
@@ -589,7 +589,6 @@ fn inspect_image(path: &Path, logical_sector: u64, root_guid: [u8; 16]) -> Resul
     Ok(())
 }
 
-
 fn write_checkpoint(
     file: &mut File,
     mut sb: Superblock,
@@ -630,7 +629,9 @@ fn recover_image(path: &Path, logical_sector: u64, root_guid: [u8; 16]) -> Resul
         .write(true)
         .open(path)
         .map_err(|e| format!("open recovery image: {e}"))?;
-    let meta = file.metadata().map_err(|e| format!("stat recovery image: {e}"))?;
+    let meta = file
+        .metadata()
+        .map_err(|e| format!("stat recovery image: {e}"))?;
     if !meta.file_type().is_file() || meta.len() % BLOCK as u64 != 0 {
         return Err("recovery input must be a regular 4096-byte-aligned file".into());
     }
@@ -686,7 +687,9 @@ fn recover_image(path: &Path, logical_sector: u64, root_guid: [u8; 16]) -> Resul
 
     let manifest = journal::parse_manifest(&manifest_block)
         .map_err(|e| format!("journal manifest is not recoverable: {e:?}"))?;
-    if manifest.journal_start != journal_range.start || manifest.journal_blocks != journal_range.blocks {
+    if manifest.journal_start != journal_range.start
+        || manifest.journal_blocks != journal_range.blocks
+    {
         return Err("journal manifest geometry does not match superblock".into());
     }
     let count = usize::from(manifest.entry_count);
@@ -723,13 +726,9 @@ fn recover_image(path: &Path, logical_sector: u64, root_guid: [u8; 16]) -> Resul
         return Ok(());
     }
 
-    let validated = journal::validate_transaction(
-        &manifest_block,
-        &payloads,
-        &commit_block,
-        total_blocks,
-    )
-    .map_err(|e| format!("committed journal transaction failed validation: {e:?}"))?;
+    let validated =
+        journal::validate_transaction(&manifest_block, &payloads, &commit_block, total_blocks)
+            .map_err(|e| format!("committed journal transaction failed validation: {e:?}"))?;
 
     if checkpoint.generation < validated.previous_generation {
         return Err(format!(
@@ -915,7 +914,11 @@ mod tests {
     }
 
     fn stage_committed_repair(path: &Path, root_guid: [u8; 16], corrupt_payload: bool) -> Vec<u8> {
-        let mut file = OpenOptions::new().read(true).write(true).open(path).unwrap();
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .unwrap();
         let total_blocks = file.metadata().unwrap().len() / BLOCK as u64;
         let mut raw = [0u8; BLOCK];
         read_at(&mut file, 0, &mut raw).unwrap();
@@ -1003,7 +1006,11 @@ mod tests {
         let root_guid = [6u8; 16];
         format_image(&path, 4096, 512, [5u8; 16], root_guid).unwrap();
 
-        let mut file = OpenOptions::new().read(true).write(true).open(&path).unwrap();
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
         let mut raw = [0u8; BLOCK];
         read_at(&mut file, 0, &mut raw).unwrap();
         let mut sb = parse_superblock(&raw, 4096, &root_guid).unwrap();
@@ -1034,7 +1041,11 @@ mod tests {
         let root_guid = [8u8; 16];
         format_image(&path, 4096, 4096, [7u8; 16], root_guid).unwrap();
 
-        let mut file = OpenOptions::new().read(true).write(true).open(&path).unwrap();
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
         let mut raw = [0u8; BLOCK];
         read_at(&mut file, 0, &mut raw).unwrap();
         let mut sb = parse_superblock(&raw, 4096, &root_guid).unwrap();
