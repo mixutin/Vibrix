@@ -1,0 +1,173 @@
+//! Vibrix userspace/kernel syscall ABI v1.
+//!
+//! This file is architecture-neutral policy for the current x86-64 port. The
+//! transport instruction is deliberately separate: ROADMAP tracks syscall/sysret
+//! as its own implementation milestone.
+
+pub const ABI_VERSION: u64 = 1;
+pub const MAX_ARGS: usize = 6;
+pub const MAX_ERRNO: u16 = 4095;
+
+/// x86-64 v1 register contract.
+///
+/// Input:
+/// - RAX: syscall number
+/// - RDI, RSI, RDX, R10, R8, R9: arguments 0..5
+///
+/// Output:
+/// - RAX: success value or negative errno encoded in two's-complement.
+///
+/// RCX and R11 are transport-clobbered once SYSCALL/SYSRET is implemented and
+/// are therefore never argument registers in ABI v1.
+pub const ARGUMENT_REGISTERS: [&str; MAX_ARGS] = ["rdi", "rsi", "rdx", "r10", "r8", "r9"];
+
+#[repr(u64)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Syscall {
+    Exit = 0,
+    Yield = 1,
+    GetPid = 2,
+    Read = 3,
+    Write = 4,
+    Open = 5,
+    Close = 6,
+    Wait = 7,
+    Exec = 8,
+}
+
+impl Syscall {
+    pub const fn from_number(number: u64) -> Option<Self> {
+        match number {
+            0 => Some(Self::Exit),
+            1 => Some(Self::Yield),
+            2 => Some(Self::GetPid),
+            3 => Some(Self::Read),
+            4 => Some(Self::Write),
+            5 => Some(Self::Open),
+            6 => Some(Self::Close),
+            7 => Some(Self::Wait),
+            8 => Some(Self::Exec),
+            _ => None,
+        }
+    }
+
+    pub const fn number(self) -> u64 {
+        self as u64
+    }
+}
+
+#[repr(u16)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Errno {
+    InvalidArgument = 1,
+    BadAddress = 2,
+    BadFileDescriptor = 3,
+    NotFound = 4,
+    NotSupported = 5,
+    NoMemory = 6,
+    Busy = 7,
+    PermissionDenied = 8,
+    Interrupted = 9,
+    Io = 10,
+}
+
+impl Errno {
+    pub const fn code(self) -> u16 {
+        self as u16
+    }
+}
+
+/// Encode an ABI v1 error return in RAX.
+pub const fn encode_error(error: Errno) -> u64 {
+    0u64.wrapping_sub(error.code() as u64)
+}
+
+/// Decode an ABI v1 RAX result.
+///
+/// Values -1 through -4095 are errors. Every other bit-pattern is a success
+/// value, matching the contract documented for ABI v1.
+pub const fn decode_result(raw: u64) -> Result<u64, u16> {
+    let threshold = 0u64.wrapping_sub(MAX_ERRNO as u64);
+    if raw >= threshold {
+        Err((0u64.wrapping_sub(raw)) as u16)
+    } else {
+        Ok(raw)
+    }
+}
+
+/// User pointers are raw virtual addresses. The kernel must validate the full
+/// range before touching userspace memory; the ABI itself never treats a
+/// non-zero pointer as proof that memory is mapped or accessible.
+pub const fn checked_user_range(address: u64, len: u64) -> Option<(u64, u64)> {
+    if len == 0 {
+        return Some((address, address));
+    }
+    let end = address.checked_add(len - 1)?;
+    // x86-64 48-bit lower-half canonical user addresses only for ABI v1.
+    if address > 0x0000_7fff_ffff_ffff || end > 0x0000_7fff_ffff_ffff {
+        return None;
+    }
+    Some((address, end))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn syscall_numbers_are_stable_and_unique() {
+        let calls = [
+            Syscall::Exit,
+            Syscall::Yield,
+            Syscall::GetPid,
+            Syscall::Read,
+            Syscall::Write,
+            Syscall::Open,
+            Syscall::Close,
+            Syscall::Wait,
+            Syscall::Exec,
+        ];
+        for (expected, call) in calls.into_iter().enumerate() {
+            assert_eq!(call.number(), expected as u64);
+            assert_eq!(Syscall::from_number(expected as u64), Some(call));
+        }
+        assert_eq!(Syscall::from_number(calls.len() as u64), None);
+    }
+
+    #[test]
+    fn error_encoding_uses_reserved_negative_window() {
+        for error in [
+            Errno::InvalidArgument,
+            Errno::BadAddress,
+            Errno::BadFileDescriptor,
+            Errno::NotFound,
+            Errno::NotSupported,
+            Errno::NoMemory,
+            Errno::Busy,
+            Errno::PermissionDenied,
+            Errno::Interrupted,
+            Errno::Io,
+        ] {
+            assert_eq!(decode_result(encode_error(error)), Err(error.code()));
+        }
+        assert_eq!(decode_result(0), Ok(0));
+        assert_eq!(decode_result(MAX_ERRNO as u64), Ok(MAX_ERRNO as u64));
+        assert_eq!(decode_result(0u64.wrapping_sub((MAX_ERRNO as u64) + 1)), Ok(0u64.wrapping_sub((MAX_ERRNO as u64) + 1)));
+    }
+
+    #[test]
+    fn user_ranges_reject_overflow_and_upper_half() {
+        assert_eq!(checked_user_range(0x1000, 0), Some((0x1000, 0x1000)));
+        assert_eq!(checked_user_range(0x1000, 0x20), Some((0x1000, 0x101f)));
+        assert_eq!(checked_user_range(0x0000_7fff_ffff_ffff, 1), Some((0x0000_7fff_ffff_ffff, 0x0000_7fff_ffff_ffff)));
+        assert_eq!(checked_user_range(0x0000_8000_0000_0000, 1), None);
+        assert_eq!(checked_user_range(u64::MAX - 3, 8), None);
+    }
+
+    #[test]
+    fn register_contract_never_uses_transport_clobbers() {
+        assert_eq!(ARGUMENT_REGISTERS, ["rdi", "rsi", "rdx", "r10", "r8", "r9"]);
+        assert!(!ARGUMENT_REGISTERS.contains(&"rcx"));
+        assert!(!ARGUMENT_REGISTERS.contains(&"r11"));
+    }
+}
