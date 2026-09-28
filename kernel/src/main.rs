@@ -520,7 +520,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         // ExitBootServices; input remains polled after timer IRQ enablement.
         let mut root =
             vibrix_kernel::vfs::console::BootstrapRoot::new().expect("bootstrap memory filesystem");
-        let mut devices = vibrix_kernel::vfs::devfs::DevFs;
+        let mut devices = vibrix_kernel::vfs::devfs::DevFs::new();
         let mut files = vibrix_kernel::vfs::console::bootstrap(&mut root, &mut devices)
             .expect("bootstrap filesystem mounts");
         struct FsOutput;
