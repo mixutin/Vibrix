@@ -6,6 +6,7 @@ mod arch;
 #[cfg(not(feature = "panic-probe"))]
 mod console;
 mod debugcon;
+mod device;
 mod framebuffer;
 mod memory;
 
@@ -138,8 +139,23 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     // This scans all 256 bus numbers but does NOT touch any device BAR
     // memory, enable bus mastering or identify the persistent boot USB.
     let mut shown = 0usize;
+    let mut device_model = device::DiscoverySummary::default();
     let pci = unsafe {
         arch::x86_64::pci::discover_legacy_segment_zero(|device| {
+            let identity = device::DeviceIdentity::Pci(device::PciIdentity {
+                address: device::PciAddress {
+                    segment: 0,
+                    bus: device.bdf.bus,
+                    device: device.bdf.device,
+                    function: device.bdf.function,
+                },
+                vendor: device.vendor,
+                device_id: device.id,
+                class: device.class,
+                subclass: device.subclass,
+                programming_interface: device.programming_interface,
+            });
+            let _candidate = device_model.observe(identity);
             if shown < 8 {
                 crate::println!(
                     "PCI {:02x}:{:02x}.{} {:04x}:{:04x} class {:02x}:{:02x}:{:02x}",
@@ -162,6 +178,18 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         pci.assigned_bars,
         pci.xhci_controllers
     );
+    crate::println!(
+        "Vibrix device model: {} devices, {} driver candidates, {} xHCI candidates, {} RTL8168 candidates",
+        device_model.devices,
+        device_model.driver_candidates,
+        device_model.xhci_candidates,
+        device_model.rtl8168_candidates
+    );
+    if device_model.devices == pci.devices {
+        debugcon::write("VIBRIX: kernel device model populated\r\n");
+    } else {
+        debugcon::write("VIBRIX: kernel device model count mismatch\r\n");
+    }
     if pci.devices == 0 || pci.assigned_bars == 0 || pci.malformed_bars != 0 {
         debugcon::write("VIBRIX: kernel PCI segment0 discovery rejected\r\n");
     } else {
