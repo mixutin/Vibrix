@@ -302,4 +302,3 @@ pub unsafe fn eoi() {
 pub unsafe fn enable_interrupts() {
     unsafe { asm!("sti", options(nomem, nostack, preserves_flags)) };
 }
-
