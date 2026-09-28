@@ -424,8 +424,14 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                         match console::command(bytes) {
                             console::Command::Empty => {}
                             console::Command::Help => {
-                                crate::println!("commands: help info mem pci acpi uptime");
+                                crate::println!("commands: help clear info mem pci acpi uptime");
                                 debugcon::write("VIBRIX: kernel console command help\r\n");
+                            }
+                            console::Command::Clear => {
+                                // ANSI/VT100 clear-screen + cursor-home on the
+                                // native COM1 development terminal.
+                                crate::print!("\x1b[2J\x1b[H");
+                                debugcon::write("VIBRIX: kernel console command clear\r\n");
                             }
                             console::Command::Info => {
                                 crate::println!(
