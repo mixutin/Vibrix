@@ -165,8 +165,8 @@ fn physical_bits_and_root() -> Result<(u8, u64), AddressSpaceError> {
     let cr4: u64;
     // SAFETY: privileged CR4 read at CPL0.
     unsafe { asm!("mov {}, cr4", out(reg) cr4, options(nomem, nostack, preserves_flags)) };
-    // Keep the proof deliberately simple: no global pages, PCID or SMAP.
-    if cr4 & ((1 << 7) | (1 << 17) | (1 << 21)) != 0 {
+    // Keep the proof deliberately simple: no five-level paging, PCID or SMAP.
+    if cr4 & ((1 << 12) | (1 << 17) | (1 << 21)) != 0 {
         return Err(AddressSpaceError::InvalidRoot);
     }
     let extended = __cpuid_count(0x8000_0000, 0).eax;
