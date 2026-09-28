@@ -157,3 +157,24 @@ CRLF-normalized **exact-line matches** and observed Return separately.
 Normal, virtual xHCI and all exception-probe boot configurations also passed
 the kernel/QEMU job. There is still no IRQ route, USB HID, interactive
 console input editing or physical PS/2 test.
+
+## Bounded native development console (M4.5 candidate)
+
+The post-firmware single-CPU kernel now offers a serial COM1 `vibrix> `
+prompt once the i8042 polling loop is ready. Its fixed 80-byte ASCII input
+buffer implements backspace/erase, printable-character echo, Return
+submission, bounded overflow rejection, and reset between lines.
+The first strict command table supports `help` and `info`, and reports
+unknown exact commands without shell expansions or untrusted memory access.
+The console never uses firmware text output and has no allocator, syscall,
+scheduler, native USB HID, filesystem or privilege boundary.
+
+QEMU's opt-in `VIBRIX_QEMU_CONSOLE_PROBE=1 VIBRIX_SKIP_BUILD=1
+bash tools/test-qemu.sh` waits for a **kernel-origin** prompt marker,
+then uses the host monitor to inject the real key sequence `helx`,
+Backspace, `p`, Return. It checks kernel-only acceptance of the
+backspace and `help` dispatch and the actual COM1 command listing.
+This validates the text path only; the visible framebuffer remains an
+independent boot banner, not a graphical interactive terminal. Target 001
+USB HID, APIC interrupt delivery, full TTY and the userspace shell are
+separate roadmap items. CI evidence is pending on this branch.
