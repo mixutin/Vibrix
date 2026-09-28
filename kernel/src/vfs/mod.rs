@@ -101,6 +101,15 @@ pub trait Filesystem {
     fn entry(&self, dir: NodeId, index: usize) -> Result<Option<Entry>>;
     fn create(&mut self, dir: NodeId, name: &str, kind: Kind) -> Result<NodeId>;
     fn remove(&mut self, dir: NodeId, name: &str) -> Result<()>;
+    fn rename(
+        &mut self,
+        _old_dir: NodeId,
+        _old_name: &str,
+        _new_dir: NodeId,
+        _new_name: &str,
+    ) -> Result<()> {
+        Err(Error::Unsupported)
+    }
     fn read(&mut self, id: NodeId, offset: usize, buffer: &mut [u8]) -> Result<usize>;
     fn write(&mut self, id: NodeId, offset: usize, buffer: &[u8]) -> Result<usize>;
     fn truncate(&mut self, id: NodeId) -> Result<()>;
@@ -287,6 +296,41 @@ impl<'a, const M: usize> Vfs<'a, M> {
             return Err(Error::Busy);
         }
         self.fs_mut(parent)?.remove(parent.id, name)
+    }
+
+    pub fn rename(&mut self, old_path: &str, new_path: &str) -> Result<()> {
+        if old_path == new_path {
+            self.resolve(old_path)?;
+            return Ok(());
+        }
+        let source = self.resolve(old_path)?;
+        if source == self.root() {
+            return Err(Error::Busy);
+        }
+        if self
+            .mounts
+            .iter()
+            .flatten()
+            .any(|mount| mount.covered == Some(source))
+        {
+            return Err(Error::Busy);
+        }
+        let (old_parent, old_name) = self.parent(old_path)?;
+        let (new_parent, new_name) = self.parent(new_path)?;
+        if old_parent.mount != new_parent.mount {
+            return Err(Error::Unsupported);
+        }
+        match self.fs(new_parent)?.lookup(new_parent.id, new_name) {
+            Ok(_) => return Err(Error::Exists),
+            Err(Error::NotFound) => {}
+            Err(error) => return Err(error),
+        }
+        self.fs_mut(old_parent)?.rename(
+            old_parent.id,
+            old_name,
+            new_parent.id,
+            new_name,
+        )
     }
 
     pub fn metadata(&self, node: Node) -> Result<Metadata> {
