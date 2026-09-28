@@ -98,7 +98,7 @@ jobs:
             image="$RUNNER_TEMP/vibrix-blank-${sector}.img"
             "$RUNNER_TEMP/vibrix-create-usb-image" "$image" 64 "$sector"
             "$RUNNER_TEMP/vibrix-inspect-gpt" "$image" "$sector" | tee "$RUNNER_TEMP/vibrix-blank-${sector}.report"
-            grep -Fq 'partitions=2 efi_system_partitions=1' "$RUNNER_TEMP/vibrix-blank-${sector}.report"
+            grep -Fq 'partitions=2 efi_system_partitions=1 vibrix_system_partitions=1' "$RUNNER_TEMP/vibrix-blank-${sector}.report"
             if "$RUNNER_TEMP/vibrix-create-usb-image" "$image" 64 "$sector"; then
               echo "unsafe overwrite of existing image was accepted"
               exit 1
