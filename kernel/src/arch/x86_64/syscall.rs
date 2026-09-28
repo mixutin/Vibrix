@@ -587,8 +587,11 @@ mod native {
                 #[cfg(feature = "userspace-io-probe")]
                 {
                     let mut buffer = [0u8; vibrix_kernel::vfs::PATH_MAX];
+                    let Ok(limit) = usize::try_from(length) else {
+                        return abi::encode_error(abi::Errno::InvalidArgument);
+                    };
                     match crate::userspace_io::cwd(&mut buffer) {
-                        Ok(count) if count <= length as usize => {
+                        Ok(count) if count <= limit => {
                             if crate::memory::address_space::copy_to_user(
                                 address,
                                 &buffer[..count],
