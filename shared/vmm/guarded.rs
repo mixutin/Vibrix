@@ -16,10 +16,7 @@ impl GuardedLayout {
         }
         let count = payload_pages.checked_add(2).ok_or(Error::InvalidRange)?;
         let whole = PageRange::new(lower_guard, count)?;
-        let payload = PageRange::new(
-            Page::new(lower_guard.address() + PAGE_BYTES)?,
-            payload_pages,
-        )?;
+        let payload = PageRange::new(lower_guard.checked_add(PAGE_BYTES)?, payload_pages)?;
         Ok(Self { whole, payload })
     }
 
@@ -198,6 +195,14 @@ mod tests {
         assert_eq!(maximum.payload_end(), ARENA_BASE + 63 * PAGE_BYTES);
         let end = Page::new(ARENA_BASE + ARENA_BYTES - 2 * PAGE_BYTES).unwrap();
         assert_eq!(GuardedLayout::new(end, 1), Err(Error::InvalidRange));
+    }
+
+    #[test]
+    fn lower_user_layout_preserves_user_domain() {
+        let lower = Page::new_user(0x3ff000).unwrap();
+        let layout = GuardedLayout::new(lower, 2).unwrap();
+        assert_eq!(layout.payload().page(0).unwrap().address(), 0x400000);
+        assert_eq!(layout.payload_end(), 0x402000);
     }
 
     #[test]
