@@ -10,10 +10,15 @@ use super::gdt::Gdt;
 #[path = "../../../../shared/syscall_abi.rs"]
 mod abi;
 
+#[cfg(target_os = "none")]
 const IA32_EFER: u32 = 0xc000_0080;
+#[cfg(target_os = "none")]
 const IA32_STAR: u32 = 0xc000_0081;
+#[cfg(target_os = "none")]
 const IA32_LSTAR: u32 = 0xc000_0082;
+#[cfg(target_os = "none")]
 const IA32_FMASK: u32 = 0xc000_0084;
+#[cfg(target_os = "none")]
 const EFER_SCE: u64 = 1;
 const RFLAGS_TF: u64 = 1 << 8;
 const RFLAGS_IF: u64 = 1 << 9;
