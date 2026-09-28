@@ -169,18 +169,18 @@ future userspace shell.
 - [ ] Hardware interrupt path usable in QEMU
 - [ ] Monotonic timer source available to the console
 - [x] QEMU keyboard input reaches the kernel without UEFI Boot Services
-- [ ] Kernel console input buffer and line editing
-- [ ] Command parser and dispatch table
-- [ ] `help`
+- [x] Kernel console input buffer and line editing
+- [x] Command parser and dispatch table
+- [x] `help`
 - [ ] `clear`
-- [ ] `info` / build information
+- [x] `info` / build information
 - [ ] `mem` memory diagnostics
 - [ ] `pci` PCI discovery output
 - [ ] `acpi` ACPI discovery output
 - [ ] `uptime`
 - [ ] `reboot`
-- [ ] Unknown-command and malformed-input handling
-- [ ] QEMU smoke test proves prompt → input → command → output
+- [x] Unknown-command and malformed-input handling
+- [x] QEMU smoke test proves prompt → input → command → output
 
 **Verified M4.5 QEMU keyboard input (PR #70):**
 [Actions run 36347623002](https://github.com/mixutin/Vibrix/actions/runs/36347623002)
@@ -196,6 +196,22 @@ The successful kernel/QEMU job also passed normal/xHCI boots and all fault
 probes. This is a **polled QEMU i8042 set-one ASCII subset** on the single
 CPU with IF=0, not USB HID, IRQ-driven keyboard input, line editing,
 a command parser, TTY, userspace shell or Target 001 PS/2 hardware.
+
+**Verified M4.5 bounded interactive console (PR #80):**
+[Actions run 36375400040](https://github.com/mixutin/Vibrix/actions/runs/36375400040)
+passed the synchronized production console host tests, target Clippy/builds,
+supply-chain checks, the full QEMU regression matrix, and a feature-specific
+real-keyboard interaction. QEMU waited for the kernel-origin `vibrix> `
+readiness marker, injected `helx`, Backspace, `p`, Return through HMP,
+and the kernel independently reported the accepted backspace, exact `help`
+dispatch, and COM1 output `commands: help info`. The fixed 80-byte ASCII
+line editor rejects overflow without writing past its buffer, ignores unsupported
+control bytes, resets after submission, and the parser matches whole commands;
+`info` and unknown-command behavior are host-tested through the same production
+module. These checkboxes mean a bounded **polled PS/2 development console**,
+not a TTY, IRQ keyboard, framebuffer terminal, userspace shell, USB HID path,
+or Target 001 console. `clear`, `mem`, `pci`, `acpi`, `uptime` and
+`reboot` remain unchecked until their actual behavior is implemented.
 
 **Exit:** after `ExitBootServices`, QEMU reaches a `vibrix>` prompt, accepts
 real keyboard input and executes diagnostic commands entirely in the Vibrix
