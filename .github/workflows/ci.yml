@@ -416,6 +416,16 @@ jobs:
           grep -Fq "VIBRIX: kernel CPL3 mappings ready" build/qemu/debugcon.log
           grep -Fq "VIBRIX: kernel CPL3 trap reached via TSS RSP0" build/qemu/debugcon.log
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel ring3 probe: cs=0x1b ss=0x23 "
+      - name: QEMU independent userspace CR3 and CPL3 trap proof
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,address-space-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel userspace CR3 prepared" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel userspace CR3 activated" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel userspace CR3 preserved across CPL3 trap" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel address space probe: kernel_cr3="
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel address space trap: expected_cr3="
+
       - name: QEMU supervisor write-protection fault
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,vm-write-probe bash tools/build-qemu.sh
