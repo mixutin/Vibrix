@@ -40,7 +40,10 @@ pub enum DriverKind {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MatchRule {
-    PciVendorDevice { vendor: u16, device_id: u16 },
+    PciVendorDevice {
+        vendor: u16,
+        device_id: u16,
+    },
     PciClass {
         class: u8,
         subclass: u8,
@@ -83,7 +86,9 @@ pub struct Candidate {
 }
 
 pub fn candidate(identity: DeviceIdentity) -> Option<Candidate> {
-    let descriptor = DRIVERS.iter().find(|descriptor| matches_rule(identity, descriptor.rule))?;
+    let descriptor = DRIVERS
+        .iter()
+        .find(|descriptor| matches_rule(identity, descriptor.rule))?;
     Some(Candidate {
         identity,
         driver: descriptor.kind,
@@ -93,10 +98,9 @@ pub fn candidate(identity: DeviceIdentity) -> Option<Candidate> {
 
 fn matches_rule(identity: DeviceIdentity, rule: MatchRule) -> bool {
     match (identity, rule) {
-        (
-            DeviceIdentity::Pci(device),
-            MatchRule::PciVendorDevice { vendor, device_id },
-        ) => device.vendor == vendor && device.device_id == device_id,
+        (DeviceIdentity::Pci(device), MatchRule::PciVendorDevice { vendor, device_id }) => {
+            device.vendor == vendor && device.device_id == device_id
+        }
         (
             DeviceIdentity::Pci(device),
             MatchRule::PciClass {
@@ -141,7 +145,13 @@ impl DiscoverySummary {
 mod tests {
     use super::*;
 
-    fn pci(vendor: u16, device_id: u16, class: u8, subclass: u8, programming_interface: u8) -> DeviceIdentity {
+    fn pci(
+        vendor: u16,
+        device_id: u16,
+        class: u8,
+        subclass: u8,
+        programming_interface: u8,
+    ) -> DeviceIdentity {
         DeviceIdentity::Pci(PciIdentity {
             address: PciAddress {
                 segment: 0,
@@ -195,9 +205,7 @@ mod tests {
         let xhci = summary
             .observe(pci(0x1022, 0x43ee, 0x0c, 0x03, 0x30))
             .unwrap();
-        let nic = summary
-            .observe(pci(0x10ec, 0x8168, 0x02, 0x00, 0))
-            .unwrap();
+        let nic = summary.observe(pci(0x10ec, 0x8168, 0x02, 0x00, 0)).unwrap();
         assert_eq!(xhci.driver, DriverKind::Xhci);
         assert_eq!(nic.driver, DriverKind::Rtl8168);
         assert_eq!(
