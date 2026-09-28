@@ -103,10 +103,94 @@ if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:
     echo "[vibrix] QEMU native keyboard injection failed" >&2
     [[ -f "$LOG" ]] && cat "$LOG"
     [[ -f "$SERIAL_LOG" ]] && cat "$SERIAL_LOG"
+    exit 1
+  fi
+fi
+
+if [[ "$RC" -ne 0 && "$RC" -ne 124 ]]; then
+  echo "[vibrix] QEMU exited unexpectedly with status $RC" >&2
+  [[ -f "$LOG" ]] && cat "$LOG"
+  exit "$RC"
+fi
+
+if [[ ! -f "$LOG" ]]; then
+  echo "[vibrix] QEMU debug log not created: $LOG" >&2
+  exit 1
+fi
+cat "$LOG"
+
+for expected in \
+  "VIBRIX: bootloader entered" \
+  "VIBRIX: kernel.elf found" \
+  "VIBRIX: ELF64 valid" \
+  "VIBRIX: x86_64 executable validated" \
+  "VIBRIX: PT_LOAD parsed" \
+  "VIBRIX: kernel validated" \
+  "VIBRIX: ACPI RSDP validated" \
+  "VIBRIX: GOP framebuffer discovered" \
+  "VIBRIX: kernel segments staged" \
+  "VIBRIX: kernel page tables verified" \
+  "VIBRIX: transition mappings verified" \
+  "VIBRIX: final memory map captured" \
+  "VIBRIX: BootInfo v3 staged" \
+  "VIBRIX: ExitBootServices succeeded" \
+  "VIBRIX: kernel entry after ExitBootServices" \
+  "VIBRIX: kernel BootInfo v3 validated" \
+  "VIBRIX: kernel GDT/TSS loaded" \
+  "VIBRIX: kernel serial initialized" \
+  "VIBRIX: kernel IDT installed" \
+  "VIBRIX: kernel ACPI RSDP parsed" \
+  "VIBRIX: kernel frame allocator initialized" \
+  "VIBRIX: kernel conventional frames allocated" \
+  "VIBRIX: kernel PCI segment0 enumerated" \
+  "VIBRIX: kernel PCI BARs parsed" \
+  "VIBRIX: kernel virtual mappings verified" \
+  "VIBRIX: kernel ACPI XSDT and MCFG mapped and parsed" \
+  "VIBRIX: kernel PCI ECAM bus0 read" \
+  "VIBRIX: kernel LAPIC and IOAPIC registers read" \
+  "VIBRIX: kernel heap allocation and reuse verified" \
+  "VIBRIX: kernel framebuffer wrote pixels" \
+  "VIBRIX: kernel framebuffer status banner drawn"; do
+  if ! grep -Fq "$expected" "$LOG"; then
+    echo "[vibrix] missing smoke-test marker: $expected" >&2
+    [[ -f "$SERIAL_LOG" ]] && cat "$SERIAL_LOG"
+    exit 1
+  fi
+done
+
+if [[ ! -f "$SERIAL_LOG" ]] || ! grep -Fq "Vibrix kernel started." "$SERIAL_LOG"; then
+  echo "[vibrix] missing native kernel COM1 serial output" >&2
+  [[ -f "$SERIAL_LOG" ]] && cat "$SERIAL_LOG"
+  exit 1
+fi
+grep -Fq "kernel VM: map, protect, unmap and remap verified" "$SERIAL_LOG"
+grep -Eq 'Vibrix ECAM segment0 bus0: [1-9][0-9]* devices, [0-9]+ xHCI' "$SERIAL_LOG"
+grep -Eq 'Vibrix APIC: LAPIC id=[0-9]+ version=0x[0-9a-f]+ max_lvt=[1-9][0-9]*, IOAPIC id=[0-9]+ version=0x[0-9a-f]+ max_redir=[1-9][0-9]*' "$SERIAL_LOG"
+if [[ "${VIBRIX_QEMU_XHCI:-0}" == "1" ]]; then
+  grep -Eq 'Vibrix ECAM segment0 bus0: [1-9][0-9]* devices, [1-9][0-9]* xHCI' "$SERIAL_LOG"
+fi
+grep -Fq "kernel heap: aligned allocations, RAM writes and reuse verified" "$SERIAL_LOG"
+if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" ]]; then
+  grep -Fq "VIBRIX: kernel PS2 polling ready" "$LOG"
+  grep -Fq "VIBRIX: kernel PS2 ASCII accepted" "$LOG"
+  # The interactive prompt/echo may prefix the diagnostic line. Anchor the
+  # numeric token at EOL so ASCII 104 can never satisfy the ASCII 10 check.
+  tr -d '\r' < "$SERIAL_LOG" | grep -Eq 'kernel PS2 ascii 104$'
+  tr -d '\r' < "$SERIAL_LOG" | grep -Eq 'kernel PS2 ascii 10$'
+fi
+cat "$SERIAL_LOG"
 
 if [[ "${VIBRIX_EXPECT_TIMER_IRQ:-0}" == "1" ]]; then
   grep -Fq "VIBRIX: kernel timer IRQ delivered" "$LOG"
-  tr -d '\r' < "$SERIAL_LOG" | grep -Eq '^kernel timer: tick [1-9][0-9]*$'
+  tr -d '\r' < "$SERIAL_LOG" | grep -Eq '^kernel timer: tick [1-9][0-9]*
+  grep -Fq "VIBRIX: kernel console prompt ready" "$LOG"
+  grep -Fq "VIBRIX: kernel console backspace accepted" "$LOG"
+  grep -Fq "VIBRIX: kernel console command help" "$LOG"
+  grep -Fq "commands: help info" "$SERIAL_LOG"
+fi
+
+echo "[vibrix] QEMU post-firmware kernel handoff smoke test passed"
+
 fi
 
 if [[ "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" ]]; then
