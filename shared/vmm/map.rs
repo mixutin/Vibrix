@@ -88,8 +88,6 @@ impl<M: Memory, const N: usize> Vm<M, N> {
         }
         tables[missing + 1..4].copy_from_slice(&acquired[1..needed]);
         let data = acquired[0];
-        self.memory
-            .write_entry(tables[3], indices[3], data | permission_flags(permissions, privilege));
         // For an existing path, raising U/S on an ancestor cannot expose any
         // supervisor leaf because leaf U/S still gates CPL3 access. Do this
         // before publishing a user leaf so there is never a reachable user leaf
@@ -104,6 +102,8 @@ impl<M: Memory, const N: usize> Vm<M, N> {
                 }
             }
         }
+        self.memory
+            .write_entry(tables[3], indices[3], data | permission_flags(permissions, privilege));
         // Children are complete before their parent link becomes reachable.
         // The final store publishes the new subtree into the existing hierarchy.
         for level in (missing..3).rev() {
