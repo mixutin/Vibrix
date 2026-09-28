@@ -512,10 +512,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         {
             // SAFETY: the private address-space owner is initialized and the
             // ELF loader stages only into its owned inactive lower-half root.
-            let probe =
-                unsafe { memory::address_space::load_elf_probe() }.unwrap_or_else(|error| {
-                    panic!("userspace ELF load probe failed: {:?}", error)
-                });
+            let probe = unsafe { memory::address_space::load_elf_probe() }
+                .unwrap_or_else(|error| panic!("userspace ELF load probe failed: {:?}", error));
             debugcon::write("VIBRIX: kernel userspace ELF loaded\r\n");
             crate::println!(
                 "kernel ELF probe: kernel_cr3={:#x} user_cr3={:#x} entry={:#x} rsp={:#x}",
