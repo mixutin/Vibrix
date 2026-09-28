@@ -54,6 +54,10 @@ mod native {
     use core::arch::{asm, global_asm, x86_64::__cpuid_count};
     use core::cell::UnsafeCell;
     use core::sync::atomic::{AtomicBool, Ordering};
+    #[cfg(feature = "process-syscall-probe")]
+    use vibrix_kernel::process::{Pid, Table};
+    #[cfg(feature = "process-syscall-probe")]
+    use vibrix_kernel::process_syscalls::{self, Action};
 
     const SYSCALL_STACK_BYTES: usize = 16 * 1024;
     const SYSCALL_CPUID_BIT: u32 = 1 << 11;
@@ -70,10 +74,34 @@ mod native {
     static SYSCALL_STACK: StaticSyscallStack =
         StaticSyscallStack(UnsafeCell::new(SyscallStack([0; SYSCALL_STACK_BYTES])));
     static INITIALIZED: AtomicBool = AtomicBool::new(false);
+    #[cfg(feature = "syscall-probe")]
     static PROBE_SEEN: AtomicBool = AtomicBool::new(false);
 
     static mut SYSCALL_KERNEL_RSP: u64 = 0;
     static mut SYSCALL_USER_RSP: u64 = 0;
+
+    #[repr(C)]
+    struct SavedArgs {
+        r9: u64,
+        r8: u64,
+        r10: u64,
+        rdx: u64,
+        rsi: u64,
+        rdi: u64,
+        rcx: u64,
+        r11: u64,
+    }
+
+    #[cfg(feature = "process-syscall-probe")]
+    struct ProcessTableCell(UnsafeCell<Table<4>>);
+
+    #[cfg(feature = "process-syscall-probe")]
+    unsafe impl Sync for ProcessTableCell {}
+
+    #[cfg(feature = "process-syscall-probe")]
+    static PROCESS_TABLE: ProcessTableCell = ProcessTableCell(UnsafeCell::new(Table::new()));
+    #[cfg(feature = "process-syscall-probe")]
+    static PROCESS_READY: AtomicBool = AtomicBool::new(false);
 
     global_asm!(
         r#"
@@ -92,6 +120,7 @@ mod native {
             push r9
 
             mov rdi, rax
+            mov rsi, rsp
             call {handler}
 
             pop r9
@@ -239,7 +268,87 @@ mod native {
         Ok(())
     }
 
-    extern "C" fn syscall_probe_handler(number: u64) -> u64 {
+    #[cfg(feature = "process-syscall-probe")]
+    pub fn init_process_probe() -> Result<(), InitError> {
+        if !INITIALIZED.load(Ordering::SeqCst) || PROCESS_READY.swap(true, Ordering::SeqCst) {
+            return Err(InitError::VerificationFailed);
+        }
+        // SAFETY: this feature is single-BSP and initializes the table before
+        // entering userspace or enabling a process-facing syscall.
+        let table = unsafe { &mut *PROCESS_TABLE.0.get() };
+        // SAFETY: no live references or syscall users exist yet.
+        unsafe { core::ptr::write(table, Table::new()) };
+        let init = table
+            .spawn_init()
+            .map_err(|_| InitError::VerificationFailed)?;
+        let child = table
+            .spawn_child(init)
+            .map_err(|_| InitError::VerificationFailed)?;
+        if init != Pid::INIT || child.get() != 2 {
+            PROCESS_READY.store(false, Ordering::SeqCst);
+            return Err(InitError::VerificationFailed);
+        }
+        table
+            .exit(child, 23)
+            .map_err(|_| InitError::VerificationFailed)?;
+        Ok(())
+    }
+
+    #[cfg(feature = "process-syscall-probe")]
+    fn process_probe_dispatch(number: u64, args: [u64; abi::MAX_ARGS]) -> u64 {
+        if !PROCESS_READY.load(Ordering::SeqCst) {
+            return abi::encode_error(abi::Errno::NotSupported);
+        }
+        // SAFETY: one BSP, FMASK cleared IF on entry, and no nested syscall
+        // path exists in this bounded process proof.
+        let table = unsafe { &mut *PROCESS_TABLE.0.get() };
+        match process_syscalls::dispatch(table, Pid::INIT, number, args) {
+            Ok(Action::Return(value)) => {
+                if number == abi::Syscall::GetPid.number() && value == 1 {
+                    crate::debugcon::write("VIBRIX: kernel process getpid syscall verified\r\n");
+                    crate::println!("kernel process syscall: getpid={}", value);
+                }
+                value
+            }
+            Ok(Action::WaitReady {
+                pid,
+                status,
+                status_address,
+            }) => {
+                if status_address != 0 {
+                    let bytes = status.to_ne_bytes();
+                    if crate::memory::address_space::copy_to_user(status_address, &bytes).is_err() {
+                        return abi::encode_error(abi::Errno::BadAddress);
+                    }
+                }
+                match process_syscalls::commit_wait(table, Pid::INIT, pid) {
+                    Ok(value) => {
+                        crate::debugcon::write(
+                            "VIBRIX: kernel process wait copyout and reap verified\r\n",
+                        );
+                        crate::println!(
+                            "kernel process syscall: wait pid={} status={} copied={}",
+                            value,
+                            status,
+                            status_address != 0
+                        );
+                        value
+                    }
+                    Err(error) => 0u64.wrapping_sub(u64::from(error.code())),
+                }
+            }
+            Ok(Action::Terminated) => {
+                crate::debugcon::write("VIBRIX: kernel process exit syscall verified\r\n");
+                crate::println!("kernel process syscall: exit pid=1 status=42");
+                loop {
+                    core::hint::spin_loop();
+                }
+            }
+            Err(error) => 0u64.wrapping_sub(u64::from(error.code())),
+        }
+    }
+
+    extern "C" fn syscall_probe_handler(number: u64, saved: *const SavedArgs) -> u64 {
         let kernel_rsp: u64;
         // SAFETY: read-only inspection of the current CPL0 stack pointer.
         unsafe {
@@ -250,29 +359,55 @@ mod native {
             )
         };
 
-        let result = abi::encode_error(abi::Errno::NotSupported);
-        if number == u64::MAX && stack_contains(kernel_rsp) {
-            PROBE_SEEN.store(true, Ordering::SeqCst);
-            crate::debugcon::write("VIBRIX: kernel SYSCALL entry reached\r\n");
-            crate::println!(
-                "kernel syscall probe: number={:#x} kernel_rsp={:#x} result={:#x}",
-                number,
-                kernel_rsp,
-                result
-            );
-        } else {
+        if !stack_contains(kernel_rsp) || saved.is_null() {
             crate::debugcon::write("VIBRIX: kernel SYSCALL entry validation failed\r\n");
+            return abi::encode_error(abi::Errno::NotSupported);
         }
-        result
+
+        // SAFETY: assembly passes RSP after saving these exact eight words on
+        // the dedicated syscall stack, which remains live across this call.
+        let saved = unsafe { &*saved };
+        let args = [
+            saved.rdi, saved.rsi, saved.rdx, saved.r10, saved.r8, saved.r9,
+        ];
+
+        #[cfg(feature = "process-syscall-probe")]
+        {
+            return process_probe_dispatch(number, args);
+        }
+
+        #[cfg(not(feature = "process-syscall-probe"))]
+        {
+            let result = abi::encode_error(abi::Errno::NotSupported);
+            if number == u64::MAX {
+                #[cfg(feature = "syscall-probe")]
+                PROBE_SEEN.store(true, Ordering::SeqCst);
+                crate::debugcon::write("VIBRIX: kernel SYSCALL entry reached\r\n");
+                crate::println!(
+                    "kernel syscall probe: number={:#x} kernel_rsp={:#x} result={:#x}",
+                    number,
+                    kernel_rsp,
+                    result
+                );
+            } else {
+                crate::debugcon::write("VIBRIX: kernel SYSCALL entry validation failed\r\n");
+            }
+            result
+        }
     }
 
+    #[cfg(feature = "syscall-probe")]
     pub fn probe_observed() -> bool {
         PROBE_SEEN.load(Ordering::SeqCst)
     }
 }
 
 #[cfg(target_os = "none")]
-pub use native::{init, probe_observed};
+pub use native::init;
+#[cfg(all(target_os = "none", feature = "process-syscall-probe"))]
+pub use native::init_process_probe;
+#[cfg(all(target_os = "none", feature = "syscall-probe"))]
+pub use native::probe_observed;
 
 #[cfg(test)]
 mod tests {
