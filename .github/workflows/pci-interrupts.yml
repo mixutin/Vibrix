@@ -1,0 +1,34 @@
+name: PCI interrupt evidence
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pci-interrupts-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: PCI interrupt production contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check formatting
+        run: rustfmt --edition 2024 --check host-tests/pci-interrupts.rs
+      - name: Test production PCI interrupt code on host
+        run: |
+          rustc --edition=2024 -D warnings --test host-tests/pci-interrupts.rs -o "$RUNNER_TEMP/pci-interrupt-tests"
+          "$RUNNER_TEMP/pci-interrupt-tests"
+      - name: Compile production contracts without host runtime
+        run: |
+          rustup target add x86_64-unknown-none
+          rustc --edition=2024 -D warnings --crate-type lib --target x86_64-unknown-none host-tests/pci-interrupts.rs -o "$RUNNER_TEMP/libpci_interrupts.rlib"
