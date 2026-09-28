@@ -883,8 +883,7 @@ pub unsafe fn load_elf_probe() -> Result<ActivatedProbe, ElfProbeError> {
         .map_err(|e| ElfProbeError::AddressSpace(e.into()))?;
 
     #[cfg(all(feature = "rust-init-probe", not(clippy)))]
-    let image: &[u8] =
-        include_bytes!("../../../target/x86_64-unknown-none/debug/vibrix-init");
+    let image: &[u8] = include_bytes!("../../../target/x86_64-unknown-none/debug/vibrix-init");
     #[cfg(any(not(feature = "rust-init-probe"), clippy))]
     let probe_image = elf_probe_image();
     #[cfg(any(not(feature = "rust-init-probe"), clippy))]
