@@ -25,7 +25,7 @@ cp -- "$OVMF_VARS" "$QEMU_DIR/OVMF_VARS.test.fd"
 
 # Opt-in *real QEMU keyboard injection*, never manufactured kernel log text.
 MONITOR=none
-if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" || "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" == "1" ]]; then
+if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" || "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CORE_UTILS_PROBE:-0}" == "1" ]]; then
   MONITOR_SOCKET="$QEMU_DIR/keyboard-monitor.sock"
   rm -f "$MONITOR_SOCKET"
   MONITOR="unix:$MONITOR_SOCKET,server=on,wait=off"
@@ -58,11 +58,11 @@ echo "[vibrix] OVMF VARS: $OVMF_VARS"
 echo "[vibrix] QEMU CPU: ${VIBRIX_QEMU_CPU:-max}"
 echo "[vibrix] QEMU RAM: ${VIBRIX_QEMU_RAM:-512M}"
 echo "[vibrix] running headless QEMU smoke test"
-if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" ]]; then
+if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" || "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CORE_UTILS_PROBE:-0}" == "1" ]]; then
   # Connect through QEMU's HMP monitor and send an actual emulated key
   # only after the independent native kernel reports its poll loop ready.
   # Python is host test infrastructure, not part of the Vibrix runtime.
-  python3 - "$LOG" "$MONITOR_SOCKET" "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" "${VIBRIX_QEMU_FILES_PROBE:-0}" "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" <<'PY' &
+  python3 - "$LOG" "$MONITOR_SOCKET" "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" "${VIBRIX_QEMU_FILES_PROBE:-0}" "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" "${VIBRIX_QEMU_CORE_UTILS_PROBE:-0}" <<'PY' &
 import pathlib
 import socket
 import sys
@@ -72,12 +72,32 @@ log = pathlib.Path(sys.argv[1])
 monitor = sys.argv[2]
 deadline = time.monotonic() + 9
 while time.monotonic() < deadline:
-    marker = "VIBRIX: userspace TTY read waiting for keyboard" if sys.argv[5] == "1" else ("VIBRIX: kernel console prompt ready" if sys.argv[3] == "1" or sys.argv[4] == "1" else "VIBRIX: kernel PS2 polling ready")
+    marker = "VIBRIX: userspace TTY read waiting for keyboard" if sys.argv[5] == "1" or sys.argv[6] == "1" else ("VIBRIX: kernel console prompt ready" if sys.argv[3] == "1" or sys.argv[4] == "1" else "VIBRIX: kernel PS2 polling ready")
     if log.exists() and marker in log.read_text(errors="replace"):
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
                 client.connect(monitor)
-                if sys.argv[5] == "1":
+                if sys.argv[6] == "1":
+                    commands = [
+                        "pwd",
+                        "mkdir /tmp/u",
+                        "cp /welcome /tmp/u/copy",
+                        "cat /tmp/u/copy",
+                        "ls /tmp/u",
+                        "mv /tmp/u/copy /tmp/u/moved",
+                        "ls /tmp/u",
+                        "cd /tmp/u",
+                        "pwd",
+                        "rm moved",
+                        "ls .",
+                        "ps",
+                        "kill 3",
+                        "ps",
+                        "exit",
+                    ]
+                    special = {" ": "spc", "/": "slash", ".": "dot", "\n": "ret"}
+                    keys = tuple(special.get(ch, ch) for ch in "\n".join(commands) + "\n")
+                elif sys.argv[5] == "1":
                     commands = ["help", "echo hi", "exit"]
                     special = {" ": "spc", "\n": "ret"}
                     keys = tuple(special.get(ch, ch) for ch in "\n".join(commands) + "\n")
@@ -117,6 +137,8 @@ set +e
 QEMU_TIMEOUT=12s
 if [[ "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" ]]; then
   QEMU_TIMEOUT=40s
+elif [[ "${VIBRIX_QEMU_CORE_UTILS_PROBE:-0}" == "1" ]]; then
+  QEMU_TIMEOUT=55s
 elif [[ "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" == "1" ]]; then
   QEMU_TIMEOUT=25s
 fi
@@ -124,7 +146,7 @@ timeout "$QEMU_TIMEOUT" qemu-system-x86_64 "${ARGS[@]}"
 RC=$?
 set -e
 
-if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" ]]; then
+if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" || "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CORE_UTILS_PROBE:-0}" == "1" ]]; then
   if ! wait "$KEYBOARD_PID"; then
     echo "[vibrix] QEMU native keyboard injection failed" >&2
     [[ -f "$LOG" ]] && cat "$LOG"
