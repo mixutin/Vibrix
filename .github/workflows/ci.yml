@@ -206,6 +206,12 @@ jobs:
           rustc --edition=2024 --test host-tests/gdt_tss.rs -o "$RUNNER_TEMP/vibrix-gdt-tss-tests"
           "$RUNNER_TEMP/vibrix-gdt-tss-tests"
 
+      - name: Test bounded kernel console line editor and commands on host
+        run: |
+          rustfmt --edition 2024 --check kernel/src/console.rs
+          rustc --edition=2024 -D warnings --test kernel/src/console.rs -o "$RUNNER_TEMP/vibrix-console-tests"
+          "$RUNNER_TEMP/vibrix-console-tests"
+
       - name: Test production serial console logic on host
         run: |
           rustc --edition=2024 --test kernel/src/arch/x86_64/serial.rs -o "$RUNNER_TEMP/vibrix-serial-tests"
@@ -258,6 +264,12 @@ jobs:
         env:
           VIBRIX_SKIP_BUILD: "1"
           VIBRIX_QEMU_KEYBOARD_PROBE: "1"
+        run: bash tools/test-qemu.sh
+
+      - name: QEMU edited help command through real keyboard
+        env:
+          VIBRIX_SKIP_BUILD: "1"
+          VIBRIX_QEMU_CONSOLE_PROBE: "1"
         run: bash tools/test-qemu.sh
 
       - name: QEMU post-firmware kernel panic test
