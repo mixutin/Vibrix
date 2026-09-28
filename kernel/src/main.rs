@@ -9,6 +9,7 @@ mod debugcon;
 mod device;
 mod framebuffer;
 mod memory;
+mod thread;
 
 use core::panic::PanicInfo;
 
@@ -322,6 +323,19 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     }
     debugcon::write("VIBRIX: kernel heap allocation and reuse verified\r\n");
     crate::println!("kernel heap: aligned allocations, RAM writes and reuse verified");
+
+    #[cfg(feature = "qemu-debugcon")]
+    {
+        let stats = thread::smoke_test().unwrap_or_else(|error| {
+            panic!("cooperative kernel thread validation failed: {:?}", error)
+        });
+        crate::println!(
+            "kernel threads: cooperative A1 B1 A2 B2 switches={} completed={}",
+            stats.switches,
+            stats.completed
+        );
+        debugcon::write("VIBRIX: kernel cooperative threads verified\r\n");
+    }
 
     // Physical GOP BAR is explicitly identity-mapped UC in the active PML4.
     // The large display draws actual glyph pixels over the old UEFI splash,
