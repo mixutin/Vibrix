@@ -390,9 +390,32 @@ pub unsafe fn init(info: &BootInfo) -> Result<(), AddressSpaceError> {
 pub unsafe fn activate_probe() -> Result<ActivatedProbe, AddressSpaceError> {
     const CODE_GUARD: u64 = 0x003f_f000;
     const STACK_GUARD: u64 = 0x007f_e000;
-    #[cfg(not(feature = "syscall-probe"))]
+    #[cfg(feature = "process-syscall-probe")]
+    const USER_CODE: &[u8] = &[
+        0xb8, 0x02, 0x00, 0x00, 0x00, // mov eax, 2 (getpid)
+        0x0f, 0x05, // syscall
+        0x48, 0x83, 0xf8, 0x01, // cmp rax, 1
+        0x74, 0x02, // je next
+        0x0f, 0x0b, // ud2
+        0xbf, 0x02, 0x00, 0x00, 0x00, // mov edi, 2 (child pid)
+        0x48, 0x8d, 0x74, 0x24, 0xf8, // lea rsi, [rsp - 8] (status)
+        0x31, 0xd2, // xor edx, edx (options)
+        0xb8, 0x07, 0x00, 0x00, 0x00, // mov eax, 7 (wait)
+        0x0f, 0x05, // syscall
+        0x48, 0x83, 0xf8, 0x02, // cmp rax, 2
+        0x74, 0x02, // je next
+        0x0f, 0x0b, // ud2
+        0x83, 0x7c, 0x24, 0xf8, 0x17, // cmp dword ptr [rsp - 8], 23
+        0x74, 0x02, // je next
+        0x0f, 0x0b, // ud2
+        0xbf, 0x2a, 0x00, 0x00, 0x00, // mov edi, 42 (exit status)
+        0xb8, 0x00, 0x00, 0x00, 0x00, // mov eax, 0 (exit)
+        0x0f, 0x05, // syscall; must not return
+        0x0f, 0x0b, // ud2
+    ];
+    #[cfg(all(not(feature = "process-syscall-probe"), not(feature = "syscall-probe")))]
     const USER_CODE: &[u8] = &[0xcd, 0x80, 0x0f, 0x0b];
-    #[cfg(feature = "syscall-probe")]
+    #[cfg(all(not(feature = "process-syscall-probe"), feature = "syscall-probe"))]
     const USER_CODE: &[u8] = &[
         0x48, 0xc7, 0xc0, 0xff, 0xff, 0xff, 0xff, // mov rax, -1
         0x0f, 0x05, // syscall
@@ -932,6 +955,58 @@ pub unsafe fn enter_probe(probe: ActivatedProbe) -> ! {
     // SAFETY: assembly changes RSP before CR3, so clearing lower slot zero cannot
     // unmap the live kernel stack. The called helper validates the new CR3.
     unsafe { vibrix_address_space_enter(probe.user_root, probe.user_rip, probe.user_rsp) }
+}
+
+#[cfg(feature = "process-syscall-probe")]
+pub fn copy_to_user(mut address: u64, mut bytes: &[u8]) -> Result<(), AddressSpaceError> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+    let final_address = address
+        .checked_add(bytes.len() as u64 - 1)
+        .ok_or(AddressSpaceError::InvalidRoot)?;
+    Page::new_user(address & !0xfff)?;
+    Page::new_user(final_address & !0xfff)?;
+    if interrupts_enabled() {
+        return Err(AddressSpaceError::InterruptsEnabled);
+    }
+
+    // SAFETY: process syscalls run on the sole BSP with IF masked by FMASK.
+    let state = unsafe { &mut *ADDRESS_SPACE.0.get() };
+    let space = state.as_mut().ok_or(AddressSpaceError::NotInitialized)?;
+    let active = ACTIVE_ROOT.load(Ordering::SeqCst);
+    if active == 0 || active != space.user_root || current_root() != active {
+        return Err(AddressSpaceError::InvalidRoot);
+    }
+
+    while !bytes.is_empty() {
+        let page_address = address & !0xfff;
+        let offset = (address & 0xfff) as usize;
+        let page = Page::new_user(page_address)?;
+        let mapping = space.vm.query(page)?.ok_or(Error::NotMapped)?;
+        if mapping.privilege != Privilege::User || mapping.permissions != Permissions::ReadWrite {
+            return Err(AddressSpaceError::InvalidRoot);
+        }
+        let count = core::cmp::min(4096 - offset, bytes.len());
+        // SAFETY: the queried frame is owned by the active private user VM.
+        // Staging slot 509 is supervisor-only and exclusively owned here.
+        let staged = unsafe { space.staging.map(mapping.physical, true) }
+            .map_err(|_| AddressSpaceError::Scratch)?;
+        unsafe {
+            for (index, byte) in bytes[..count].iter().copied().enumerate() {
+                (staged as *mut u8).add(offset + index).write_volatile(byte);
+            }
+            space
+                .staging
+                .unmap()
+                .map_err(|_| AddressSpaceError::Scratch)?;
+        }
+        address = address
+            .checked_add(count as u64)
+            .ok_or(AddressSpaceError::InvalidRoot)?;
+        bytes = &bytes[count..];
+    }
+    Ok(())
 }
 
 /// Used by the CPL3 diagnostic interrupt handler to prove the CPU returned to
