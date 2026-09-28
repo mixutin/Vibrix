@@ -20,8 +20,7 @@ const ADDRESS_SPACE_GUARDED_SLOTS: usize = 4;
 const ADDRESS_SPACE_SCRATCH_SLOT: usize = 510;
 const ROOT_COPY_CHUNK: usize = 64;
 
-type UserVm =
-    GuardedVm<AddressSpaceMemory, ADDRESS_SPACE_POOL_FRAMES, ADDRESS_SPACE_GUARDED_SLOTS>;
+type UserVm = GuardedVm<AddressSpaceMemory, ADDRESS_SPACE_POOL_FRAMES, ADDRESS_SPACE_GUARDED_SLOTS>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AddressSpaceError {
@@ -75,9 +74,7 @@ impl Memory for AddressSpaceMemory {
                 .map(frame, false)
                 .expect("userspace VM scratch map");
             let entry = (address as *const u64).add(index).read_volatile();
-            self.window
-                .unmap()
-                .expect("userspace VM scratch unmap");
+            self.window.unmap().expect("userspace VM scratch unmap");
             entry
         }
     }
@@ -91,9 +88,7 @@ impl Memory for AddressSpaceMemory {
                 .map(frame, true)
                 .expect("userspace VM scratch map");
             (address as *mut u64).add(index).write_volatile(value);
-            self.window
-                .unmap()
-                .expect("userspace VM scratch unmap");
+            self.window.unmap().expect("userspace VM scratch unmap");
         }
     }
 
@@ -118,7 +113,10 @@ impl Memory for AddressSpaceMemory {
     }
 
     fn invalidate(&mut self, address: u64) {
-        assert!(Page::new(address).is_ok(), "foreign userspace VM invalidation");
+        assert!(
+            Page::new(address).is_ok(),
+            "foreign userspace VM invalidation"
+        );
         // SAFETY: one BSP only. Callers mask interrupts while this backend is
         // mutating the active or inactive private hierarchy.
         unsafe { asm!("invlpg [{}]", in(reg) address, options(nostack, preserves_flags)) };
@@ -184,8 +182,10 @@ unsafe fn claim_conventional(bits: u8) -> Result<u64, AddressSpaceError> {
     let frame = unsafe { super::allocate_frame() }.ok_or(AddressSpaceError::OutOfFrames)?;
     PhysicalFrame::new(frame, bits).map_err(AddressSpaceError::Vm)?;
     // SAFETY: immutable retained UEFI map, same sole-BSP contract.
-    let valid = unsafe { super::firmware_descriptor_at(frame) }
-        .is_some_and(|(kind, attributes)| kind == 7 && attributes & 8 != 0 && attributes & (1 << 63) == 0);
+    let valid =
+        unsafe { super::firmware_descriptor_at(frame) }.is_some_and(|(kind, attributes)| {
+            kind == 7 && attributes & 8 != 0 && attributes & (1 << 63) == 0
+        });
     if !valid {
         return Err(AddressSpaceError::InvalidRoot);
     }
@@ -226,9 +226,7 @@ unsafe fn copy_kernel_root(
         for index in 0..512 {
             (target as *mut u64).add(index).write_volatile(0);
         }
-        window
-            .unmap()
-            .map_err(|_| AddressSpaceError::Scratch)?;
+        window.unmap().map_err(|_| AddressSpaceError::Scratch)?;
     }
 
     let mut chunk = [0u64; ROOT_COPY_CHUNK];
@@ -240,9 +238,7 @@ unsafe fn copy_kernel_root(
                 .map(kernel_root, false)
                 .map_err(|_| AddressSpaceError::Scratch)?;
             for (offset, word) in chunk.iter_mut().enumerate() {
-                *word = (source as *const u64)
-                    .add(base + offset)
-                    .read_volatile();
+                *word = (source as *const u64).add(base + offset).read_volatile();
             }
             window
                 .unmap()
@@ -293,9 +289,9 @@ pub unsafe fn init(info: &BootInfo) -> Result<(), AddressSpaceError> {
     let (bits, kernel_root) = physical_bits_and_root()?;
     // The inherited kernel root must itself be retained loader memory.
     // SAFETY: immutable final UEFI map.
-    if !unsafe { super::firmware_descriptor_at(kernel_root) }
-        .is_some_and(|(kind, attributes)| kind == 2 && attributes & 8 != 0 && attributes & (1 << 63) == 0)
-    {
+    if !unsafe { super::firmware_descriptor_at(kernel_root) }.is_some_and(|(kind, attributes)| {
+        kind == 2 && attributes & 8 != 0 && attributes & (1 << 63) == 0
+    }) {
         return Err(AddressSpaceError::InvalidRoot);
     }
 
