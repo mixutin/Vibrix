@@ -898,8 +898,6 @@ mod tests {
         assert_eq!(parse_inode(&bytes, &sb), Ok(inode));
     }
 
-
-
     fn temp_image(label: &str) -> std::path::PathBuf {
         let mut path = std::env::temp_dir();
         path.push(format!(
