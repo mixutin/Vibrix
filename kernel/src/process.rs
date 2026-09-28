@@ -100,6 +100,10 @@ impl<const N: usize> Table<N> {
             .find(|process| process.pid == pid)
     }
 
+    pub fn nth(&self, index: usize) -> Option<Process> {
+        self.slots.iter().flatten().copied().nth(index)
+    }
+
     fn index_of(&self, pid: Pid) -> Option<usize> {
         self.slots
             .iter()
@@ -433,6 +437,21 @@ mod tests {
         table.exit(running, 7).unwrap();
         assert_eq!(table.reap(other, running), Err(Error::NoChild));
         assert_eq!(table.get(running).unwrap().state, State::Zombie(7));
+    }
+
+    #[test]
+    fn stable_iteration_skips_reaped_slots() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+        let first = table.spawn_child(init).unwrap();
+        let second = table.spawn_child(init).unwrap();
+        assert_eq!(table.nth(0).unwrap().pid, init);
+        assert_eq!(table.nth(1).unwrap().pid, first);
+        assert_eq!(table.nth(2).unwrap().pid, second);
+        table.exit(first, 0).unwrap();
+        table.reap(init, first).unwrap();
+        assert_eq!(table.nth(1).unwrap().pid, second);
+        assert_eq!(table.nth(2), None);
     }
 
     #[test]
