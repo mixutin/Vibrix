@@ -318,6 +318,19 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
         self.vfs.remove(path)
     }
 
+    pub fn rename(&mut self, old_path: &str, new_path: &str) -> Result<()> {
+        let node = self.vfs.resolve(old_path)?;
+        if self
+            .descriptions
+            .iter()
+            .flatten()
+            .any(|d| matches!(d.object, Object::Node(open) if open == node))
+        {
+            return Err(Error::Busy);
+        }
+        self.vfs.rename(old_path, new_path)
+    }
+
     pub fn metadata(&self, path: &str) -> Result<Metadata> {
         self.vfs.metadata(self.vfs.resolve(path)?)
     }
