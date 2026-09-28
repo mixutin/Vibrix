@@ -33,6 +33,15 @@ pub enum Syscall {
     Close = 6,
     Wait = 7,
     Exec = 8,
+    Create = 9,
+    Mkdir = 10,
+    Remove = 11,
+    Rename = 12,
+    GetCwd = 13,
+    Chdir = 14,
+    ReadDir = 15,
+    Kill = 16,
+    ProcessInfo = 17,
 }
 
 impl Syscall {
@@ -47,6 +56,15 @@ impl Syscall {
             6 => Some(Self::Close),
             7 => Some(Self::Wait),
             8 => Some(Self::Exec),
+            9 => Some(Self::Create),
+            10 => Some(Self::Mkdir),
+            11 => Some(Self::Remove),
+            12 => Some(Self::Rename),
+            13 => Some(Self::GetCwd),
+            14 => Some(Self::Chdir),
+            15 => Some(Self::ReadDir),
+            16 => Some(Self::Kill),
+            17 => Some(Self::ProcessInfo),
             _ => None,
         }
     }
@@ -113,6 +131,64 @@ pub const fn checked_user_range(address: u64, len: u64) -> Option<(u64, u64)> {
     Some((address, end))
 }
 
+pub const OPEN_READ: u64 = 0;
+pub const OPEN_WRITE: u64 = 1;
+pub const OPEN_READ_WRITE: u64 = 2;
+pub const OPEN_ACCESS_MASK: u64 = 0x3;
+pub const OPEN_TRUNCATE: u64 = 1 << 2;
+pub const OPEN_APPEND: u64 = 1 << 3;
+pub const OPEN_KNOWN_FLAGS: u64 = OPEN_ACCESS_MASK | OPEN_TRUNCATE | OPEN_APPEND;
+
+pub const DIRECTORY_ENTRY_NAME_MAX: usize = 31;
+pub const DIRECTORY_KIND_FILE: u8 = 1;
+pub const DIRECTORY_KIND_DIRECTORY: u8 = 2;
+pub const DIRECTORY_KIND_DEVICE: u8 = 3;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DirectoryEntry {
+    pub kind: u8,
+    pub name_len: u8,
+    pub reserved: [u8; 2],
+    pub name: [u8; DIRECTORY_ENTRY_NAME_MAX],
+}
+
+impl DirectoryEntry {
+    pub const fn empty() -> Self {
+        Self {
+            kind: 0,
+            name_len: 0,
+            reserved: [0; 2],
+            name: [0; DIRECTORY_ENTRY_NAME_MAX],
+        }
+    }
+}
+
+pub const PROCESS_STATE_RUNNING: u8 = 1;
+pub const PROCESS_STATE_ZOMBIE: u8 = 2;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProcessInfo {
+    pub pid: u32,
+    pub parent: u32,
+    pub state: u8,
+    pub reserved: [u8; 3],
+    pub status: i32,
+}
+
+impl ProcessInfo {
+    pub const fn empty() -> Self {
+        Self {
+            pid: 0,
+            parent: 0,
+            state: 0,
+            reserved: [0; 3],
+            status: 0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,6 +205,15 @@ mod tests {
             Syscall::Close,
             Syscall::Wait,
             Syscall::Exec,
+            Syscall::Create,
+            Syscall::Mkdir,
+            Syscall::Remove,
+            Syscall::Rename,
+            Syscall::GetCwd,
+            Syscall::Chdir,
+            Syscall::ReadDir,
+            Syscall::Kill,
+            Syscall::ProcessInfo,
         ];
         for (expected, call) in calls.into_iter().enumerate() {
             assert_eq!(call.number(), expected as u64);
@@ -178,5 +263,14 @@ mod tests {
         assert_eq!(ARGUMENT_REGISTERS, ["rdi", "rsi", "rdx", "r10", "r8", "r9"]);
         assert!(!ARGUMENT_REGISTERS.contains(&"rcx"));
         assert!(!ARGUMENT_REGISTERS.contains(&"r11"));
+    }
+
+    #[test]
+    fn appended_filesystem_and_process_abi_records_are_bounded() {
+        assert_eq!(core::mem::size_of::<DirectoryEntry>(), 35);
+        assert_eq!(core::mem::size_of::<ProcessInfo>(), 16);
+        assert_eq!(OPEN_KNOWN_FLAGS, 0xf);
+        assert_eq!(DirectoryEntry::empty().reserved, [0; 2]);
+        assert_eq!(ProcessInfo::empty().reserved, [0; 3]);
     }
 }
