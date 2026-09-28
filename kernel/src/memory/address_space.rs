@@ -816,7 +816,7 @@ impl user_image::Sink for ImageSink<'_> {
     }
 }
 
-#[cfg(all(feature = "elf-load-probe", not(feature = "rust-init-probe")))]
+#[cfg(feature = "elf-load-probe")]
 fn elf_probe_image() -> [u8; 124] {
     const ELF_HEADER: usize = 64;
     const PROGRAM_HEADER: usize = 56;
@@ -876,12 +876,12 @@ pub unsafe fn load_elf_probe() -> Result<ActivatedProbe, ElfProbeError> {
         .allocate_user(stack_layout)
         .map_err(|e| ElfProbeError::AddressSpace(e.into()))?;
 
-    #[cfg(feature = "rust-init-probe")]
+    #[cfg(all(feature = "rust-init-probe", not(clippy)))]
     let image: &[u8] =
         include_bytes!("../../../target/x86_64-unknown-none/debug/vibrix-init");
-    #[cfg(not(feature = "rust-init-probe"))]
+    #[cfg(any(not(feature = "rust-init-probe"), clippy))]
     let probe_image = elf_probe_image();
-    #[cfg(not(feature = "rust-init-probe"))]
+    #[cfg(any(not(feature = "rust-init-probe"), clippy))]
     let image: &[u8] = &probe_image;
 
     let loaded_result = {
