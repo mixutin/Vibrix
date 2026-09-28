@@ -424,7 +424,9 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                         match console::command(bytes) {
                             console::Command::Empty => {}
                             console::Command::Help => {
-                                crate::println!("commands: help clear info mem pci acpi uptime reboot");
+                                crate::println!(
+                                    "commands: help clear info mem pci acpi uptime reboot"
+                                );
                                 debugcon::write("VIBRIX: kernel console command help\r\n");
                             }
                             console::Command::Clear => {
