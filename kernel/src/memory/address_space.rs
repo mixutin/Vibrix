@@ -206,6 +206,12 @@ fn current_root() -> u64 {
     root & ADDRESS_MASK
 }
 
+unsafe fn switch_root(root: u64) {
+    // SAFETY: caller supplies one of the already-validated PML4 roots owned by
+    // this single-BSP address-space proof and keeps IF masked across the switch.
+    unsafe { asm!("mov cr3, {}", in(reg) root, options(nostack, preserves_flags)) };
+}
+
 fn physical_bits_and_root() -> Result<(u8, u64), AddressSpaceError> {
     let root = current_root();
     let cr4: u64;
@@ -390,9 +396,32 @@ pub unsafe fn init(info: &BootInfo) -> Result<(), AddressSpaceError> {
 pub unsafe fn activate_probe() -> Result<ActivatedProbe, AddressSpaceError> {
     const CODE_GUARD: u64 = 0x003f_f000;
     const STACK_GUARD: u64 = 0x007f_e000;
-    #[cfg(not(feature = "syscall-probe"))]
+    #[cfg(feature = "process-syscall-probe")]
+    const USER_CODE: &[u8] = &[
+        0xb8, 0x02, 0x00, 0x00, 0x00, // mov eax, 2 (getpid)
+        0x0f, 0x05, // syscall
+        0x48, 0x83, 0xf8, 0x01, // cmp rax, 1
+        0x74, 0x02, // je next
+        0x0f, 0x0b, // ud2
+        0xbf, 0x02, 0x00, 0x00, 0x00, // mov edi, 2 (child pid)
+        0x48, 0x8d, 0x74, 0x24, 0xf8, // lea rsi, [rsp - 8] (status)
+        0x31, 0xd2, // xor edx, edx (options)
+        0xb8, 0x07, 0x00, 0x00, 0x00, // mov eax, 7 (wait)
+        0x0f, 0x05, // syscall
+        0x48, 0x83, 0xf8, 0x02, // cmp rax, 2
+        0x74, 0x02, // je next
+        0x0f, 0x0b, // ud2
+        0x83, 0x7c, 0x24, 0xf8, 0x17, // cmp dword ptr [rsp - 8], 23
+        0x74, 0x02, // je next
+        0x0f, 0x0b, // ud2
+        0xbf, 0x2a, 0x00, 0x00, 0x00, // mov edi, 42 (exit status)
+        0xb8, 0x00, 0x00, 0x00, 0x00, // mov eax, 0 (exit)
+        0x0f, 0x05, // syscall; must not return
+        0x0f, 0x0b, // ud2
+    ];
+    #[cfg(all(not(feature = "process-syscall-probe"), not(feature = "syscall-probe")))]
     const USER_CODE: &[u8] = &[0xcd, 0x80, 0x0f, 0x0b];
-    #[cfg(feature = "syscall-probe")]
+    #[cfg(all(not(feature = "process-syscall-probe"), feature = "syscall-probe"))]
     const USER_CODE: &[u8] = &[
         0x48, 0xc7, 0xc0, 0xff, 0xff, 0xff, 0xff, // mov rax, -1
         0x0f, 0x05, // syscall
@@ -932,6 +961,79 @@ pub unsafe fn enter_probe(probe: ActivatedProbe) -> ! {
     // SAFETY: assembly changes RSP before CR3, so clearing lower slot zero cannot
     // unmap the live kernel stack. The called helper validates the new CR3.
     unsafe { vibrix_address_space_enter(probe.user_root, probe.user_rip, probe.user_rsp) }
+}
+
+#[cfg(feature = "process-syscall-probe")]
+pub fn copy_to_user(address: u64, bytes: &[u8]) -> Result<(), AddressSpaceError> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+    let final_address = address
+        .checked_add(bytes.len() as u64 - 1)
+        .ok_or(AddressSpaceError::InvalidRoot)?;
+    Page::new_user(address & !0xfff)?;
+    Page::new_user(final_address & !0xfff)?;
+    if interrupts_enabled() {
+        return Err(AddressSpaceError::InterruptsEnabled);
+    }
+
+    // SAFETY: process syscalls run on the sole BSP with IF masked by FMASK.
+    let state = unsafe { &mut *ADDRESS_SPACE.0.get() };
+    let space = state.as_mut().ok_or(AddressSpaceError::NotInitialized)?;
+    let user_root = ACTIVE_ROOT.load(Ordering::SeqCst);
+    if user_root == 0 || user_root != space.user_root || current_root() != user_root {
+        return Err(AddressSpaceError::InvalidRoot);
+    }
+
+    unsafe { switch_root(space.kernel_root) };
+    let result = (|| {
+        // First validate every page so a failed copy cannot partially mutate
+        // userspace and a wait status is never half-written before reap.
+        let mut cursor = address;
+        loop {
+            let page = Page::new_user(cursor & !0xfff)?;
+            let mapping = space.vm.query(page)?.ok_or(Error::NotMapped)?;
+            if mapping.privilege != Privilege::User || mapping.permissions != Permissions::ReadWrite
+            {
+                return Err(AddressSpaceError::InvalidRoot);
+            }
+            if (cursor & !0xfff) == (final_address & !0xfff) {
+                break;
+            }
+            cursor = (cursor & !0xfff)
+                .checked_add(4096)
+                .ok_or(AddressSpaceError::InvalidRoot)?;
+        }
+
+        let mut copied = 0usize;
+        while copied < bytes.len() {
+            let current = address
+                .checked_add(copied as u64)
+                .ok_or(AddressSpaceError::InvalidRoot)?;
+            let page_address = current & !0xfff;
+            let offset = (current - page_address) as usize;
+            let count = core::cmp::min(4096 - offset, bytes.len() - copied);
+            let page = Page::new_user(page_address)?;
+            let mapping = space.vm.query(page)?.ok_or(Error::NotMapped)?;
+            let staged = unsafe { space.staging.map(mapping.physical, true) }
+                .map_err(|_| AddressSpaceError::Scratch)?;
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    bytes[copied..copied + count].as_ptr(),
+                    (staged as *mut u8).add(offset),
+                    count,
+                );
+                space
+                    .staging
+                    .unmap()
+                    .map_err(|_| AddressSpaceError::Scratch)?;
+            }
+            copied += count;
+        }
+        Ok(())
+    })();
+    unsafe { switch_root(user_root) };
+    result
 }
 
 /// Used by the CPL3 diagnostic interrupt handler to prove the CPU returned to
