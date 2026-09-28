@@ -365,7 +365,7 @@ the first real userspace CLI.
 - [x] Context switching
 - [x] Preemptive scheduler
 - [x] Ring 3 userspace
-- [ ] Userspace address spaces
+- [x] Userspace address spaces
 - [ ] Vibrix syscall ABI v1
 - [ ] syscall/sysret
 - [ ] Native Rust syscall library
@@ -423,6 +423,25 @@ probe still shares the kernel CR3 and managed VM arena; userspace address
 spaces, Vibrix syscall ABI, `syscall/sysret`, copy-in/out, process lifecycle,
 normal return-to-user scheduling, SMP and Target 001 remain separate unchecked
 work.
+
+**Verified M5 independent userspace address-space foundation (PR #126):**
+[Actions run 36456501893](https://github.com/mixutin/Vibrix/actions/runs/36456501893)
+passed the full repository CI on implementation head
+`d62f470854232e26f5dd7f9b2ecfede222be0556`, including the dedicated
+post-ExitBootServices QEMU proof. The kernel reserves a distinct PML4 root and
+private managed-VM frame pool, copies only supervisor kernel root mappings,
+builds guarded user code/stack mappings beneath a private arena slot, switches
+CR3 with local interrupts masked, and enters CPL3. The DPL3 diagnostic trap
+returns through the permanent TSS RSP0 stack while QEMU verifies that the exact
+private CR3 remains active. The same exact-head run also passed the existing
+Ring 3, write-protection, unmap-fault, host, Clippy, build and supply-chain
+regressions.
+
+This checks the bounded **userspace address-space foundation** only: one
+diagnostic single-BSP address space with shared supervisor kernel mappings. It
+does not yet provide a process address-space allocator, scheduler-integrated
+CR3 switching, PCID/SMP TLB shootdowns, copy-in/copy-out, the Vibrix syscall
+ABI, `syscall/sysret`, executable loading, or PID lifecycle.
 
 **Exit:** PID 1 executes in userspace and makes Vibrix syscalls.
 
