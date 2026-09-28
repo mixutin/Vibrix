@@ -109,5 +109,34 @@ pub fn self_test(mut report: impl FnMut(&str)) -> Result<()> {
     files.close(writer)?;
     report("VIBRIX: kernel pipe lifecycle verified");
     files.remove("/tmp/note")?;
+
+    files.create("/tmp/move")?;
+    let moving = files.open("/tmp/move", Open::READ_WRITE)?;
+    assert_eq!(files.write(moving, b"kept")?, 4);
+    assert_eq!(
+        files.rename("/tmp/move", "/tmp/moved"),
+        Err(Error::Busy)
+    );
+    files.close(moving)?;
+    files.rename("/tmp/move", "/tmp/moved")?;
+    assert_eq!(files.metadata("/tmp/move"), Err(Error::NotFound));
+    let moved = files.open("/tmp/moved", Open::READ)?;
+    assert_eq!(files.read(moved, &mut data[..4])?, 4);
+    assert_eq!(&data[..4], b"kept");
+    files.close(moved)?;
+    assert_eq!(
+        files.rename("/tmp/moved", "/dev/moved"),
+        Err(Error::Unsupported)
+    );
+
+    files.mkdir("/tmp/tree")?;
+    files.mkdir("/tmp/tree/child")?;
+    assert_eq!(
+        files.rename("/tmp/tree", "/tmp/tree/child/tree"),
+        Err(Error::InvalidPath)
+    );
+    files.remove("/tmp/tree/child")?;
+    files.remove("/tmp/tree")?;
+    files.remove("/tmp/moved")?;
     Ok(())
 }
