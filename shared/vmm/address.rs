@@ -38,9 +38,7 @@ impl PhysicalFrame {
         if !(36..=52).contains(&physical_bits) {
             return Err(Error::InvalidWidth);
         }
-        if address == 0
-            || !address.is_multiple_of(PAGE_BYTES)
-            || address >= (1u64 << physical_bits)
+        if address == 0 || !address.is_multiple_of(PAGE_BYTES) || address >= (1u64 << physical_bits)
         {
             return Err(Error::InvalidFrame);
         }
