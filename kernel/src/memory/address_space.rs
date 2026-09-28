@@ -206,6 +206,12 @@ fn current_root() -> u64 {
     root & ADDRESS_MASK
 }
 
+unsafe fn switch_root(root: u64) {
+    // SAFETY: caller supplies one of the already-validated PML4 roots owned by
+    // this single-BSP address-space proof and keeps IF masked across the switch.
+    unsafe { asm!("mov cr3, {}", in(reg) root, options(nostack, preserves_flags)) };
+}
+
 fn physical_bits_and_root() -> Result<(u8, u64), AddressSpaceError> {
     let root = current_root();
     let cr4: u64;
@@ -1043,37 +1049,61 @@ pub fn copy_to_user(address: u64, bytes: &[u8]) -> Result<(), AddressSpaceError>
     // SAFETY: process syscalls run on the sole BSP with IF masked by FMASK.
     let state = unsafe { &mut *ADDRESS_SPACE.0.get() };
     let space = state.as_mut().ok_or(AddressSpaceError::NotInitialized)?;
-    let active = ACTIVE_ROOT.load(Ordering::SeqCst);
-    if active == 0 || active != space.user_root || current_root() != active {
+    let user_root = ACTIVE_ROOT.load(Ordering::SeqCst);
+    if user_root == 0 || user_root != space.user_root || current_root() != user_root {
         return Err(AddressSpaceError::InvalidRoot);
     }
 
-    // Validate the entire destination before writing any byte. The current CR3
-    // is the same private root queried below, so a later raw user-VA write does
-    // not need the kernel-root scratch mapper and cannot partially succeed
-    // because of a missing or read-only second page.
-    let mut cursor = address;
-    loop {
-        let page = Page::new_user(cursor & !0xfff)?;
-        let mapping = space.vm.query(page)?.ok_or(Error::NotMapped)?;
-        if mapping.privilege != Privilege::User || mapping.permissions != Permissions::ReadWrite {
-            return Err(AddressSpaceError::InvalidRoot);
+    unsafe { switch_root(space.kernel_root) };
+    let result = (|| {
+        // First validate every page so a failed copy cannot partially mutate
+        // userspace and a wait status is never half-written before reap.
+        let mut cursor = address;
+        loop {
+            let page = Page::new_user(cursor & !0xfff)?;
+            let mapping = space.vm.query(page)?.ok_or(Error::NotMapped)?;
+            if mapping.privilege != Privilege::User
+                || mapping.permissions != Permissions::ReadWrite
+            {
+                return Err(AddressSpaceError::InvalidRoot);
+            }
+            if (cursor & !0xfff) == (final_address & !0xfff) {
+                break;
+            }
+            cursor = (cursor & !0xfff)
+                .checked_add(4096)
+                .ok_or(AddressSpaceError::InvalidRoot)?;
         }
-        if (cursor & !0xfff) == (final_address & !0xfff) {
-            break;
-        }
-        cursor = (cursor & !0xfff)
-            .checked_add(4096)
-            .ok_or(AddressSpaceError::InvalidRoot)?;
-    }
 
-    // SAFETY: every page covering [address, final_address] was just proven
-    // user RW in the active private CR3; IF remains masked, no Rust reference
-    // is constructed, and the source is a disjoint kernel slice.
-    unsafe {
-        core::ptr::copy_nonoverlapping(bytes.as_ptr(), address as *mut u8, bytes.len());
-    }
-    Ok(())
+        let mut copied = 0usize;
+        while copied < bytes.len() {
+            let current = address
+                .checked_add(copied as u64)
+                .ok_or(AddressSpaceError::InvalidRoot)?;
+            let page_address = current & !0xfff;
+            let offset = (current - page_address) as usize;
+            let count = core::cmp::min(4096 - offset, bytes.len() - copied);
+            let page = Page::new_user(page_address)?;
+            let mapping = space.vm.query(page)?.ok_or(Error::NotMapped)?;
+            let staged = unsafe { space.staging.map(mapping.physical, true) }
+                .map_err(|_| AddressSpaceError::Scratch)?;
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    bytes[copied..copied + count].as_ptr(),
+                    (staged as *mut u8).add(offset),
+                    count,
+                );
+                space
+                    .staging
+                    .unmap()
+                    .map_err(|_| AddressSpaceError::Scratch)?;
+            }
+            copied += count;
+        }
+        Ok(())
+    })();
+    unsafe { switch_root(user_root) };
+    result
 }
 
 /// Used by the CPL3 diagnostic interrupt handler to prove the CPU returned to
