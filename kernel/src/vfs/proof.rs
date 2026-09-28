@@ -64,6 +64,21 @@ pub fn self_test(mut report: impl FnMut(&str)) -> Result<()> {
     files.close(zero)?;
     report("VIBRIX: kernel devfs null and zero verified");
 
+    let tty = files.open("/dev/tty", Open::READ_WRITE)?;
+    assert_eq!(files.read(tty, &mut data), Err(Error::WouldBlock));
+    for byte in [b'h', b'e', b'l', b'x', 0x08, b'l', b'o', b'\r'] {
+        files.device_input("/dev/tty", byte)?;
+    }
+    assert_eq!(files.read(tty, &mut data)?, 6);
+    assert_eq!(&data[..6], b"hello\n");
+    assert_eq!(files.write(tty, b"ready\n")?, 6);
+    data.fill(0);
+    assert_eq!(files.device_output("/dev/tty", &mut data)?, 6);
+    assert_eq!(&data[..6], b"ready\n");
+    assert_eq!(files.device_output("/dev/tty", &mut data)?, 0);
+    files.close(tty)?;
+    report("VIBRIX: kernel TTY line discipline verified");
+
     let (reader, writer) = files.pipe()?;
     assert_eq!(files.read(reader, &mut data), Err(Error::WouldBlock));
     assert_eq!(files.write(writer, b"abcdef")?, 6);
