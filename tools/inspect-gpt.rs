@@ -12,6 +12,9 @@ const GPT_ENTRY_MIN_BYTES: u32 = 128;
 const ESP_TYPE_GUID: [u8; 16] = [
     0x28, 0x73, 0x2a, 0xc1, 0x1f, 0xf8, 0xd2, 0x11, 0xba, 0x4b, 0x00, 0xa0, 0xc9, 0x3e, 0xc9, 0x3b,
 ];
+const VIBRIX_SYSTEM_TYPE_GUID: [u8; 16] = [
+    0x3b, 0x0f, 0x4a, 0x2e, 0x3d, 0x6a, 0x96, 0x4e, 0xb9, 0x9a, 0x55, 0x3d, 0x7c, 0x0b, 0x12, 0x01,
+];
 
 #[derive(Debug, PartialEq, Eq)]
 struct Report {
@@ -19,6 +22,7 @@ struct Report {
     last_lba: u64,
     partitions: usize,
     efi_system_partitions: usize,
+    vibrix_system_partitions: usize,
     disk_guid: [u8; 16],
     partition_guids: Vec<(usize, [u8; 16])>,
 }
@@ -245,6 +249,7 @@ fn inspect<R: Read + Seek>(
 
     let mut partitions = 0;
     let mut efi_system_partitions = 0;
+    let mut vibrix_system_partitions = 0;
     let mut used_ranges = Vec::new();
     let mut seen_guids = HashSet::new();
     let mut partition_guids = Vec::new();
@@ -273,6 +278,9 @@ fn inspect<R: Read + Seek>(
         if entry[..16] == ESP_TYPE_GUID {
             efi_system_partitions += 1;
         }
+        if entry[..16] == VIBRIX_SYSTEM_TYPE_GUID {
+            vibrix_system_partitions += 1;
+        }
     }
     used_ranges.sort_unstable();
     if used_ranges.windows(2).any(|pair| pair[0].1 >= pair[1].0) {
@@ -283,6 +291,7 @@ fn inspect<R: Read + Seek>(
         last_lba,
         partitions,
         efi_system_partitions,
+        vibrix_system_partitions,
         disk_guid: header[56..72]
             .try_into()
             .expect("fixed GPT disk GUID width"),
@@ -319,11 +328,12 @@ fn main() {
     match inspect(&mut file, metadata.len(), sector_size) {
         Ok(report) => {
             println!(
-                "GPT primary and backup header/entry CRCs valid; sector_size={} last_lba={} partitions={} efi_system_partitions={} disk_guid={}",
+                "GPT primary and backup header/entry CRCs valid; sector_size={} last_lba={} partitions={} efi_system_partitions={} vibrix_system_partitions={} disk_guid={}",
                 report.sector_size,
                 report.last_lba,
                 report.partitions,
                 report.efi_system_partitions,
+                report.vibrix_system_partitions,
                 format_guid(&report.disk_guid)
             );
             for (index, guid) in &report.partition_guids {
@@ -455,6 +465,7 @@ mod tests {
             let report = check(image, sector_size as u64).unwrap();
             assert_eq!(report.partitions, 2);
             assert_eq!(report.efi_system_partitions, 1);
+            assert_eq!(report.vibrix_system_partitions, 0);
             assert_eq!(
                 format_guid(&report.disk_guid),
                 "44444444-4444-4444-4444-444444444444"
