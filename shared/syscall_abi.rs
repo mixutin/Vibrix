@@ -102,7 +102,10 @@ pub const fn checked_user_range(address: u64, len: u64) -> Option<(u64, u64)> {
     if len == 0 {
         return Some((address, address));
     }
-    let end = address.checked_add(len - 1)?;
+    let end = match address.checked_add(len - 1) {
+        Some(end) => end,
+        None => return None,
+    };
     // x86-64 48-bit lower-half canonical user addresses only for ABI v1.
     if address > 0x0000_7fff_ffff_ffff || end > 0x0000_7fff_ffff_ffff {
         return None;
