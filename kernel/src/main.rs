@@ -350,10 +350,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                 // to deliver is intentionally observable as a QEMU timeout.
                 unsafe { core::arch::asm!("hlt", options(nomem, nostack)) };
             }
-            crate::println!(
-                "kernel timer: tick {}",
-                arch::x86_64::irq::timer_ticks()
-            );
+            crate::println!("kernel timer: tick {}", arch::x86_64::irq::timer_ticks());
             debugcon::write("VIBRIX: kernel timer IRQ delivered\r\n");
         }
 
