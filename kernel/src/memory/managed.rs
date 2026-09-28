@@ -363,7 +363,7 @@ pub fn runtime_query(address: u64) -> Result<Option<Translation>, RuntimeError> 
     with_runtime(|vm| vm.query(page))
 }
 
-#[cfg(feature = "ring3-probe")]
+#[cfg(all(feature = "ring3-probe", not(feature = "address-space-probe")))]
 pub fn prepare_ring3_probe() -> Result<(u64, u64), RuntimeError> {
     const CODE_GUARD: u64 = ARENA_BASE + 8 * PAGE_BYTES;
     const STACK_GUARD: u64 = ARENA_BASE + 12 * PAGE_BYTES;
