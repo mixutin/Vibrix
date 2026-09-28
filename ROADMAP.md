@@ -389,8 +389,25 @@ not a bootable ESP, formatted root, USB device provisioning or QEMU native
 USB persistence. Those remain separate unchecked M9/M7 tasks.
 
 - [ ] EFI System Partition layout
-- [ ] Vibrix USB system partition layout
+- [x] Vibrix USB system partition layout
 - [ ] Persistent root
+
+**Verified M9 removable system partition layout (PR #88):**
+[Actions run 36385035224](https://github.com/mixutin/Vibrix/actions/runs/36385035224)
+passed both required jobs on the synchronized implementation head. The
+regular-file-only GPT creator generated 512- and 4096-byte-sector images with
+exactly one standard 32 MiB ESP and one 1 MiB-aligned **Vibrix System**
+partition using project type GUID
+`2e4a0f3b-6a3d-4e96-b99a-553d7c0b1201`. The independent read-only GPT
+inspector recognized exactly one of each type while retaining reciprocal
+primary/backup CRC, unique-GUID, overlap and Protective MBR validation.
+
+This checkbox records the outer removable-system **GPT partition role and
+geometry only**. The Vibrix System partition is still unformatted, and the ESP
+is not yet populated as a persistent disk image. There is no native USB I/O,
+physical-device provisioner, persistent root, Target 001 boot or two-machine
+portability claim. Runtime root selection must still use ADR 0005's disk/ESP/
+root unique-GUID identity checks; a partition type alone never selects a disk.
 - [ ] Persistent /home
 - [ ] Persistent package database
 - [ ] RAM-backed /tmp and runtime state
