@@ -204,13 +204,13 @@ future userspace shell.
 - [x] Kernel console input buffer and line editing
 - [x] Command parser and dispatch table
 - [x] `help`
-- [ ] `clear`
+- [x] `clear`
 - [x] `info` / build information
-- [ ] `mem` memory diagnostics
-- [ ] `pci` PCI discovery output
-- [ ] `acpi` ACPI discovery output
+- [x] `mem` memory diagnostics
+- [x] `pci` PCI discovery output
+- [x] `acpi` ACPI discovery output
 - [x] `uptime`
-- [ ] `reboot`
+- [x] `reboot`
 - [x] Unknown-command and malformed-input handling
 - [x] QEMU smoke test proves prompt → input → command → output
 
@@ -242,8 +242,23 @@ control bytes, resets after submission, and the parser matches whole commands;
 `info` and unknown-command behavior are host-tested through the same production
 module. These checkboxes mean a bounded **polled PS/2 development console**,
 not a TTY, IRQ keyboard, framebuffer terminal, userspace shell, USB HID path,
-or Target 001 console. `clear`, `mem`, `pci`, `acpi`, `uptime` and
-`reboot` remain unchecked until their actual behavior is implemented.
+or Target 001 console. The later control/diagnostic completion below is
+separately evidenced and does not expand this original PR #80 claim.
+
+**Verified M4.5 remaining diagnostic/control commands (PR #89):**
+[Actions run 36386907847](https://github.com/mixutin/Vibrix/actions/runs/36386907847)
+passed formatting, production host tests, target Clippy/builds, the supply-chain
+gate and the complete post-firmware QEMU regression matrix. The feature-specific
+probe waited for the real kernel prompt and injected edited `help`, `clear`,
+`mem`, `pci`, `acpi`, `uptime` and `reboot` through QEMU's virtual
+keyboard. Independent debug markers proved exact dispatch; COM1 contained the
+literal ANSI clear-screen/home bytes plus bounded immutable memory, PCI and
+ACPI snapshots. The reboot proof ran QEMU with `-no-reboot` and required it to
+terminate before the timeout after the kernel issued the i8042 reset pulse, so
+a log-only reset stub would fail. The reset mechanism is a q35 development
+path only. These checkboxes do **not** claim Target 001 reset support, USB HID,
+a TTY/userspace shell, live post-IRQ mutation of the early allocator/mapping
+window, driver activation, filesystem access or persistent USB root.
 
 **Exit:** after `ExitBootServices`, QEMU reaches a `vibrix>` prompt, accepts
 real keyboard input and executes diagnostic commands entirely in the Vibrix

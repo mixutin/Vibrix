@@ -192,3 +192,34 @@ timer counter and prints `uptime: N ticks (~S.ss)`, while debugcon records a
 distinct uptime-dispatch marker. This demonstrates a monotonic development
 timer available to the kernel console; it is not a wall clock or calibrated
 high-resolution time source.
+
+## Native diagnostic console commands
+
+The early post-firmware COM1 console now exposes bounded read-only diagnostics
+from immutable values captured before the PIT enables interrupts:
+
+- `mem` reports final UEFI descriptor count, the two early claimed physical
+  frame numbers, and the fixed 64 KiB early-heap capacity;
+- `pci` reports the already completed native segment-zero PCI scan summary;
+- `acpi` reports the validated MCFG allocation count, ECAM bus-zero device
+  count, I/O APIC count and routed legacy timer GSI.
+
+These commands do not re-enter the frame allocator or temporary ACPI mapping
+window after `sti`, and they perform no PCI configuration writes, MMIO,
+allocation, filesystem or device I/O. The QEMU console probe injects each
+command through the real emulated keyboard and validates independent
+kernel-origin debug markers plus COM1 output. Target 001 remains separate.
+
+
+## Native console clear and reboot controls
+
+The bounded development console also exposes two control commands:
+
+- `clear` emits the standard ANSI clear-screen + home sequence on COM1;
+- `reboot` requests an x86 reset through the q35 legacy i8042 command port.
+
+The QEMU console probe types both commands through the real emulated keyboard.
+It requires the exact clear sequence in the serial byte stream and runs QEMU
+with `-no-reboot`; the probe fails if the reboot command merely logs a message
+and QEMU survives until the test timeout. The i8042 reset path is a QEMU
+development-target proof only and does not claim Target 001 reboot support.
