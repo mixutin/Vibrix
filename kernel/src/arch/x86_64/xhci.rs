@@ -311,7 +311,7 @@ pub unsafe fn initialize(info: &BootInfo) -> Result<Summary, InitError> {
     let runtime_physical = bar
         .checked_add(u64::from(capability.runtime_offset))
         .and_then(|value| value.checked_add(INTERRUPTER_ZERO as u64))
-        .ok_or(InitError::InvalidCapability)?;
+        .ok_or(InitError::InvalidCapabilityHeader)?;
     let runtime_page = runtime_physical & !(PAGE - 1);
     let runtime_in_page =
         usize::try_from(runtime_physical - runtime_page).map_err(|_| InitError::Mapping)?;
