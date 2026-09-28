@@ -9,6 +9,7 @@ pub mod cpu_topology;
 pub mod nic;
 pub mod update_policy;
 pub mod user_image;
+pub mod user_stack;
 pub mod vfs;
 
 /// QEMU-only caller supplies the real kernel's independent output paths.
