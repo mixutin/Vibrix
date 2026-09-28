@@ -8,14 +8,14 @@ use crate::BootInfo;
 use core::arch::{asm, global_asm, x86_64::__cpuid_count};
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicU64, Ordering};
+#[cfg(feature = "elf-load-probe")]
+use vibrix_kernel::user_image;
+#[cfg(feature = "elf-load-probe")]
+use vibrix_vmm::GuardedId;
 use vibrix_vmm::address::{Page, Permissions, PhysicalFrame, Privilege, USER_SLOT};
 use vibrix_vmm::frames::Frames;
 use vibrix_vmm::walk::{ADDRESS_MASK, Memory, USER};
 use vibrix_vmm::{Error, GuardedLayout, GuardedVm, Vm};
-#[cfg(feature = "elf-load-probe")]
-use vibrix_vmm::GuardedId;
-#[cfg(feature = "elf-load-probe")]
-use vibrix_kernel::user_image;
 
 const ADDRESS_SPACE_POOL_FRAMES: usize = 32;
 const ADDRESS_SPACE_GUARDED_SLOTS: usize = 4;
@@ -575,7 +575,11 @@ impl<'a> ImageSink<'a> {
         }
     }
 
-    fn allocation_for(&self, address: u64, bytes: usize) -> Result<ImageAllocation, ImageSinkError> {
+    fn allocation_for(
+        &self,
+        address: u64,
+        bytes: usize,
+    ) -> Result<ImageAllocation, ImageSinkError> {
         let end = address
             .checked_add(bytes as u64)
             .ok_or(ImageSinkError::Range)?;
@@ -711,16 +715,17 @@ impl user_image::Sink for ImageSink<'_> {
         if virtual_address & 0xfff != 0 {
             return Err(ImageSinkError::Layout);
         }
-        let pages = memory_size
-            .checked_add(4095)
-            .ok_or(ImageSinkError::Range)?
-            / 4096;
+        let pages = memory_size.checked_add(4095).ok_or(ImageSinkError::Range)? / 4096;
         let lower = virtual_address
             .checked_sub(4096)
             .ok_or(ImageSinkError::Layout)?;
         let layout = GuardedLayout::new(Page::new_user(lower).map_err(ImageSinkError::Vm)?, pages)
             .map_err(ImageSinkError::Vm)?;
-        let id = self.space.vm.allocate_user(layout).map_err(ImageSinkError::Vm)?;
+        let id = self
+            .space
+            .vm
+            .allocate_user(layout)
+            .map_err(ImageSinkError::Vm)?;
         let target = if permissions.write {
             Permissions::ReadWrite
         } else if permissions.execute {
@@ -884,8 +889,8 @@ pub unsafe fn load_elf_probe() -> Result<ActivatedProbe, ElfProbeError> {
         .ok_or(ElfProbeError::AddressSpace(AddressSpaceError::Vm(
             Error::NotMapped,
         )))?;
-    let entry_page = Page::new_user(loaded.entry & !0xfff)
-        .map_err(|e| ElfProbeError::AddressSpace(e.into()))?;
+    let entry_page =
+        Page::new_user(loaded.entry & !0xfff).map_err(|e| ElfProbeError::AddressSpace(e.into()))?;
     let entry = space
         .vm
         .query(entry_page)
