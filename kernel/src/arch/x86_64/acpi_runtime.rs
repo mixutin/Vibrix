@@ -232,6 +232,26 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
                     return Ok((count, bus_zero, None));
                 }
                 if &table.signature == b"APIC" {
+                    let topology = vibrix_kernel::cpu_topology::Topology::from_madt(table.bytes())
+                        .map_err(|_| ReadError::Acpi(AcpiError::InvalidEntry))?;
+                    for cpu in topology.processors() {
+                        if cpu.availability == vibrix_kernel::cpu_topology::Availability::Enabled {
+                            crate::println!(
+                                "kernel CPU enabled: uid={} apic={} x2apic={}",
+                                cpu.firmware_uid,
+                                cpu.apic_id,
+                                cpu.x2apic
+                            );
+                        }
+                    }
+                    crate::println!(
+                        "kernel CPUs: enabled={} online_capable={} total={}",
+                        topology.enabled_count(),
+                        topology.online_capable_count(),
+                        topology.processors().len()
+                    );
+                    crate::println!("VIBRIX: kernel CPU enumeration verified");
+                    crate::debugcon::write("VIBRIX: kernel CPU enumeration verified\r\n");
                     let madt = table.madt_entries()?;
                     let first = madt.ioapics().next().ok_or(ReadError::MissingApic)??;
                     let timer = madt.interrupt_override(LEGACY_TIMER_IRQ)?;

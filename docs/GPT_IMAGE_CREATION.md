@@ -26,6 +26,43 @@ A Linux host with `/dev/urandom` is required to generate **fresh**, distinct
 disk, ESP and data-partition unique GUIDs. This is not an entropy source for
 the eventual Vibrix kernel.
 
+## Populating the regular-file EFI System Partition
+
+The blank-image creator remains intentionally separate from boot-file
+installation. For a **regular-file** image created by the command above,
+`tools/populate-esp.rs` can format only the still-blank 32 MiB ESP as FAT16
+and install the adopted removable-media paths:
+
+```text
+/EFI/BOOT/BOOTX64.EFI
+/VIBRIX/KERNEL.ELF
+```
+
+Compile the population and independent read-only inspection tools with the same
+pinned Rust toolchain:
+
+```sh
+rustc --edition=2024 tools/populate-esp.rs -o /tmp/vibrix-populate-esp
+rustc --edition=2024 tools/inspect-esp.rs -o /tmp/vibrix-inspect-esp
+/tmp/vibrix-populate-esp ./vibrix-blank.img ./BOOTX64.EFI ./kernel.elf 512
+/tmp/vibrix-inspect-esp ./vibrix-blank.img 512
+```
+
+Use `4096` consistently instead when the GPT image was created with
+4096-byte logical sectors. The population tool rejects symlink/device/pseudo
+filesystem targets, unexpected GPT geometry, non-blank ESP contents, a
+non-PE/COFF loader, or a non-ELF kernel. It writes no bytes outside the
+GPT-declared ESP and has no block-device mode. The inspector independently
+checks the FAT16 BPB, both FAT copies, exact 8.3 directory tree, bounded file
+chains and executable signatures.
+
+CI additionally populates a GPT image with the **production** Vibrix UEFI
+loader and kernel, attaches that image read-only to QEMU q35/OVMF as USB mass
+storage, and requires firmware fallback boot through `BOOTX64.EFI`, kernel
+file discovery, `ExitBootServices`, and standalone kernel entry. The image
+SHA-256 must be unchanged after the boot. See
+[ADR 0013](decisions/0013-efi-system-partition-layout.md).
+
 ## Experimental partition geometry
 
 - Protective MBR in logical block 0.
@@ -54,8 +91,10 @@ CRC-32, reciprocal header pointers and the no-overwrite policy.
 **No block-device writing capability exists here.** This is deliberate:
 a separately reviewed, explicitly opt-in USB provisioner must validate
 removability, target identity and confirmation before writing a device.
-A raw blank GPT file is not bootable, so this work does **not** satisfy M9
-safe USB provisioning, persistent root, FAT ESP contents or Target 001 boot.
+The creator's raw blank GPT output is not bootable until a separate ESP
+population step succeeds. The regular-file population path does **not** satisfy
+M9 safe physical USB provisioning, persistent root, native post-firmware USB
+storage access or Target 001 boot.
 
 The tool does not make firmware handles into stable USB identities. Follow
 [ADR 0005](decisions/0005-boot-usb-identity.md) for the proposed identity
