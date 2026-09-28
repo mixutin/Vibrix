@@ -76,9 +76,12 @@ while time.monotonic() < deadline:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
                 client.connect(monitor)
                 if sys.argv[3] == "1":
-                    # Real virtual keyboard: edited "help", then "uptime".
+                    # Real virtual keyboard: edited "help", then live diagnostics.
                     keys = (
                         "h", "e", "l", "x", "backspace", "p", "ret",
+                        "m", "e", "m", "ret",
+                        "p", "c", "i", "ret",
+                        "a", "c", "p", "i", "ret",
                         "u", "p", "t", "i", "m", "e", "ret",
                     )
                 else:
@@ -191,8 +194,14 @@ if [[ "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" ]]; then
   grep -Fq "VIBRIX: kernel console prompt ready" "$LOG"
   grep -Fq "VIBRIX: kernel console backspace accepted" "$LOG"
   grep -Fq "VIBRIX: kernel console command help" "$LOG"
+  grep -Fq "VIBRIX: kernel console command mem" "$LOG"
+  grep -Fq "VIBRIX: kernel console command pci" "$LOG"
+  grep -Fq "VIBRIX: kernel console command acpi" "$LOG"
   grep -Fq "VIBRIX: kernel console command uptime" "$LOG"
-  grep -Fq "commands: help info uptime" "$SERIAL_LOG"
+  grep -Fq "commands: help info mem pci acpi uptime" "$SERIAL_LOG"
+  tr -d '\r' < "$SERIAL_LOG" | grep -Eq 'mem: descriptors=[1-9][0-9]* claimed_frames=0x[0-9a-f]+,0x[0-9a-f]+ early_heap_bytes=65536'
+  tr -d '\r' < "$SERIAL_LOG" | grep -Eq 'pci: devices=[1-9][0-9]* bars=[1-9][0-9]* xhci=[0-9]+ malformed_bars=0'
+  tr -d '\r' < "$SERIAL_LOG" | grep -Eq 'acpi: mcfg_allocations=[1-9][0-9]* ecam_bus0_devices=[1-9][0-9]* ioapics=[1-9][0-9]* timer_gsi=[0-9]+'
   tr -d '\r' < "$SERIAL_LOG" | grep -Eq 'uptime: [1-9][0-9]* ticks \(~[0-9]+\.[0-9][0-9]s\)'
 fi
 
