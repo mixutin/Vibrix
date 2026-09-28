@@ -243,6 +243,9 @@ fn format_image(
         return Err("refusing a path that looks like a raw device".into());
     }
     let (sb, root_data) = layout(total_blocks, filesystem_uuid, root_guid)?;
+    let welcome_data = root_data
+        .checked_add(1)
+        .ok_or_else(|| "data geometry overflow".to_string())?;
     let bytes = total_blocks
         .checked_mul(BLOCK as u64)
         .ok_or_else(|| "image length overflow".to_string())?;
@@ -277,12 +280,14 @@ fn format_image(
         set_bit(&mut block_bitmap, block)?;
     }
     set_bit(&mut block_bitmap, root_data)?;
+    set_bit(&mut block_bitmap, welcome_data)?;
     set_bit(&mut block_bitmap, total_blocks - 1)?;
     set_padding_bits(&mut block_bitmap, total_blocks)?;
 
     let mut inode_bitmap = vec![0u8; BLOCK * INODE_BITMAP_BLOCKS as usize];
     set_bit(&mut inode_bitmap, 0)?;
     set_bit(&mut inode_bitmap, 1)?;
+    set_bit(&mut inode_bitmap, 2)?;
     set_padding_bits(&mut inode_bitmap, TOTAL_INODES + 1)?;
 
     let mut extents = [Extent {
@@ -315,6 +320,37 @@ fn format_image(
         flags: 0,
     };
     let encoded_root = encode_inode(&root, &sb).map_err(|e| format!("encode root inode: {e:?}"))?;
+    let mut welcome_extents = [Extent {
+        start: 0,
+        blocks: 0,
+    }; 6];
+    welcome_extents[0] = Extent {
+        start: welcome_data,
+        blocks: 1,
+    };
+    let welcome = Inode {
+        number: 2,
+        file_type: 1,
+        mode: 0o644,
+        uid: 0,
+        gid: 0,
+        links: 1,
+        size: WELCOME_BYTES.len() as u64,
+        allocated_blocks: 1,
+        atime_sec: 0,
+        atime_nsec: 0,
+        mtime_sec: 0,
+        mtime_nsec: 0,
+        ctime_sec: 0,
+        ctime_nsec: 0,
+        nonce: [0x6b; 16],
+        extents: welcome_extents,
+        extent_count: 1,
+        device: 0,
+        flags: 0,
+    };
+    let encoded_welcome =
+        encode_inode(&welcome, &sb).map_err(|e| format!("encode welcome inode: {e:?}"))?;
     let inode_table_len = usize::try_from(
         sb.inode_table
             .blocks
@@ -324,13 +360,17 @@ fn format_image(
     .map_err(|_| "inode table too large for host")?;
     let mut inode_table = vec![0u8; inode_table_len];
     inode_table[..INODE_BYTES].copy_from_slice(&encoded_root);
+    inode_table[INODE_BYTES..INODE_BYTES * 2].copy_from_slice(&encoded_welcome);
     let directory = root_directory_block()?;
+    let mut welcome_block = [0u8; BLOCK];
+    welcome_block[..WELCOME_BYTES.len()].copy_from_slice(WELCOME_BYTES);
 
     write_at(&mut file, 0, &superblock)?;
     write_at(&mut file, sb.block_bitmap.start, &block_bitmap)?;
     write_at(&mut file, sb.inode_bitmap.start, &inode_bitmap)?;
     write_at(&mut file, sb.inode_table.start, &inode_table)?;
     write_at(&mut file, root_data, &directory)?;
+    write_at(&mut file, welcome_data, &welcome_block)?;
     write_at(&mut file, total_blocks - 1, &superblock)?;
     file.sync_all().map_err(|e| format!("sync image: {e}"))?;
     Ok(())
