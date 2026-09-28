@@ -112,6 +112,31 @@ jobs:
           rustc --edition=2024 -D warnings --test tools/vibrixfs-wire.rs -o "$RUNNER_TEMP/vibrixfs-wire-tests"
           "$RUNNER_TEMP/vibrixfs-wire-tests"
 
+      - name: Test VibrixFS regular-file format and inspect round trip
+        run: |
+          rustfmt --edition 2024 --check tools/vibrixfs-image.rs
+          rustc --edition=2024 -D warnings --test tools/vibrixfs-image.rs -o "$RUNNER_TEMP/vibrixfs-image-tests"
+          "$RUNNER_TEMP/vibrixfs-image-tests"
+          rustc --edition=2024 -D warnings tools/vibrixfs-image.rs -o "$RUNNER_TEMP/vibrixfs-image"
+          FS_UUID=00112233445566778899aabbccddeeff
+          ROOT_GUID=102132435465768798a9bacbdcedfe0f
+          for sector in 512 4096; do
+            image="$RUNNER_TEMP/vibrixfs-$sector.img"
+            "$RUNNER_TEMP/vibrixfs-image" format "$image" 4096 "$sector" "$FS_UUID" "$ROOT_GUID" | tee "$image.report"
+            grep -Fq "VibrixFS v1 valid: blocks=4096 logical_sector=$sector" "$image.report"
+            "$RUNNER_TEMP/vibrixfs-image" inspect "$image" "$sector" "$ROOT_GUID" >/dev/null
+            if "$RUNNER_TEMP/vibrixfs-image" format "$image" 4096 "$sector" "$FS_UUID" "$ROOT_GUID"; then
+              echo "unsafe VibrixFS overwrite was accepted" >&2
+              exit 1
+            fi
+          done
+          cp "$RUNNER_TEMP/vibrixfs-512.img" "$RUNNER_TEMP/vibrixfs-corrupt.img"
+          printf '\001' | dd of="$RUNNER_TEMP/vibrixfs-corrupt.img" bs=1 seek=300 conv=notrunc status=none
+          if "$RUNNER_TEMP/vibrixfs-image" inspect "$RUNNER_TEMP/vibrixfs-corrupt.img" 512 "$ROOT_GUID"; then
+            echo "corrupt VibrixFS metadata was accepted" >&2
+            exit 1
+          fi
+
       - name: Test UEFI memory-map acquisition on host
         run: |
           rustc --edition=2024 --test boot/src/memory_map.rs -o "$RUNNER_TEMP/vibrix-memory-map-tests"

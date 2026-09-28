@@ -175,8 +175,10 @@ if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" ]]; then
   grep -Fq "VIBRIX: kernel PS2 ASCII accepted" "$LOG"
   # The interactive prompt/echo may prefix the diagnostic line. Anchor the
   # numeric token at EOL so ASCII 104 can never satisfy the ASCII 10 check.
-  tr -d '\r' < "$SERIAL_LOG" | grep -Eq 'kernel PS2 ascii 104$'
-  tr -d '\r' < "$SERIAL_LOG" | grep -Eq 'kernel PS2 ascii 10$'
+  tr -d '\r' < "$SERIAL_LOG" | grep -Eq 'kernel PS2 ascii 104
+
+  tr -d '\r' < "$SERIAL_LOG" | grep -Eq 'kernel PS2 ascii 10
+
 fi
 cat "$SERIAL_LOG"
 

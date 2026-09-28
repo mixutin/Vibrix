@@ -255,14 +255,32 @@ the first real userspace CLI.
 **Exit:** Vibrix can access the same removable USB device it booted from after leaving firmware services.
 
 ## M8 — Vibrix filesystem
-- [ ] On-disk specification
-- [ ] Superblock/allocation metadata
+- [x] On-disk specification
+- [x] Superblock/allocation metadata
 - [ ] files/directories
 - [ ] permissions/timestamps
 - [ ] crash-consistency design
 - [ ] formatter + recovery tool
 - [ ] VFS driver
 - [ ] persistent root mounted from USB
+
+**Verified M8 bounded on-disk metadata foundation (PR #81):**
+[Actions run 36370905041](https://github.com/mixutin/Vibrix/actions/runs/36370905041)
+passed the shared v1 wire-codec tests, the real regular-file formatter/inspector
+round trip for both **512-byte and 4096-byte logical-sector models**, both target
+Clippy/builds, supply-chain checks and the existing QEMU kernel matrix. The
+formatter creates a new file only, refuses overwrite/raw-device-looking paths,
+writes reciprocal 4 KiB superblocks plus block/inode bitmaps, a fixed inode
+table, root inode 1 and its allocated root-directory block; the inspector
+independently re-reads and validates checksums, externally supplied partition
+identity, geometry, mandatory/padding allocation bits and the root inode/data
+reference. CI also mutates reserved superblock bytes and requires rejection.
+This verifies the byte-level **VibrixFS v1 on-disk specification** and its
+initial superblock/allocation metadata on host regular files. It does **not**
+establish general file/directory mutation, permissions enforcement, crash
+consistency/recovery, a kernel VFS driver, native USB block I/O, persistent root,
+or physical provisioning. The combined formatter + recovery item therefore
+remains unchecked.
 
 **Exit:** files created under the Vibrix root filesystem survive shutdown and reboot.
 
