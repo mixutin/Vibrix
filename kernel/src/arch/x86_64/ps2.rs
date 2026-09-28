@@ -75,6 +75,7 @@ impl SetOne {
             0x30 => b'b',
             0x31 => b'n',
             0x32 => b'm',
+            0x35 => b'/',
             0x39 => b' ',
             _ => return None,
         })
@@ -143,6 +144,7 @@ mod tests {
         assert_eq!(keys.feed(0x80 | 0x1e), None);
         assert_eq!(keys.feed(0x01), None); // escape unsupported
         assert_eq!(keys.feed(0x1e), Some(b'a'));
+        assert_eq!(keys.feed(0x35), Some(b'/'));
         assert_eq!(keys.feed(0x39), Some(b' '));
         assert_eq!(keys.feed(0x0e), Some(8));
     }

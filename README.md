@@ -46,19 +46,21 @@ Source refreshed against main [`5bbcb63`](https://github.com/mixutin/Vibrix/comm
 | **Interactive kernel console** | **Real virtual keyboard input, bounded editing, dispatch and diagnostic/control commands** |
 | GPT tooling | Safe regular-file image creation/inspection; ESP plus dedicated Vibrix System partition |
 | VibrixFS tooling | Host wire-format/journal validation, regular-file format/inspect round trips and corruption rejection |
-| Userspace address spaces, Ring 3, processes/syscalls | Not complete |
-| VFS/TTY/userspace shell | Not implemented |
+| M5 userspace foundation | Bounded Ring 3/private CR3 and real SYSCALL/SYSRETQ transport are QEMU-verified; a native Rust wrapper crate is merged. General processes and syscall services remain unfinished. |
+| Bootstrap VFS | Bounded RAM files, mounted null/zero devices, descriptors and pipes; kernel console access. See [bootstrap VFS](docs/BOOTSTRAP_VFS.md). USB root, file syscalls, TTY and userspace shell remain unfinished. |
 | Native USB persistence / Target 001 | Not demonstrated |
 
 ### The console is real; it is not userspace
 
 ```text
 help    clear    info    mem    pci    acpi    uptime    reboot
+ls /    cat /welcome    write /tmp/note hello    cat /tmp/note
+mkdir /tmp/test    rm /tmp/note    pipe
 ```
 
 QEMU checks inject real virtual keys, edit `helx` into `help`, inspect diagnostic output and require the development `reboot` path to actually terminate QEMU under `-no-reboot`. The console uses **polled PS/2 input and native COM1 output**; timer IRQ support does not imply an IRQ-driven keyboard. Memory/PCI/ACPI commands expose bounded early snapshots. This is not a framebuffer terminal, USB HID path or hardware-qualified reset implementation.
 
-M4.5's verified development console is a bridge to M5/M6, not a substitute for Ring 3, syscalls, VFS, TTY and the future Rust userspace shell. The host filesystem tools likewise do not prove that the kernel mounts or persists a filesystem.
+M4.5's verified development console is a bridge to M5/M6, not a substitute for Ring 3, syscalls, VFS, TTY and the future Rust userspace shell. The bootstrap VFS mounts RAM and null/zero device filesystems in the kernel; it does not persist data. The host VibrixFS tools are still separate from a native persistent root driver.
 
 ## Boot path and next steps
 
