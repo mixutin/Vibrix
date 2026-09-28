@@ -117,8 +117,25 @@ and SMP handling are separate unchecked work. Target 001 is untested.
 - [x] PCI enumeration
 - [x] BAR parsing
 - [ ] MSI/MSI-X
-- [ ] Device/driver model
+- [x] Device/driver model
 - [ ] Driver binding
+
+**Verified M4 device/driver candidate model (PR #87):**
+[Actions run 36384062012](https://github.com/mixutin/Vibrix/actions/runs/36384062012)
+passed the production device-model host tests, both target builds/Clippy,
+timer-enabled QEMU regressions, real keyboard console probes and supply-chain
+gates on the synchronized implementation head. Native post-firmware PCI
+enumeration populated immutable PCI identities and a fixed driver-descriptor
+registry; normal QEMU required the independent kernel device-model marker, and
+the explicit virtual-xHCI boot observed at least one **live xHCI driver
+candidate** through the same discovered PCI data. The model also contains an
+exact RTL8168 identity rule for future Target 001/network work.
+
+This checkbox means Vibrix now has a bounded **discovery and driver-candidate
+model**, not driver ownership or hardware activation. No PCI configuration
+writes, BAR MMIO, bus mastering, DMA, MSI/MSI-X, USB transactions or Ethernet
+I/O occur through this model. **Driver binding stays unchecked**, as do native
+xHCI/RTL8168 drivers and every Target 001 hardware item.
 
 **Verified M4 read-only ECAM bootstrap (PR #67):**
 [Actions run 36346144132](https://github.com/mixutin/Vibrix/actions/runs/36346144132)
