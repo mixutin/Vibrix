@@ -78,7 +78,11 @@ impl<'a> Command<'a> {
         }
 
         let builtin = (argc != 0).then(|| Builtin::parse(args[0])).flatten();
-        Ok(Self { builtin, args, argc })
+        Ok(Self {
+            builtin,
+            args,
+            argc,
+        })
     }
 }
 
