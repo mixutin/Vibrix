@@ -1,5 +1,10 @@
 //! The same assertions run as host tests and in the real post-firmware kernel.
-use super::{Error, Filesystem, Kind, Result, Vfs, devfs::DevFs, files::{Files, Open}, memfs::MemFs};
+use super::{
+    Error, Filesystem, Kind, Result, Vfs,
+    devfs::DevFs,
+    files::{Files, Open},
+    memfs::MemFs,
+};
 
 pub fn self_test(mut report: impl FnMut(&str)) -> Result<()> {
     let mut ram = MemFs::<12, 64>::new()?;

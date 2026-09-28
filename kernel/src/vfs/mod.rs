@@ -1,7 +1,7 @@
 //! Allocation-free bootstrap namespace. All mutation requires one exclusive
 //! owner; no interrupt handler or userspace pointer may enter this API.
-pub mod devfs;
 pub mod console;
+pub mod devfs;
 pub mod files;
 pub mod memfs;
 mod pipe;
@@ -71,7 +71,10 @@ impl Name {
         if name.len() > NAME_MAX {
             return Err(Error::NameTooLong);
         }
-        let mut result = Self { bytes: [0; NAME_MAX], len: name.len() };
+        let mut result = Self {
+            bytes: [0; NAME_MAX],
+            len: name.len(),
+        };
         result.bytes[..name.len()].copy_from_slice(name.as_bytes());
         Ok(result)
     }
@@ -122,16 +125,26 @@ pub struct Vfs<'a, const M: usize> {
 
 impl<'a, const M: usize> Vfs<'a, M> {
     pub fn new(root: &'a mut dyn Filesystem) -> Result<Self> {
-        if M == 0 { return Err(Error::NoSpace); }
-        if root.metadata(root.root())?.kind != Kind::Directory { return Err(Error::NotDirectory); }
+        if M == 0 {
+            return Err(Error::NoSpace);
+        }
+        if root.metadata(root.root())?.kind != Kind::Directory {
+            return Err(Error::NotDirectory);
+        }
         let mut mounts = core::array::from_fn(|_| None);
-        mounts[0] = Some(Mount { covered: None, fs: root });
+        mounts[0] = Some(Mount {
+            covered: None,
+            fs: root,
+        });
         Ok(Self { mounts })
     }
 
     fn fs(&self, node: Node) -> Result<&dyn Filesystem> {
-        self.mounts.get(node.mount).and_then(Option::as_ref)
-            .map(|mount| &*mount.fs).ok_or(Error::StaleNode)
+        self.mounts
+            .get(node.mount)
+            .and_then(Option::as_ref)
+            .map(|mount| &*mount.fs)
+            .ok_or(Error::StaleNode)
     }
 
     fn fs_mut(&mut self, node: Node) -> Result<&mut (dyn Filesystem + 'a)> {
@@ -142,13 +155,21 @@ impl<'a, const M: usize> Vfs<'a, M> {
     }
 
     fn root(&self) -> Node {
-        Node { mount: 0, id: self.mounts[0].as_ref().expect("root mount").fs.root() }
+        Node {
+            mount: 0,
+            id: self.mounts[0].as_ref().expect("root mount").fs.root(),
+        }
     }
 
     fn cross_mount(&self, node: Node) -> Node {
         for (index, mount) in self.mounts.iter().enumerate() {
-            if let Some(mount) = mount && mount.covered == Some(node) {
-                return Node { mount: index, id: mount.fs.root() };
+            if let Some(mount) = mount
+                && mount.covered == Some(node)
+            {
+                return Node {
+                    mount: index,
+                    id: mount.fs.root(),
+                };
             }
         }
         node
@@ -156,15 +177,24 @@ impl<'a, const M: usize> Vfs<'a, M> {
 
     pub fn mount(&mut self, path: &str, fs: &'a mut dyn Filesystem) -> Result<()> {
         let covered = self.resolve(path)?;
-        if self.metadata(covered)?.kind != Kind::Directory || fs.metadata(fs.root())?.kind != Kind::Directory {
+        if self.metadata(covered)?.kind != Kind::Directory
+            || fs.metadata(fs.root())?.kind != Kind::Directory
+        {
             return Err(Error::NotDirectory);
         }
         // Do not allow covering a mount root, including namespace root.
         if self.fs(covered)?.root() == covered.id {
             return Err(Error::Busy);
         }
-        let slot = self.mounts.iter().position(Option::is_none).ok_or(Error::NoSpace)?;
-        self.mounts[slot] = Some(Mount { covered: Some(covered), fs });
+        let slot = self
+            .mounts
+            .iter()
+            .position(Option::is_none)
+            .ok_or(Error::NoSpace)?;
+        self.mounts[slot] = Some(Mount {
+            covered: Some(covered),
+            fs,
+        });
         Ok(())
     }
 
@@ -174,21 +204,30 @@ impl<'a, const M: usize> Vfs<'a, M> {
         let mut depth = 0;
         for component in path.split('/').filter(|part| !part.is_empty()) {
             let current = ancestors[depth];
-            if self.metadata(current)?.kind != Kind::Directory { return Err(Error::NotDirectory); }
+            if self.metadata(current)?.kind != Kind::Directory {
+                return Err(Error::NotDirectory);
+            }
             match component {
-                "." => {},
+                "." => {}
                 ".." => depth = depth.saturating_sub(1),
                 name => {
                     Name::new(name)?;
-                    if depth == DEPTH_MAX { return Err(Error::NameTooLong); }
+                    if depth == DEPTH_MAX {
+                        return Err(Error::NameTooLong);
+                    }
                     let child = self.fs(current)?.lookup(current.id, name)?;
                     depth += 1;
-                    ancestors[depth] = self.cross_mount(Node { mount: current.mount, id: child });
-                },
+                    ancestors[depth] = self.cross_mount(Node {
+                        mount: current.mount,
+                        id: child,
+                    });
+                }
             }
         }
         let node = ancestors[depth];
-        if path.ends_with('/') && self.metadata(node)?.kind != Kind::Directory { return Err(Error::NotDirectory); }
+        if path.ends_with('/') && self.metadata(node)?.kind != Kind::Directory {
+            return Err(Error::NotDirectory);
+        }
         Ok(node)
     }
 
@@ -198,28 +237,49 @@ impl<'a, const M: usize> Vfs<'a, M> {
         let (prefix, name) = path.rsplit_once('/').ok_or(Error::InvalidPath)?;
         Name::new(name)?;
         let parent = self.resolve(if prefix.is_empty() { "/" } else { prefix })?;
-        if self.metadata(parent)?.kind != Kind::Directory { return Err(Error::NotDirectory); }
+        if self.metadata(parent)?.kind != Kind::Directory {
+            return Err(Error::NotDirectory);
+        }
         Ok((parent, name))
     }
 
     pub fn create(&mut self, path: &str, kind: Kind) -> Result<Node> {
-        if path.ends_with('/') && kind != Kind::Directory { return Err(Error::NotDirectory); }
+        if path.ends_with('/') && kind != Kind::Directory {
+            return Err(Error::NotDirectory);
+        }
         let (parent, name) = self.parent(path)?;
         let id = self.fs_mut(parent)?.create(parent.id, name, kind)?;
-        Ok(Node { mount: parent.mount, id })
+        Ok(Node {
+            mount: parent.mount,
+            id,
+        })
     }
 
     pub fn remove(&mut self, path: &str) -> Result<()> {
         let resolved = self.resolve(path)?;
-        if resolved == self.root() { return Err(Error::Busy); }
+        if resolved == self.root() {
+            return Err(Error::Busy);
+        }
         let (parent, name) = self.parent(path)?;
         let id = self.fs(parent)?.lookup(parent.id, name)?;
-        let covered = Node { mount: parent.mount, id };
-        if self.mounts.iter().flatten().any(|mount| mount.covered == Some(covered)) { return Err(Error::Busy); }
+        let covered = Node {
+            mount: parent.mount,
+            id,
+        };
+        if self
+            .mounts
+            .iter()
+            .flatten()
+            .any(|mount| mount.covered == Some(covered))
+        {
+            return Err(Error::Busy);
+        }
         self.fs_mut(parent)?.remove(parent.id, name)
     }
 
-    pub fn metadata(&self, node: Node) -> Result<Metadata> { self.fs(node)?.metadata(node.id) }
+    pub fn metadata(&self, node: Node) -> Result<Metadata> {
+        self.fs(node)?.metadata(node.id)
+    }
 
     pub fn entry(&self, node: Node, index: usize) -> Result<Option<Entry>> {
         self.fs(node)?.entry(node.id, index)
@@ -228,21 +288,31 @@ impl<'a, const M: usize> Vfs<'a, M> {
     pub fn read(&mut self, node: Node, offset: usize, buffer: &mut [u8]) -> Result<usize> {
         let limit = buffer.len();
         let count = self.fs_mut(node)?.read(node.id, offset, buffer)?;
-        if count > limit { return Err(Error::BackendContract); }
+        if count > limit {
+            return Err(Error::BackendContract);
+        }
         Ok(count)
     }
 
     pub fn write(&mut self, node: Node, offset: usize, buffer: &[u8]) -> Result<usize> {
         let count = self.fs_mut(node)?.write(node.id, offset, buffer)?;
-        if count > buffer.len() { return Err(Error::BackendContract); }
+        if count > buffer.len() {
+            return Err(Error::BackendContract);
+        }
         Ok(count)
     }
 
-    pub fn truncate(&mut self, node: Node) -> Result<()> { self.fs_mut(node)?.truncate(node.id) }
+    pub fn truncate(&mut self, node: Node) -> Result<()> {
+        self.fs_mut(node)?.truncate(node.id)
+    }
 }
 
 fn validate_path(path: &str) -> Result<()> {
-    if !path.starts_with('/') || path.contains('\0') { return Err(Error::InvalidPath); }
-    if path.len() > PATH_MAX { return Err(Error::NameTooLong); }
+    if !path.starts_with('/') || path.contains('\0') {
+        return Err(Error::InvalidPath);
+    }
+    if path.len() > PATH_MAX {
+        return Err(Error::NameTooLong);
+    }
     Ok(())
 }

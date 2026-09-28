@@ -87,7 +87,9 @@ fn invalid_paths_names_and_trailing_slashes_fail_closed() {
     vfs.create("/a", Kind::Directory).unwrap();
     let file = vfs.create("/a/file", Kind::File).unwrap();
     assert_eq!(vfs.resolve("//a/./file"), Ok(file));
-    for bad in ["", "relative", "/a/fi\0le"] { assert_eq!(vfs.resolve(bad), Err(Error::InvalidPath)); }
+    for bad in ["", "relative", "/a/fi\0le"] {
+        assert_eq!(vfs.resolve(bad), Err(Error::InvalidPath));
+    }
     assert_eq!(vfs.resolve("/missing/../a"), Err(Error::NotFound));
     assert_eq!(vfs.resolve("/a/file/"), Err(Error::NotDirectory));
     assert_eq!(vfs.resolve("/a/file/.."), Err(Error::NotDirectory));
@@ -95,8 +97,14 @@ fn invalid_paths_names_and_trailing_slashes_fail_closed() {
     assert_eq!(vfs.create("/new/", Kind::File), Err(Error::NotDirectory));
     assert_eq!(vfs.create("/a/..", Kind::File), Err(Error::InvalidPath));
     assert_eq!(vfs.resolve("/../../a/file"), Ok(file));
-    assert_eq!(vfs.resolve(&std::format!("/{}", "x".repeat(NAME_MAX + 1))), Err(Error::NameTooLong));
-    assert_eq!(vfs.resolve(&std::format!("/{}", "x".repeat(PATH_MAX))), Err(Error::NameTooLong));
+    assert_eq!(
+        vfs.resolve(&std::format!("/{}", "x".repeat(NAME_MAX + 1))),
+        Err(Error::NameTooLong)
+    );
+    assert_eq!(
+        vfs.resolve(&std::format!("/{}", "x".repeat(PATH_MAX))),
+        Err(Error::NameTooLong)
+    );
     assert_eq!(vfs.remove("/"), Err(Error::Busy));
 }
 
@@ -117,7 +125,13 @@ fn mounted_backend_overrides_only_the_exact_directory() {
     assert_eq!(vfs.mount("/dev", &mut second), Err(Error::Busy));
     assert_eq!(vfs.remove("/dev"), Err(Error::Busy));
     assert_eq!(vfs.create("/dev/new", Kind::File), Err(Error::ReadOnly));
-    assert_eq!(vfs.resolve("/dev/null").and_then(|n| vfs.metadata(n)).unwrap().kind, Kind::Device);
+    assert_eq!(
+        vfs.resolve("/dev/null")
+            .and_then(|n| vfs.metadata(n))
+            .unwrap()
+            .kind,
+        Kind::Device
+    );
 }
 
 #[test]
@@ -140,7 +154,10 @@ fn depth_limit_is_checked_on_actual_walk() {
     let mut fs = MemFs::<20, 1>::new().unwrap();
     let mut vfs = Vfs::<1>::new(&mut fs).unwrap();
     let mut path = std::string::String::new();
-    for _ in 0..DEPTH_MAX { path.push_str("/a"); vfs.create(&path, Kind::Directory).unwrap(); }
+    for _ in 0..DEPTH_MAX {
+        path.push_str("/a");
+        vfs.create(&path, Kind::Directory).unwrap();
+    }
     assert!(vfs.resolve(&path).is_ok());
     path.push_str("/a");
     assert_eq!(vfs.resolve(&path), Err(Error::NameTooLong));
@@ -172,7 +189,11 @@ fn access_offsets_append_and_close_are_enforced() {
     let vfs = Vfs::<1>::new(&mut fs).unwrap();
     let mut files = Files::<1, 8, 1, 4>::new(vfs);
     files.create("/file").unwrap();
-    let append = Open { access: Access::Write, truncate: false, append: true };
+    let append = Open {
+        access: Access::Write,
+        truncate: false,
+        append: true,
+    };
     let first = files.open("/file", append).unwrap();
     let second = files.open("/file", append).unwrap();
     files.write(first, b"ab").unwrap();
@@ -186,12 +207,27 @@ fn access_offsets_append_and_close_are_enforced() {
     assert_eq!(&bytes, b"abcdef");
     assert_eq!(files.write(reader, b"x"), Err(Error::AccessDenied));
     assert_eq!(files.remove("/file"), Err(Error::Busy));
-    assert_eq!(files.open("/file", Open { access: Access::Read, truncate: true, append: false }), Err(Error::AccessDenied));
-    for fd in [first, second, reader] { files.close(fd).unwrap(); }
+    assert_eq!(
+        files.open(
+            "/file",
+            Open {
+                access: Access::Read,
+                truncate: true,
+                append: false
+            }
+        ),
+        Err(Error::AccessDenied)
+    );
+    for fd in [first, second, reader] {
+        files.close(fd).unwrap();
+    }
     assert_eq!(files.close(reader), Err(Error::BadDescriptor));
     files.remove("/file").unwrap();
     assert_eq!(files.metadata("/file"), Err(Error::NotFound));
-    assert_eq!(files.read(usize::MAX, &mut bytes), Err(Error::BadDescriptor));
+    assert_eq!(
+        files.read(usize::MAX, &mut bytes),
+        Err(Error::BadDescriptor)
+    );
 }
 
 #[test]
@@ -206,11 +242,15 @@ fn duplicated_offsets_and_independent_opens_are_distinct() {
     let duplicate = files.dup(first).unwrap();
     let separate = files.open("/file", Open::READ).unwrap();
     let mut byte = [0];
-    files.read(first, &mut byte).unwrap(); assert_eq!(byte, [b'a']);
-    files.read(duplicate, &mut byte).unwrap(); assert_eq!(byte, [b'b']);
+    files.read(first, &mut byte).unwrap();
+    assert_eq!(byte, [b'a']);
+    files.read(duplicate, &mut byte).unwrap();
+    assert_eq!(byte, [b'b']);
     files.close(first).unwrap();
-    files.read(duplicate, &mut byte).unwrap(); assert_eq!(byte, [b'c']);
-    files.read(separate, &mut byte).unwrap(); assert_eq!(byte, [b'a']);
+    files.read(duplicate, &mut byte).unwrap();
+    assert_eq!(byte, [b'c']);
+    files.read(separate, &mut byte).unwrap();
+    assert_eq!(byte, [b'a']);
 }
 
 #[test]

@@ -518,8 +518,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     {
         // Development QEMU keyboard: read only legacy i8042 ports after
         // ExitBootServices; input remains polled after timer IRQ enablement.
-        let mut root = vibrix_kernel::vfs::console::BootstrapRoot::new()
-            .expect("bootstrap memory filesystem");
+        let mut root =
+            vibrix_kernel::vfs::console::BootstrapRoot::new().expect("bootstrap memory filesystem");
         let mut devices = vibrix_kernel::vfs::devfs::DevFs;
         let mut files = vibrix_kernel::vfs::console::bootstrap(&mut root, &mut devices)
             .expect("bootstrap filesystem mounts");
@@ -556,7 +556,9 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                                 crate::println!(
                                     "commands: help clear info mem pci acpi uptime reboot"
                                 );
-                                crate::println!("RAM files: ls [path], cat path, write path text, mkdir path, rm path, pipe");
+                                crate::println!(
+                                    "RAM files: ls [path], cat path, write path text, mkdir path, rm path, pipe"
+                                );
                                 debugcon::write("VIBRIX: kernel console command help\r\n");
                             }
                             console::Command::Clear => {
@@ -626,8 +628,14 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                             }
                             console::Command::Unknown => {
                                 let text = core::str::from_utf8(bytes).unwrap_or("");
-                                if vibrix_kernel::vfs::console::execute(&mut files, text, &mut FsOutput) {
-                                    debugcon::write("VIBRIX: kernel filesystem command completed\r\n");
+                                if vibrix_kernel::vfs::console::execute(
+                                    &mut files,
+                                    text,
+                                    &mut FsOutput,
+                                ) {
+                                    debugcon::write(
+                                        "VIBRIX: kernel filesystem command completed\r\n",
+                                    );
                                 } else {
                                     crate::println!("unknown command");
                                     debugcon::write("VIBRIX: kernel console unknown command\r\n");
