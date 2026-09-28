@@ -27,8 +27,33 @@ jobs:
       - name: Test production PCI interrupt code on host
         run: |
           rustc --edition=2024 -D warnings --test host-tests/pci-interrupts.rs -o "$RUNNER_TEMP/pci-interrupt-tests"
+          "$RUNNER_TEMP/pci-interrupt-tests" --list | tee "$RUNNER_TEMP/pci-interrupt-list"
+          grep -Fq 'pci_msi::tests::capability_can_end_at_final_configuration_dword' "$RUNNER_TEMP/pci-interrupt-list"
+          grep -Fq 'pci_msix::tests::every_table_and_config_write_failure_disables_in_fake' "$RUNNER_TEMP/pci-interrupt-list"
           "$RUNNER_TEMP/pci-interrupt-tests"
       - name: Compile production contracts without host runtime
         run: |
           rustup target add x86_64-unknown-none
           rustc --edition=2024 -D warnings --crate-type lib --target x86_64-unknown-none host-tests/pci-interrupts.rs -o "$RUNNER_TEMP/libpci_interrupts.rlib"
+  native-inventory:
+    name: Native PCI interrupt inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install QEMU firmware and emulator
+        run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 ovmf
+      - name: Boot native read-only capability discovery
+        run: bash tools/test-pci-interrupts.sh
+      - name: Preserve guest evidence in job log
+        if: always()
+        run: |
+          for log in build/qemu/pci-*.log; do
+            if [[ -f "$log" ]]; then
+              printf '\n=== %s ===\n' "$log"
+              cat "$log"
+            fi
+          done
