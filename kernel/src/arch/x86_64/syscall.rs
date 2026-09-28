@@ -6,6 +6,7 @@
 
 use super::gdt::Gdt;
 
+#[allow(dead_code)]
 #[path = "../../../../shared/syscall_abi.rs"]
 mod abi;
 
@@ -158,13 +159,12 @@ mod native {
     }
 
     fn syscall_supported() -> bool {
-        // SAFETY: CPUID leaf discovery is side-effect free.
-        let max_extended = unsafe { __cpuid_count(0x8000_0000, 0) }.eax;
+        let max_extended = __cpuid_count(0x8000_0000, 0).eax;
         if max_extended < 0x8000_0001 {
             return false;
         }
         // AMD64 architectural SYSCALL/SYSRET capability bit.
-        unsafe { __cpuid_count(0x8000_0001, 0) }.edx & SYSCALL_CPUID_BIT != 0
+        __cpuid_count(0x8000_0001, 0).edx & SYSCALL_CPUID_BIT != 0
     }
 
     /// Install the bounded single-BSP fast-syscall entry contract.
