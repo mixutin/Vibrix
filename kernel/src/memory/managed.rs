@@ -1,12 +1,13 @@
 //! Native BSP-only adapter for the shared production VM, before APIC activation.
 //! Invariants and evidence boundaries: docs/MANAGED_VM_NATIVE.md.
-use super::virtual_memory::{Window, runtime};
+use super::virtual_memory::{SlotWindow, Window, runtime};
 use crate::BootInfo;
 use core::arch::{asm, x86_64::__cpuid_count};
+use core::cell::UnsafeCell;
 use vibrix_vmm::address::{ARENA_BASE, ARENA_SLOT, Page, PageRange, Permissions, PhysicalFrame};
 use vibrix_vmm::frames::Frames;
 use vibrix_vmm::walk::ADDRESS_MASK;
-use vibrix_vmm::{Error, GuardedLayout, GuardedVm, Memory, Vm};
+use vibrix_vmm::{Error, GuardedId, GuardedLayout, GuardedVm, Memory, Translation, Vm};
 
 #[cfg(any(
     feature = "managed-write-probe",
@@ -18,6 +19,36 @@ use vibrix_vmm::{Error, GuardedLayout, GuardedVm, Memory, Vm};
 mod faults;
 
 const POOL_FRAMES: usize = 24;
+const RUNTIME_POOL_FRAMES: usize = 96;
+const RUNTIME_GUARDED_SLOTS: usize = 8;
+const RUNTIME_SCRATCH_SLOT: usize = 511;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuntimeError {
+    AlreadyInitialized,
+    NotInitialized,
+    InterruptsDisabled,
+    Scratch,
+    Vm(Error),
+}
+
+impl From<Error> for RuntimeError {
+    fn from(error: Error) -> Self {
+        Self::Vm(error)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RuntimeAllocation {
+    id: GuardedId,
+    layout: GuardedLayout,
+}
+
+impl RuntimeAllocation {
+    pub const fn layout(self) -> GuardedLayout {
+        self.layout
+    }
+}
 
 /// Private: cannot escape the early validation routine or outlive IF=0.
 /// Scratch mappings and active arena mappings use the same WB memory type.
@@ -87,6 +118,128 @@ impl Memory for NativeMemory {
     }
 }
 
+struct RuntimeMemory {
+    window: SlotWindow,
+    root: u64,
+    reserved: [u64; RUNTIME_POOL_FRAMES],
+}
+
+impl RuntimeMemory {
+    fn check_entry(&self, frame: u64, index: usize) {
+        assert!(index < 512, "runtime managed VM entry index out of bounds");
+        assert!(
+            self.reserved.contains(&frame) || (frame == self.root && index == ARENA_SLOT),
+            "runtime managed VM access outside exclusively owned hierarchy"
+        );
+    }
+}
+
+impl Memory for RuntimeMemory {
+    fn read_entry(&mut self, frame: u64, index: usize) -> u64 {
+        self.check_entry(frame, index);
+        // SAFETY: every operation is wrapped by the single-BSP interrupt mask;
+        // slot 511 is exclusively reserved for this backend after APIC setup.
+        unsafe {
+            let address = self.window.map(frame, false).expect("runtime VM scratch map");
+            let entry = (address as *const u64).add(index).read_volatile();
+            self.window.unmap().expect("runtime VM scratch unmap");
+            entry
+        }
+    }
+
+    fn write_entry(&mut self, frame: u64, index: usize, value: u64) {
+        self.check_entry(frame, index);
+        // SAFETY: same exclusive scratch slot; aligned entry publication
+        // completes before the local invalidation performed by SlotWindow.
+        unsafe {
+            let address = self.window.map(frame, true).expect("runtime VM scratch map");
+            (address as *mut u64).add(index).write_volatile(value);
+            self.window.unmap().expect("runtime VM scratch unmap");
+        }
+    }
+
+    fn zero_frame(&mut self, frame: u64) {
+        assert!(
+            self.reserved.contains(&frame),
+            "cannot zero foreign runtime VM RAM"
+        );
+        // SAFETY: frame belongs to this retained pool and is unpublished while
+        // zeroed. No raw access escapes the temporary scratch mapping.
+        unsafe {
+            let address = self.window.map(frame, true).expect("runtime VM zero scratch");
+            for index in 0..512 {
+                (address as *mut u64).add(index).write_volatile(0);
+            }
+            self.window.unmap().expect("runtime VM zero scratch unmap");
+        }
+    }
+
+    fn invalidate(&mut self, address: u64) {
+        assert!(Page::new(address).is_ok(), "foreign runtime VM invalidation");
+        // SAFETY: one BSP only. Runtime mutation masks interrupts, so no local
+        // preemption can observe a partially changed hierarchy.
+        unsafe { asm!("invlpg [{}]", in(reg) address, options(nostack, preserves_flags)) };
+    }
+}
+
+type KernelRuntimeVm =
+    GuardedVm<RuntimeMemory, RUNTIME_POOL_FRAMES, RUNTIME_GUARDED_SLOTS>;
+
+struct RuntimeState(UnsafeCell<Option<KernelRuntimeVm>>);
+
+// SAFETY: there is one BSP. Every post-initialization access masks local
+// interrupts before borrowing the UnsafeCell. SMP must replace this contract.
+unsafe impl Sync for RuntimeState {}
+
+static RUNTIME_VM: RuntimeState = RuntimeState(UnsafeCell::new(None));
+
+struct InterruptMask {
+    restore: bool,
+}
+
+impl InterruptMask {
+    fn enter() -> Self {
+        let flags: u64;
+        // SAFETY: kernel executes at CPL0. Record IF before masking so callers
+        // from IRQ context stay IRQ-off while thread context is restored to IF=1.
+        unsafe {
+            asm!("pushfq", "pop {}", out(reg) flags, options(preserves_flags));
+            asm!("cli", options(nomem, nostack));
+        }
+        Self {
+            restore: flags & (1 << 9) != 0,
+        }
+    }
+}
+
+impl Drop for InterruptMask {
+    fn drop(&mut self) {
+        if self.restore {
+            // SAFETY: restoring the caller's prior local interrupt state after
+            // the RuntimeVm mutable borrow and scratch PTE mutation have ended.
+            unsafe { asm!("sti", options(nomem, nostack)) };
+        }
+    }
+}
+
+fn interrupts_enabled() -> bool {
+    let flags: u64;
+    // SAFETY: read-only RFLAGS inspection at CPL0.
+    unsafe { asm!("pushfq", "pop {}", out(reg) flags, options(preserves_flags)) };
+    flags & (1 << 9) != 0
+}
+
+fn with_runtime<T>(
+    operation: impl FnOnce(&mut KernelRuntimeVm) -> Result<T, Error>,
+) -> Result<T, RuntimeError> {
+    let _mask = InterruptMask::enter();
+    // SAFETY: local interrupts are masked before the only mutable static borrow;
+    // no AP exists. Nested/NMI mutation is outside the supported contract.
+    let state = unsafe { &mut *RUNTIME_VM.0.get() };
+    let vm = state.as_mut().ok_or(RuntimeError::NotInitialized)?;
+    operation(vm).map_err(RuntimeError::Vm)
+}
+
 /// # Safety
 /// CPL0 after the matched v3 loader, single BSP with no APs started.
 unsafe fn cpu_configuration() -> Result<(u64, u8), Error> {
@@ -132,6 +285,135 @@ unsafe fn cpu_configuration() -> Result<(u64, u8), Error> {
     Ok((root, bits))
 }
 
+/// Reserve one bounded pool from the monotonic firmware-map allocator.
+///
+/// # Safety
+/// Sole BSP with IF=0; the global early allocator has been initialized and no
+/// other caller may claim frames concurrently.
+unsafe fn reserve_pool<const N: usize>(
+    bits: u8,
+) -> Result<(Frames<N>, [u64; N]), Error> {
+    let mut frames = Frames::<N>::new(bits)?;
+    let mut reserved = [0; N];
+    for slot in &mut reserved {
+        // SAFETY: inherited sole-BSP/IF=0 allocator contract.
+        let frame = unsafe { super::allocate_frame() }.ok_or(Error::OutOfFrames)?;
+        // SAFETY: same immutable retained firmware map and allocator contract.
+        if !unsafe { super::firmware_descriptor_at(frame) }.is_some_and(|(kind, attributes)| {
+            kind == 7 && attributes & 8 != 0 && attributes & (1 << 63) == 0
+        }) {
+            return Err(Error::InvalidFrame);
+        }
+        frames.register(frame)?;
+        *slot = frame;
+    }
+    Ok((frames, reserved))
+}
+
+/// Initialize the persistent, supervisor-only kernel VM after the APIC has
+/// retained window slots 0 and 1 but before IF is enabled.
+///
+/// # Safety
+/// Sole BSP, IF=0, matched BootInfo v3, active root unchanged since the early
+/// native VM proof, APIC setup has completed and no owner uses scratch slot 511.
+pub unsafe fn init_runtime(info: &BootInfo) -> Result<(), RuntimeError> {
+    // SAFETY: caller guarantees one-time pre-STI initialization.
+    let state = unsafe { &mut *RUNTIME_VM.0.get() };
+    if state.is_some() {
+        return Err(RuntimeError::AlreadyInitialized);
+    }
+    // SAFETY: same privileged CPU/root validation as the early native proof.
+    let (root, bits) = unsafe { cpu_configuration() }.map_err(RuntimeError::Vm)?;
+    // SAFETY: still pre-STI and no concurrent frame allocator user.
+    let (frames, reserved) =
+        unsafe { reserve_pool::<RUNTIME_POOL_FRAMES>(bits) }.map_err(RuntimeError::Vm)?;
+    // SAFETY: APIC owns other slots only; slot 511 is reserved for this service.
+    let window = unsafe { runtime::slot_from_boot_info(info, RUNTIME_SCRATCH_SLOT) }
+        .map_err(|_| RuntimeError::Scratch)?;
+    let backend = RuntimeMemory {
+        window,
+        root,
+        reserved,
+    };
+    let vm = Vm::new(root, backend, frames).map_err(RuntimeError::Vm)?;
+    *state = Some(GuardedVm::new(vm).map_err(RuntimeError::Vm)?);
+    Ok(())
+}
+
+pub fn runtime_allocate(
+    lower_guard: u64,
+    payload_pages: usize,
+) -> Result<RuntimeAllocation, RuntimeError> {
+    let layout = GuardedLayout::new(Page::new(lower_guard)?, payload_pages)?;
+    let id = with_runtime(|vm| vm.allocate(layout))?;
+    Ok(RuntimeAllocation { id, layout })
+}
+
+pub fn runtime_release(allocation: RuntimeAllocation) -> Result<(), RuntimeError> {
+    with_runtime(|vm| vm.release(allocation.id))
+}
+
+pub fn runtime_query(address: u64) -> Result<Option<Translation>, RuntimeError> {
+    let page = Page::new(address)?;
+    with_runtime(|vm| vm.query(page))
+}
+
+pub fn runtime_smoke_test() -> Result<(), RuntimeError> {
+    if !interrupts_enabled() {
+        return Err(RuntimeError::InterruptsDisabled);
+    }
+    let allocation = runtime_allocate(ARENA_BASE, 2)?;
+    let payload = allocation.layout.payload();
+    for index in 0..payload.count() {
+        let page = payload.page(index).ok_or(RuntimeError::Vm(Error::InvalidRange))?;
+        // SAFETY: runtime allocation keeps this RW page mapped and exclusively
+        // owned until release below; all volatile accesses finish beforehand.
+        unsafe {
+            check(page, None)?;
+            fill(page, 0xa11c_0000 + index as u64);
+        }
+    }
+
+    let before = crate::arch::x86_64::irq::timer_ticks();
+    while crate::arch::x86_64::irq::timer_ticks() == before {
+        // SAFETY: IF=1 and the already-proven PIT route wakes this BSP.
+        unsafe { asm!("hlt", options(nomem, nostack)) };
+    }
+
+    for index in 0..payload.count() {
+        let page = payload.page(index).ok_or(RuntimeError::Vm(Error::InvalidRange))?;
+        // SAFETY: mapping remained live across the timer interrupt.
+        unsafe { check(page, Some(0xa11c_0000 + index as u64))? };
+    }
+    runtime_release(allocation)?;
+    for index in 0..allocation.layout.payload().count() {
+        let page = allocation
+            .layout
+            .payload()
+            .page(index)
+            .ok_or(RuntimeError::Vm(Error::InvalidRange))?;
+        if runtime_query(page.address())?.is_some() {
+            return Err(RuntimeError::Vm(Error::CorruptEntry));
+        }
+    }
+    if runtime_query(allocation.layout.lower_guard().address())?.is_some()
+        || runtime_query(allocation.layout.upper_guard().address())?.is_some()
+    {
+        return Err(RuntimeError::Vm(Error::CorruptEntry));
+    }
+    let (free, active) = with_runtime(|vm| Ok((vm.free_frames(), vm.active_allocations())))?;
+    if free != RUNTIME_POOL_FRAMES || active != 0 {
+        return Err(RuntimeError::Vm(Error::CorruptEntry));
+    }
+
+    crate::debugcon::write("VIBRIX: kernel managed VM runtime verified\r\n");
+    crate::println!(
+        "managed VM runtime: guarded mapping survived timer IRQ; {} retained pool frames free",
+        free
+    );
+    Ok(())
+}
+
 /// # Safety
 /// The page is currently owned and mapped RW; caller retires raw accesses
 /// before any protect/unmap. Loop stays within one complete initialized page.
@@ -174,18 +456,7 @@ pub unsafe fn smoke_test(info: &BootInfo) -> Result<(), Error> {
     // every volatile payload access finishes before permission/lifetime changes.
     unsafe {
         let (root, bits) = cpu_configuration()?;
-        let mut frames = Frames::<POOL_FRAMES>::new(bits)?;
-        let mut reserved = [0; POOL_FRAMES];
-        for slot in &mut reserved {
-            let frame = super::allocate_frame().ok_or(Error::OutOfFrames)?;
-            if !super::firmware_descriptor_at(frame).is_some_and(|(kind, attributes)| {
-                kind == 7 && attributes & 8 != 0 && attributes & (1 << 63) == 0
-            }) {
-                return Err(Error::InvalidFrame);
-            }
-            frames.register(frame)?;
-            *slot = frame;
-        }
+        let (frames, reserved) = reserve_pool::<POOL_FRAMES>(bits)?;
         {
             let backend = NativeMemory {
                 window: runtime::from_boot_info(info).map_err(|_| Error::InvalidRoot)?,
