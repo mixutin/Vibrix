@@ -71,7 +71,7 @@ pub fn build(
     let stack_end = stack_base
         .checked_add(u64::try_from(stack.len()).map_err(|_| Error::AddressOverflow)?)
         .ok_or(Error::AddressOverflow)?;
-    if stack_base < USER_MIN || stack_base >= USER_END || stack_end > USER_END || stack_end <= stack_base {
+    if !(USER_MIN..USER_END).contains(&stack_base) || stack_end > USER_END || stack_end <= stack_base {
         return Err(Error::UserAddress);
     }
 
