@@ -274,7 +274,7 @@ the first real userspace CLI.
 - [x] On-disk specification
 - [x] Superblock/allocation metadata
 - [x] files/directories
-- [ ] permissions/timestamps
+- [x] permissions/timestamps
 
 **Verified M8 files/directories wire behavior (PR #83):**
 [Actions run 36375799757](https://github.com/mixutin/Vibrix/actions/runs/36375799757)
@@ -292,6 +292,20 @@ means **VibrixFS v1 on-disk file/directory representation is implemented and
 demonstrated in bounded regular-file images**. It does not claim a kernel VFS,
 runtime mutation, crash consistency/recovery, USB block I/O, persistent root or
 Target 001 filesystem behavior.
+
+**Verified M8 permissions/timestamps metadata (PR #85):**
+[Actions run 36379311357](https://github.com/mixutin/Vibrix/actions/runs/36379311357)
+passed the shared VibrixFS wire tests, regular-file formatter/inspector tests,
+both target builds/Clippy, the complete QEMU regression matrix and supply-chain
+gates on the synchronized implementation head. For both 512- and 4096-byte
+logical-sector models the formatter wrote a named regular file with mode
+`0640`, uid/gid `1000:1000`, and distinct atime/mtime/ctime values including
+nanoseconds; the inspector independently parsed the checksummed inode and
+required every value, and CI asserted the exact reported metadata. Production
+wire tests also checked the fixed little-endian offsets and round trip.
+This checkbox means **VibrixFS on-disk permission/ownership/timestamp metadata
+is encoded and validated**. It does not mean kernel credential enforcement,
+wall-clock acquisition, multi-user security, VFS mutation or USB persistence.
 
 - [x] crash-consistency design
 **Adopted M8 crash-consistency design (ADR 0011):** VibrixFS writable
