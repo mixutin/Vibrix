@@ -35,6 +35,7 @@ It never exposes the raw mapper while guarded allocations are live.
 8. Guard-page-backed allocation layout and lifecycle.
 9. Native x86 backend and real post-firmware mapping execution.
 10. CPU fault probes and integration regression evidence.
+11. Long-lived single-BSP kernel runtime service with IRQ-safe local mutation.
 
 Each slice has its own PR. The host harness imports the production files, not
 copies of their algorithms. The same sources form the first-party `vibrix-vmm`
@@ -54,13 +55,20 @@ region and reserved-guard execution with subsequent timer/console readiness in
 Later synchronized heads and the four CPU fault probes require their own runs.
 No local Rust or QEMU execution is claimed from this authoring session.
 
-The service is bounded, single-root, supervisor-only and BSP/IRQs-off. Its
-native validation retains a 24-frame/96-KiB pool in the monotonic physical
-allocator after complete internal reclamation. It is not yet an IRQ-safe
-long-lived service, dynamically growing heap, userspace address-space manager,
-demand pager or SMP shootdown implementation. No live kernel/IST stack is
-switched, no Target 001 hardware is validated, and no global W^X claim follows.
-The broad M3 virtual-memory-manager checkbox remains unchecked.
+The early native validation remains bounded, single-root, supervisor-only and
+BSP/IRQs-off, retaining its 24-frame/96-KiB proof pool. Slice 11 adds a separate
+persistent 96-frame kernel pool after APIC setup. It owns only scratch-window
+slot 511, masks and restores local interrupts around page-table mutation, and
+keeps ordinary arena mappings live with IF=1. The integrated proof holds a
+guarded allocation across a real PIT interrupt, verifies the payload afterward,
+then unmaps it and checks complete internal frame reclamation.
+
+This is still one BSP and one kernel CR3. It is not a userspace address-space
+manager, demand pager, dynamically growing heap, global physical-frame recycler,
+or SMP shootdown implementation. Ring-3/user address spaces remain M5 work and
+cross-CPU invalidation remains M12 work. The M3 checkbox should change only
+after exact-head runtime evidence passes and the merged roadmap records that
+bounded kernel-service definition.
 
 See [native ownership and integration](MANAGED_VM_NATIVE.md) and
 [CPU fault probes](MANAGED_VM_FAULTS.md) for the precise safety/evidence scope.
