@@ -24,12 +24,14 @@ cargo build --locked -p vibrix-boot --features qemu-debugcon --target x86_64-unk
 
 echo "[vibrix] building Rust init userspace ELF"
 cargo rustc --locked -p vibrix-init --bin vibrix-init --target x86_64-unknown-none -- \
+  -C debuginfo=0 \
   -C relocation-model=static \
   -C link-arg=-no-pie \
   -C link-arg=-Tuserspace/linker.ld
 
 echo "[vibrix] building Rust shell userspace ELF"
 cargo rustc --locked -p vibrix-shell --bin vibrix-shell --target x86_64-unknown-none -- \
+  -C debuginfo=0 \
   -C relocation-model=static \
   -C link-arg=-no-pie \
   -C link-arg=-Tuserspace/linker.ld
