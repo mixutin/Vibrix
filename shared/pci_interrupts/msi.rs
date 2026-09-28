@@ -74,8 +74,8 @@ pub unsafe fn enable_single(
     expected: Capabilities,
     message: Message,
 ) -> Result<(), SetupError> {
-    let current = discover(&mut |offset| io.read32(offset))
-        .map_err(|_| SetupError::StaleCapability)?;
+    let current =
+        discover(&mut |offset| io.read32(offset)).map_err(|_| SetupError::StaleCapability)?;
     if current != expected {
         return Err(SetupError::StaleCapability);
     }
@@ -237,9 +237,15 @@ mod tests {
     #[test]
     fn xapic_message_excludes_core_vectors_and_broadcast() {
         for vector in 0..=255u8 {
-            assert_eq!(Message::new(0, vector).is_ok(), (0x50..0xf0).contains(&vector));
+            assert_eq!(
+                Message::new(0, vector).is_ok(),
+                (0x50..0xf0).contains(&vector)
+            );
         }
-        assert_eq!(Message::new(255, 0x50), Err(SetupError::BroadcastDestination));
+        assert_eq!(
+            Message::new(255, 0x50),
+            Err(SetupError::BroadcastDestination)
+        );
         let message = Message::new(7, 0x51).unwrap();
         assert_eq!(message.address(), 0xfee0_7000);
         assert_eq!(message.data(), 0x51);
@@ -258,7 +264,10 @@ mod tests {
             assert_eq!(io.words[16] as u16, 5);
             assert_eq!(io.words[16] >> 16, u32::from(flags | 0xa | 1));
             assert_eq!(io.writes[0], (16, 0x42, u32::from(flags | 0xa)));
-            assert_eq!(io.writes[io.count - 1], (16, 0x42, u32::from(flags | 0xa | 1)));
+            assert_eq!(
+                io.writes[io.count - 1],
+                (16, 0x42, u32::from(flags | 0xa | 1))
+            );
             assert!(io.writes[..io.count].iter().all(|entry| entry.1 >= 0x42));
             if flags & 0x100 != 0 {
                 let mask = if flags & 0x80 != 0 { 0x50 } else { 0x4c };
