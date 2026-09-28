@@ -236,6 +236,12 @@ jobs:
             "$RUNNER_TEMP/vibrix-host-fixture"
           done
 
+      - name: Test device and driver candidate model on host
+        run: |
+          rustfmt --edition 2024 --check kernel/src/device.rs
+          rustc --edition=2024 -D warnings --test kernel/src/device.rs -o "$RUNNER_TEMP/vibrix-device-tests"
+          "$RUNNER_TEMP/vibrix-device-tests"
+
       - name: Test production IDT layout and page-fault bit decoding on host
         run: |
           rustfmt --edition 2024 --check shared/idt_layout.rs kernel/src/arch/x86_64/idt.rs
