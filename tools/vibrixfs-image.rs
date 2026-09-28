@@ -454,14 +454,29 @@ fn inspect_image(path: &Path, logical_sector: u64, root_guid: [u8; 16]) -> Resul
     require_padding_bits(&block_bitmap, sb.total_blocks)?;
 
     let inode_bitmap = read_region(&mut file, sb.inode_bitmap.start, sb.inode_bitmap.blocks)?;
-    if !bit_is_set(&inode_bitmap, 0)? || !bit_is_set(&inode_bitmap, 1)? {
-        return Err("reserved/root inode bitmap bits are not allocated".into());
+    if !bit_is_set(&inode_bitmap, 0)?
+        || !bit_is_set(&inode_bitmap, 1)?
+        || !bit_is_set(&inode_bitmap, 2)?
+    {
+        return Err("reserved/root/welcome inode bitmap bits are not allocated".into());
     }
     require_padding_bits(&inode_bitmap, sb.total_inodes + 1)?;
 
-    let mut root_raw = [0u8; INODE_BYTES];
-    read_at(&mut file, sb.inode_table.start, &mut root_raw)?;
-    let root = parse_inode(&root_raw, &sb).map_err(|e| format!("root inode: {e:?}"))?;
+    let inode_table = read_region(&mut file, sb.inode_table.start, sb.inode_table.blocks)?;
+    let root = parse_inode(
+        inode_table
+            .get(..INODE_BYTES)
+            .ok_or_else(|| "truncated root inode slot".to_string())?,
+        &sb,
+    )
+    .map_err(|e| format!("root inode: {e:?}"))?;
+    let welcome = parse_inode(
+        inode_table
+            .get(INODE_BYTES..INODE_BYTES * 2)
+            .ok_or_else(|| "truncated welcome inode slot".to_string())?,
+        &sb,
+    )
+    .map_err(|e| format!("welcome inode: {e:?}"))?;
     if root.number != 1
         || root.file_type != 2
         || root.extent_count != 1
@@ -477,12 +492,38 @@ fn inspect_image(path: &Path, logical_sector: u64, root_guid: [u8; 16]) -> Resul
     read_at(&mut file, root_extent.start, &mut directory)?;
     validate_root_directory(&directory, root.size)?;
 
+    if welcome.number != 2
+        || welcome.file_type != 1
+        || welcome.extent_count != 1
+        || welcome.allocated_blocks != 1
+        || welcome.size != WELCOME_BYTES.len() as u64
+    {
+        return Err("base-v1 welcome file inode shape is invalid".into());
+    }
+    let welcome_extent = welcome.extents[0];
+    if welcome_extent.start == root_extent.start
+        || !bit_is_set(&block_bitmap, welcome_extent.start)?
+    {
+        return Err("welcome file data block is unallocated or aliases root directory".into());
+    }
+    let mut welcome_block = [0u8; BLOCK];
+    read_at(&mut file, welcome_extent.start, &mut welcome_block)?;
+    let welcome_size =
+        usize::try_from(welcome.size).map_err(|_| "welcome file size overflow".to_string())?;
+    if welcome_block.get(..welcome_size) != Some(WELCOME_BYTES)
+        || welcome_block[welcome_size..].iter().any(|&byte| byte != 0)
+    {
+        return Err("welcome file payload or zero tail is invalid".into());
+    }
+
     println!(
-        "VibrixFS v1 valid: blocks={} logical_sector={} inodes={} root_block={} generation={} clean={}",
+        "VibrixFS v1 valid: blocks={} logical_sector={} inodes={} root_block={} file={} file_block={} generation={} clean={}",
         sb.total_blocks,
         logical_sector,
         sb.total_inodes,
         root_extent.start,
+        WELCOME_NAME,
+        welcome_extent.start,
         sb.generation,
         sb.clean
     );
