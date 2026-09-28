@@ -120,6 +120,7 @@ impl SlotWindow {
         }
     }
 
+    #[cfg(test)]
     pub fn translation(&self) -> Result<Option<(u64, bool)>, MapError> {
         page_address(self.index)?;
         // SAFETY: selected slot is bounded and exclusively owned.
