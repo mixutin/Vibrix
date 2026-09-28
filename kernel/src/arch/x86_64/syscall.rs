@@ -373,7 +373,7 @@ mod native {
 
         #[cfg(feature = "process-syscall-probe")]
         {
-            return process_probe_dispatch(number, args);
+            process_probe_dispatch(number, args)
         }
 
         #[cfg(not(feature = "process-syscall-probe"))]
