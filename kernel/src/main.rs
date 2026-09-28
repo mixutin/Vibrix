@@ -512,7 +512,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             unsafe { memory::address_space::enter_probe(probe) };
         }
 
-        #[cfg(all(feature = "elf-load-probe", not(feature = "rust-init-probe")))]
+        #[cfg(all(feature = "elf-load-probe", not(feature = "rust-init-probe"), not(feature = "rust-shell-probe")))]
         {
             // SAFETY: the private address-space owner is initialized and the
             // ELF loader stages only into its owned inactive lower-half root.
@@ -530,7 +530,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             unsafe { memory::address_space::enter_probe(probe) };
         }
 
-        #[cfg(feature = "rust-init-probe")]
+        #[cfg(all(feature = "rust-init-probe", not(feature = "rust-shell-probe")))]
         {
             // SAFETY: build-qemu produced the fixed-layout no_std Rust init ELF
             // before compiling the kernel. The same validated ImageSink stages
@@ -546,6 +546,23 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                 probe.user_rsp
             );
             // SAFETY: the compiled init image and guarded stack were validated.
+            unsafe { memory::address_space::enter_probe(probe) };
+        }
+
+        #[cfg(feature = "rust-shell-probe")]
+        {
+            // SAFETY: build-qemu produced the fixed-layout no_std Rust shell
+            // ELF before compiling the kernel; load_elf_probe validates it.
+            let probe = unsafe { memory::address_space::load_elf_probe() }
+                .unwrap_or_else(|error| panic!("Rust shell ELF load failed: {:?}", error));
+            debugcon::write("VIBRIX: kernel Rust shell ELF loaded\r\n");
+            crate::println!(
+                "kernel Rust shell: kernel_cr3={:#x} user_cr3={:#x} entry={:#x} rsp={:#x}",
+                probe.kernel_root,
+                probe.user_root,
+                probe.user_rip,
+                probe.user_rsp
+            );
             unsafe { memory::address_space::enter_probe(probe) };
         }
     }
