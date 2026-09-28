@@ -5,11 +5,6 @@
 //! interrupts, config writes or ownership transfer happens here.
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Bus {
-    Pci,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PciAddress {
     pub segment: u16,
     pub bus: u8,
