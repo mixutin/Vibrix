@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - 'tools/build_site.py'
+      - 'tools/test_build_site.py'
       - 'tools/check_site.py'
       - 'tools/test_check_site.py'
       - 'tools/test-site.cjs'
@@ -30,14 +32,25 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Test offline website validator
-        run: python3 -m unittest discover -s tools -p 'test_check_site.py' -v
-      - name: Check local links, fragments, structured data and status metadata
-        run: python3 tools/check_site.py
+      - name: Test offline website validator and multipage builder
+        run: |
+          python3 -m unittest discover -s tools -p 'test_check_site.py' -v
+          python3 -m unittest discover -s tools -p 'test_build_site.py' -v
+      - name: Build static multipage website
+        run: python3 tools/build_site.py
+      - name: Check generated links, fragments, structured data and metadata
+        run: python3 tools/check_site.py build/site
       - name: Check and test browser-data helpers
         run: |
           node --check site/script.js
           node --test tools/test-site.cjs
+      - name: Preserve the validated website for review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: website-preview-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/site/
+          if-no-files-found: error
+          retention-days: 7
 
   deploy:
     name: Deploy verified website
@@ -57,12 +70,16 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Build the same static website from the checked revision
+        run: |
+          python3 tools/build_site.py
+          python3 tools/check_site.py build/site
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - name: Upload site
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: site
+          path: build/site
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
