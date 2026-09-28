@@ -197,7 +197,6 @@ pub unsafe fn probe(
     })
 }
 
-
 /// Permanently map the BSP LAPIC and selected I/O APIC into the reserved
 /// BootInfo v3 window, route the legacy PIT interrupt and program PIT channel 0
 /// near 100 Hz. Interrupts remain disabled until enable_interrupts().
