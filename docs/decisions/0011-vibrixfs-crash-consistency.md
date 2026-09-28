@@ -116,15 +116,16 @@ VibrixFS must stay read-only rather than pretending the journal is durable.
 
 ## Format compatibility
 
-The journal activation will require an explicit VibrixFS feature bit and
-nonzero `journal_start`/`journal_blocks`. Older base-v1 readers already
-reject unknown feature words and therefore fail closed. The implementation PR
-must define the exact record bytes/checksums and choose the feature-word class
-before it writes such an image; this ADR does **not** silently reinterpret the
-currently reserved bytes.
+Journal activation uses `incompatible_features` bit 0 plus nonzero
+`journal_start`/`journal_blocks`. The host formatter reserves a fixed
+66-block journal (manifest + up to 64 full-block after-images + commit) and
+marks every journal block allocated. Older base-v1 readers reject the unknown
+incompatible feature and therefore fail closed instead of interpreting journal
+blocks as file data.
 
-The existing host formatter remains base-v1 and journal-free until that record
-codec and recovery implementation are tested.
+This host-format activation does not authorize a writable kernel mount. The
+native block/USB path still needs real durability barriers before the journal
+ordering can be trusted on removable hardware.
 
 ## Alternatives considered
 
@@ -176,34 +177,31 @@ root and real USB power-loss behavior remain separate unchecked milestones.
 
 No external operating-system filesystem implementation source was used.
 
-## Initial journal wire encoding checkpoint (implementation candidate)
+## Host journal encoding and recovery checkpoint
 
-The first-party host conformance codec proposes a concrete fixed-block encoding
-for the bounded redo transaction described above. This section records the
-implementation under test; it does **not** enable the superblock journal feature
-or writable mounts yet.
+The first-party host tools now implement the concrete fixed-block encoding for
+the bounded redo transaction described above. The journal starts with one
+4096-byte `VJMANF01` manifest, followed by up to 64 complete 4096-byte
+after-images and a `VJCOMT01` commit block. Whole-block CRC-32 values bind the
+manifest, every payload and the commit tuple.
 
-The journal region begins with one 4096-byte manifest block. Its header contains
-an 8-byte `VJMANF01` magic, wire version 1, 64-byte header size, entry count,
-nonzero transaction id, previous/new generations, full-block CRC-32, and the
-journal start/length. Starting at byte 64, at most 64 descriptors each contain
-the destination home block, CRC-32 of the corresponding complete 4096-byte
-after-image, and zero reserved bytes. Unused manifest bytes are zero.
+Before replay, recovery validates superblocks independently, requires immutable
+identity/geometry agreement when both copies are valid, selects the highest
+valid checkpoint, verifies journal geometry, validates the committed transaction
+as one unit, and rejects checksum failures, duplicate targets, superblock
+targets, journal self-targets and out-of-range targets before any home write.
 
-After the manifest, slots 1 through entry_count contain the **exact 4096-byte
-metadata after-images**. The next slot is a 4096-byte commit block with
-`VJCOMT01` magic, the same transaction/generation/count tuple, the manifest
-CRC, and its own whole-block CRC. Remaining journal slots are outside that
-transaction.
+Committed after-images are written idempotently and synced, then the secondary
+superblock is checkpointed and synced before the primary. The journal is retired
+only after both checkpoints are durable. An incomplete transaction with an
+all-zero commit slot is not replayed; recovery first republishes the clean
+checkpoint and only then retires the journal. A dirty checkpoint with no
+recoverable journal manifest fails closed rather than being silently marked
+clean.
 
-Before replay is permitted, the validator independently checks both checksums,
-exact generation increment, journal geometry, payload count and CRCs, commit
-binding, nonzero/in-range home blocks, rejection of superblock targets, no
-home target inside the journal, and no duplicate targets. Any failure rejects
-the transaction as a unit.
-
-This encoding is still **host-only conformance groundwork**. The superblock
-feature bit/journal geometry activation, actual image journal writes,
-durability barriers, interrupted-write simulation and recovery replay remain
-separate implementation work. Exact-head CI is required before this proposed
-encoding can be treated as tested groundwork.
+Host tests exercise committed replay after deliberately destroying a metadata
+home block, corrupt committed payload rejection before replay, incomplete
+transaction retirement, and dirty-without-journal failure. These tests establish
+regular-file recovery behavior only. They are not USB power-loss evidence and
+do not relax the requirement for native block-layer flush/error propagation
+before writable kernel use.
