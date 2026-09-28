@@ -77,8 +77,8 @@ impl<M: Memory, const N: usize> Vm<M, N> {
         if entry & !allowed != 0 || entry & (PRESENT | WRITE) != PRESENT | WRITE {
             return Err(Error::CorruptEntry);
         }
-        let frame = PhysicalFrame::new(entry & ADDRESS_MASK, self.frames.physical_bits())?
-            .address();
+        let frame =
+            PhysicalFrame::new(entry & ADDRESS_MASK, self.frames.physical_bits())?.address();
         if self.frames.kind(frame) != Some(FrameUse::Table) {
             return Err(Error::ForeignTable);
         }
@@ -105,14 +105,12 @@ impl<M: Memory, const N: usize> Vm<M, N> {
 
     pub(super) fn decode_leaf(&self, entry: u64) -> Result<Translation, Error> {
         let allowed = ADDRESS_MASK | PRESENT | WRITE | ACCESSED | DIRTY | NX;
-        if entry & !allowed != 0
-            || entry & PRESENT == 0
-            || (entry & WRITE != 0 && entry & NX == 0)
+        if entry & !allowed != 0 || entry & PRESENT == 0 || (entry & WRITE != 0 && entry & NX == 0)
         {
             return Err(Error::CorruptEntry);
         }
-        let physical = PhysicalFrame::new(entry & ADDRESS_MASK, self.frames.physical_bits())?
-            .address();
+        let physical =
+            PhysicalFrame::new(entry & ADDRESS_MASK, self.frames.physical_bits())?.address();
         if self.frames.kind(physical) != Some(FrameUse::Data) {
             return Err(Error::WrongFrameUse);
         }
@@ -175,10 +173,16 @@ mod tests {
     fn inherited_root_and_root_in_supply_are_rejected() {
         let (mut memory, frames) = memory_and_frames::<8>(8);
         memory.write_entry(ROOT, ARENA_SLOT, 1);
-        assert!(matches!(Vm::new(ROOT, memory, frames), Err(Error::AlreadyMapped)));
+        assert!(matches!(
+            Vm::new(ROOT, memory, frames),
+            Err(Error::AlreadyMapped)
+        ));
         let (memory, mut frames) = memory_and_frames::<8>(7);
         frames.register(ROOT).unwrap();
-        assert!(matches!(Vm::new(ROOT, memory, frames), Err(Error::InvalidRoot)));
+        assert!(matches!(
+            Vm::new(ROOT, memory, frames),
+            Err(Error::InvalidRoot)
+        ));
     }
 
     #[test]
@@ -201,7 +205,8 @@ mod tests {
     fn rejects_foreign_tables_cycles_and_huge_or_user_entries() {
         for extra in [1 << 2, 1 << 7, NX, 1 << 62] {
             let (mut vm, page, tables, _) = populate();
-            vm.memory.write_entry(ROOT, ARENA_SLOT, tables[0] | 3 | extra);
+            vm.memory
+                .write_entry(ROOT, ARENA_SLOT, tables[0] | 3 | extra);
             assert_eq!(vm.query(page), Err(Error::CorruptEntry));
         }
         let (mut vm, page, tables, _) = populate();
