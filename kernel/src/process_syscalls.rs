@@ -31,6 +31,50 @@ pub enum Action {
         address: u64,
         length: u64,
     },
+    Open {
+        path_address: u64,
+        path_length: u64,
+        flags: u64,
+    },
+    Close {
+        fd: u64,
+    },
+    Create {
+        path_address: u64,
+        path_length: u64,
+    },
+    Mkdir {
+        path_address: u64,
+        path_length: u64,
+    },
+    Remove {
+        path_address: u64,
+        path_length: u64,
+    },
+    Rename {
+        old_address: u64,
+        old_length: u64,
+        new_address: u64,
+        new_length: u64,
+    },
+    GetCwd {
+        address: u64,
+        length: u64,
+    },
+    Chdir {
+        path_address: u64,
+        path_length: u64,
+    },
+    ReadDir {
+        path_address: u64,
+        path_length: u64,
+        index: u64,
+        entry_address: u64,
+    },
+    ProcessInfo {
+        info: abi::ProcessInfo,
+        address: u64,
+    },
 }
 
 fn process_errno(error: process::Error) -> abi::Errno {
@@ -62,6 +106,74 @@ pub fn dispatch<const N: usize>(
             address: args[1],
             length: args[2],
         }),
+        abi::Syscall::Open => Ok(Action::Open {
+            path_address: args[0],
+            path_length: args[1],
+            flags: args[2],
+        }),
+        abi::Syscall::Close => Ok(Action::Close { fd: args[0] }),
+        abi::Syscall::Create => Ok(Action::Create {
+            path_address: args[0],
+            path_length: args[1],
+        }),
+        abi::Syscall::Mkdir => Ok(Action::Mkdir {
+            path_address: args[0],
+            path_length: args[1],
+        }),
+        abi::Syscall::Remove => Ok(Action::Remove {
+            path_address: args[0],
+            path_length: args[1],
+        }),
+        abi::Syscall::Rename => Ok(Action::Rename {
+            old_address: args[0],
+            old_length: args[1],
+            new_address: args[2],
+            new_length: args[3],
+        }),
+        abi::Syscall::GetCwd => Ok(Action::GetCwd {
+            address: args[0],
+            length: args[1],
+        }),
+        abi::Syscall::Chdir => Ok(Action::Chdir {
+            path_address: args[0],
+            path_length: args[1],
+        }),
+        abi::Syscall::ReadDir => Ok(Action::ReadDir {
+            path_address: args[0],
+            path_length: args[1],
+            index: args[2],
+            entry_address: args[3],
+        }),
+        abi::Syscall::Kill => {
+            let target = Pid::from_raw(args[0]).ok_or(abi::Errno::InvalidArgument)?;
+            if target == current {
+                return Err(abi::Errno::InvalidArgument);
+            }
+            table
+                .exit(target, args[1] as u32 as i32)
+                .map_err(process_errno)?;
+            Ok(Action::Return(0))
+        }
+        abi::Syscall::ProcessInfo => {
+            let index = usize::try_from(args[0]).map_err(|_| abi::Errno::InvalidArgument)?;
+            let Some(process) = table.nth(index) else {
+                return Ok(Action::Return(0));
+            };
+            let (state, status) = match process.state {
+                process::State::Running => (abi::PROCESS_STATE_RUNNING, 0),
+                process::State::Zombie(status) => (abi::PROCESS_STATE_ZOMBIE, status),
+            };
+            Ok(Action::ProcessInfo {
+                info: abi::ProcessInfo {
+                    pid: process.pid.get(),
+                    parent: process.parent.map_or(0, Pid::get),
+                    state,
+                    reserved: [0; 3],
+                    status,
+                },
+                address: args[1],
+            })
+        }
         abi::Syscall::Exit => {
             let status = args[0] as u32 as i32;
             table.exit(current, status).map_err(process_errno)?;
@@ -155,6 +267,84 @@ mod tests {
                 address: 0x8000,
                 length: 9
             })
+        );
+    }
+
+    #[test]
+    fn filesystem_actions_preserve_untrusted_pointer_arguments() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::Rename.number(),
+                [0x1000, 4, 0x2000, 5, 0, 0]
+            ),
+            Ok(Action::Rename {
+                old_address: 0x1000,
+                old_length: 4,
+                new_address: 0x2000,
+                new_length: 5,
+            })
+        );
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::ReadDir.number(),
+                [0x3000, 4, 7, 0x4000, 0, 0]
+            ),
+            Ok(Action::ReadDir {
+                path_address: 0x3000,
+                path_length: 4,
+                index: 7,
+                entry_address: 0x4000,
+            })
+        );
+    }
+
+    #[test]
+    fn process_info_and_kill_are_bounded_to_existing_nonself_pids() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+        let child = table.spawn_child(init).unwrap();
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::ProcessInfo.number(),
+                [1, 0x5000, 0, 0, 0, 0]
+            ),
+            Ok(Action::ProcessInfo {
+                info: abi::ProcessInfo {
+                    pid: child.get(),
+                    parent: init.get(),
+                    state: abi::PROCESS_STATE_RUNNING,
+                    reserved: [0; 3],
+                    status: 0,
+                },
+                address: 0x5000,
+            })
+        );
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::Kill.number(),
+                [u64::from(child.get()), 9, 0, 0, 0, 0]
+            ),
+            Ok(Action::Return(0))
+        );
+        assert_eq!(table.get(child).unwrap().state, process::State::Zombie(9));
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::Kill.number(),
+                [u64::from(init.get()), 1, 0, 0, 0, 0]
+            ),
+            Err(abi::Errno::InvalidArgument)
         );
     }
 
