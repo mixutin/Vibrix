@@ -4,6 +4,7 @@ pub mod address;
 pub mod frames;
 mod map;
 mod protect;
+mod unmap;
 pub mod walk;
 
 pub use walk::{Memory, Translation, Vm};
