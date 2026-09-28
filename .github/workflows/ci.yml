@@ -106,6 +106,32 @@ jobs:
             "$RUNNER_TEMP/vibrix-inspect-gpt" "$image" "$sector" >/dev/null
           done
 
+      - name: Test EFI System Partition tooling on host
+        run: |
+          rustfmt --edition 2024 --check tools/populate-esp.rs tools/inspect-esp.rs
+          rustc --edition=2024 -D warnings --test tools/populate-esp.rs -o "$RUNNER_TEMP/vibrix-populate-esp-tests"
+          "$RUNNER_TEMP/vibrix-populate-esp-tests"
+          rustc --edition=2024 -D warnings tools/populate-esp.rs -o "$RUNNER_TEMP/vibrix-populate-esp"
+          rustc --edition=2024 -D warnings --test tools/inspect-esp.rs -o "$RUNNER_TEMP/vibrix-inspect-esp-tests"
+          "$RUNNER_TEMP/vibrix-inspect-esp-tests"
+          rustc --edition=2024 -D warnings tools/inspect-esp.rs -o "$RUNNER_TEMP/vibrix-inspect-esp"
+          for sector in 512 4096; do
+            image="$RUNNER_TEMP/vibrix-esp-${sector}.img"
+            boot="$RUNNER_TEMP/fake-boot-${sector}.efi"
+            kernel="$RUNNER_TEMP/fake-kernel-${sector}.elf"
+            printf 'MZVibrix-UEFI-fixture' > "$boot"
+            printf '\177ELFVibrix-kernel-fixture' > "$kernel"
+            "$RUNNER_TEMP/vibrix-create-usb-image" "$image" 64 "$sector"
+            "$RUNNER_TEMP/vibrix-populate-esp" "$image" "$boot" "$kernel" "$sector"
+            "$RUNNER_TEMP/vibrix-inspect-esp" "$image" "$sector" | tee "$image.esp-report"
+            grep -Fq 'Valid Vibrix ESP: /EFI/BOOT/BOOTX64.EFI=' "$image.esp-report"
+            "$RUNNER_TEMP/vibrix-inspect-gpt" "$image" "$sector" >/dev/null
+            if "$RUNNER_TEMP/vibrix-populate-esp" "$image" "$boot" "$kernel" "$sector"; then
+              echo "unsafe overwrite of a populated ESP was accepted" >&2
+              exit 1
+            fi
+          done
+
       - name: Test VibrixFS v1 wire-format conformance on host
         run: |
           rustfmt --edition 2024 --check tools/vibrixfs-wire.rs
@@ -265,6 +291,55 @@ jobs:
 
       - name: Build Vibrix
         run: bash tools/build-qemu.sh
+
+      - name: QEMU boot from populated GPT EFI System Partition
+        run: |
+          image="$RUNNER_TEMP/vibrix-bootable-esp.img"
+          "$RUNNER_TEMP/vibrix-create-usb-image" "$image" 64 512
+          "$RUNNER_TEMP/vibrix-populate-esp" \
+            "$image" \
+            target/x86_64-unknown-uefi/debug/vibrix-boot.efi \
+            target/x86_64-unknown-none/debug/vibrix-kernel \
+            512
+          "$RUNNER_TEMP/vibrix-inspect-esp" "$image" 512
+          "$RUNNER_TEMP/vibrix-inspect-gpt" "$image" 512 >/dev/null
+          before="$(sha256sum "$image" | cut -d ' ' -f 1)"
+          source tools/ovmf.inc
+          vibrix_find_ovmf
+          cp -- "$OVMF_VARS" build/qemu/OVMF_VARS.esp.fd
+          rm -f build/qemu/esp-debugcon.log build/qemu/esp-serial.log
+          set +e
+          timeout 12s qemu-system-x86_64 \
+            -machine q35 \
+            -accel tcg \
+            -cpu max \
+            -m 512M \
+            -drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE" \
+            -drive "if=pflash,format=raw,file=build/qemu/OVMF_VARS.esp.fd" \
+            -drive "if=none,id=vibrixesp,format=raw,readonly=on,file=$image" \
+            -device "qemu-xhci,id=vibrix-boot-xhci" \
+            -device "usb-storage,drive=vibrixesp,bus=vibrix-boot-xhci.0,bootindex=1" \
+            -display none \
+            -serial file:build/qemu/esp-serial.log \
+            -monitor none \
+            -no-reboot \
+            -chardev file,id=vibrixespdbg,path=build/qemu/esp-debugcon.log \
+            -device isa-debugcon,iobase=0xe9,chardev=vibrixespdbg
+          rc=$?
+          set -e
+          if [[ "$rc" -ne 124 ]]; then
+            echo "ESP-image QEMU boot exited unexpectedly with status $rc" >&2
+            [[ -f build/qemu/esp-debugcon.log ]] && cat build/qemu/esp-debugcon.log
+            [[ -f build/qemu/esp-serial.log ]] && cat build/qemu/esp-serial.log
+            exit 1
+          fi
+          after="$(sha256sum "$image" | cut -d ' ' -f 1)"
+          test "$before" = "$after"
+          grep -Fq "VIBRIX: bootloader entered" build/qemu/esp-debugcon.log
+          grep -Fq "VIBRIX: kernel.elf found" build/qemu/esp-debugcon.log
+          grep -Fq "VIBRIX: ExitBootServices succeeded" build/qemu/esp-debugcon.log
+          grep -Fq "VIBRIX: kernel entry after ExitBootServices" build/qemu/esp-debugcon.log
+          grep -Fq "Vibrix kernel started." build/qemu/esp-serial.log
 
       - name: QEMU smoke test with native timer IRQ delivery
         env:
