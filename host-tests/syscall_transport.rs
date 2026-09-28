@@ -21,10 +21,7 @@ fn star_derivations_match_live_gdt_layout() {
     );
     assert_eq!(
         syscall::derived_sysret_selectors(),
-        (
-            gdt::Gdt::USER_CODE_SELECTOR,
-            gdt::Gdt::USER_DATA_SELECTOR
-        )
+        (gdt::Gdt::USER_CODE_SELECTOR, gdt::Gdt::USER_DATA_SELECTOR)
     );
 }
 
