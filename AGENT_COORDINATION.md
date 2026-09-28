@@ -1,44 +1,21 @@
 # Vibrix Agent Coordination
 
-**Single-agent default:** When one agent is working, it may implement, test,
-open PRs and merge its own bounded changes without waiting for another AI
-agent or maintainer to post a review. The project owner explicitly authorized
-this workflow on 2026-09-27. Do not manufacture review approvals.
+## Coordinate in PRs, not agent boards
 
-**Multi-agent option:** When multiple agents work concurrently, use the
-[Agent Coordination Board #46](https://github.com/mixutin/Vibrix/issues/46)
-as a comment ledger for claims and handoffs. Issue #14 was deleted; it is
-not a prerequisite or a valid coordination destination. If the board is
-unavailable, document overlap and synchronization in the PR.
+Use current repository state and the affected pull requests for scope, overlap and handoffs. The owner rejected the board-based workflow; #46 is closed and #14 was deleted. Do not create replacement boards, reopen them or require a claim on an unavailable issue.
 
-## Agent lifecycle (when concurrently active)
+Before substantial work, inspect current main and open PRs. State the agent/model, bounded scope, branch, affected files/contracts, synchronized SHA and known overlap in the PR. Update that description/comment when the scope or base changes. Link dependent PRs and their merge order rather than implying they have already landed.
 
-- **AGENT CLAIM:** agent/model, bounded scope and branch, roadmap item,
-  affected files/contracts, current main SHA and competing PRs.
-- **AGENT UPDATE:** changed scope, contract, branch or main.
-- **AGENT READY:** synchronized head and exact validation evidence and limits.
-- **AGENT RELEASE:** after merging or abandoning a lane.
+## Single-agent default
 
-These comments are helpful coordination, **not blocking approval rituals**
-when no other agent is participating.
+When one agent is working, it may implement, test, open PRs and merge its own bounded changes without waiting for another agent or maintainer to post a review, under the owner's standing authorization of 2026-09-27. Never manufacture approval. Additional AI review is welcome when available; absent peers cannot block progress.
 
-## Shared architecture contracts
+## Shared contracts and research
 
-BootInfo, firmware exit, page tables, syscall/executable ABI, VFS,
-process/driver model, persistent USB identity, on-disk filesystem and
-package formats require explicit design rationale and compatibility notes
-in a PR or ADR. A second agent's signoff is welcome, not mandatory.
-Do not combine unrelated, unsafe rewrites merely to accumulate checkmarks.
+BootInfo, firmware exit, page tables, syscall/executable ABI, VFS, process/driver models, persistent USB identity and on-disk/package formats require explicit research, design rationale and compatibility notes in the PR or an ADR. Follow the research requirements in [AGENTS.md](AGENTS.md). Notify overlapping contributors in the relevant PR discussion, not through a separate board ritual.
 
-## Required integration evidence
+## Integration evidence
 
-Before merge, inspect the newest `main` and open PRs; synchronize any
-materially changed assumptions; run formatting and available relevant host
-tests, Clippy, builds and QEMU boot verification for low-level changes.
-When GitHub Actions is the only QEMU host, its exact commit/head run is
-valid evidence. A failed or stale run is not.
+Immediately before integration, inspect the newest main and open PRs, synchronize materially changed assumptions, and rerun applicable formatting, production-linked host tests, target Clippy/builds, dependency checks and QEMU verification. Use the exact head's successful Actions run when it is the available test host. Stale, failed or cancelled runs do not count.
 
-A roadmap checkbox requires **implemented and observed behavior on its
-stated target**. No coordination or review waiver makes a stub complete.
-USB system/root storage must remain removable-only; provisioning must not
-erase disks without explicit opt-in.
+Record actual results and limits. Release or hand off work in its PR. A roadmap checkbox requires implemented and observed behavior on its stated target; no process waiver makes a stub complete. USB system/root storage remains removable-only and provisioning must never erase disks without explicit opt-in.

@@ -20,17 +20,17 @@ for target in x86_64-unknown-uefi x86_64-unknown-none; do
 done
 
 echo "[vibrix] building UEFI loader"
-cargo build   -p vibrix-boot   --features qemu-debugcon   --target x86_64-unknown-uefi
+cargo build --locked -p vibrix-boot --features qemu-debugcon --target x86_64-unknown-uefi
 
 echo "[vibrix] building kernel"
-cargo rustc   -p vibrix-kernel   --bin vibrix-kernel   --features "${VIBRIX_KERNEL_FEATURES:-qemu-debugcon}"   --target x86_64-unknown-none   --   -C code-model=kernel   -C no-redzone=yes   -C relocation-model=static   -C link-arg=-no-pie   -C link-arg=-Tkernel/linker.ld
+cargo rustc --locked -p vibrix-kernel --bin vibrix-kernel --features "${VIBRIX_KERNEL_FEATURES:-qemu-debugcon}" --target x86_64-unknown-none -- -C code-model=kernel -C no-redzone=yes -C relocation-model=static -C link-arg=-no-pie -C link-arg=-Tkernel/linker.ld
 
 OUT="$ROOT/build/qemu"
 ESP="$OUT/esp"
 rm -rf "$OUT"
 mkdir -p "$ESP/EFI/BOOT" "$ESP/vibrix"
 
-cp target/x86_64-unknown-uefi/debug/vibrix-boot.efi   "$ESP/EFI/BOOT/BOOTX64.EFI"
+cp target/x86_64-unknown-uefi/debug/vibrix-boot.efi "$ESP/EFI/BOOT/BOOTX64.EFI"
 
 KERNEL="$ROOT/target/x86_64-unknown-none/debug/vibrix-kernel"
 if [[ ! -f "$KERNEL" ]]; then

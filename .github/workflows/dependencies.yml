@@ -1,0 +1,58 @@
+name: Dependency audit
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 5 * * *'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  audit:
+    name: Locked Cargo graph audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install repository-pinned Rust toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rust-src,rustfmt,clippy --target x86_64-unknown-uefi,x86_64-unknown-none
+      - name: Resolve only the committed lockfile and record the full graph
+        id: graph
+        run: |
+          git ls-files --error-unmatch Cargo.lock
+          mkdir -p build/dependency-reports
+          cargo metadata --locked --all-features --format-version 1 > build/dependency-reports/metadata.json
+          python3 tools/dependency_inventory.py --metadata build/dependency-reports/metadata.json --output build/dependency-reports/inventory.json
+          cargo tree --locked --all-features -p vibrix-boot --target x86_64-unknown-uefi -e features > build/dependency-reports/uefi-features.txt
+          cargo tree --locked --all-features -p vibrix-kernel --target x86_64-unknown-none -e features > build/dependency-reports/kernel-features.txt
+          git diff --exit-code -- Cargo.lock
+      - name: Install pinned audit tools
+        id: tools
+        run: |
+          cargo install --locked --version 0.22.2 cargo-audit
+          cargo install --locked --version 0.19.4 cargo-deny
+          { rustc --version; cargo --version; cargo audit --version; cargo deny --version; } > build/dependency-reports/tool-versions.txt
+      - name: Scan RustSec advisories against Cargo.lock
+        run: cargo audit --file Cargo.lock --json | tee build/dependency-reports/audit.json
+      - name: Enforce licenses, sources, bans and advisories
+        if: ${{ !cancelled() && steps.graph.outcome == 'success' && steps.tools.outcome == 'success' }}
+        run: cargo deny --locked --all-features check advisories bans licenses sources 2>&1 | tee build/dependency-reports/deny.txt
+      - name: Preserve dependency evidence even when a scanner fails
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dependency-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/dependency-reports/
+          if-no-files-found: warn
+          retention-days: 14
