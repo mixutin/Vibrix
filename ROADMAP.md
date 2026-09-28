@@ -273,8 +273,26 @@ the first real userspace CLI.
 ## M8 — Vibrix filesystem
 - [x] On-disk specification
 - [x] Superblock/allocation metadata
-- [ ] files/directories
+- [x] files/directories
 - [ ] permissions/timestamps
+
+**Verified M8 files/directories wire behavior (PR #83):**
+[Actions run 36375799757](https://github.com/mixutin/Vibrix/actions/runs/36375799757)
+passed the shared directory-record codec tests, regular-file formatter/inspector
+round trips for both 512- and 4096-byte logical-sector models, all existing
+metadata-corruption checks, target builds/Clippy and the full QEMU regression
+matrix. The host formatter creates root inode 1 with exact `.`, `..` and
+`welcome.txt` records, allocates inode 2 as a regular file on a distinct
+bitmap-owned data block, and writes a bounded payload. The independent inspector
+decodes the directory framing through the shared wire codec, follows the inode
+reference, requires file-type and allocation agreement, verifies the distinct
+extent and exact payload/zero tail, and rejects malformed UTF-8/name, slash/NUL,
+record alignment, reserved padding, inode-range and type fields. This checkbox
+means **VibrixFS v1 on-disk file/directory representation is implemented and
+demonstrated in bounded regular-file images**. It does not claim a kernel VFS,
+runtime mutation, crash consistency/recovery, USB block I/O, persistent root or
+Target 001 filesystem behavior.
+
 - [ ] crash-consistency design
 - [ ] formatter + recovery tool
 - [ ] VFS driver

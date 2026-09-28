@@ -93,6 +93,7 @@ pub enum Error {
     Geometry,
     Inode,
     Extent,
+    Directory,
 }
 
 fn u16_at(data: &[u8], at: usize) -> Result<u16, Error> {
@@ -496,6 +497,91 @@ fn validate_inode(inode: &Inode, fs: &Superblock) -> Result<(), Error> {
     Ok(())
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DirEntry<'a> {
+    pub inode: u64,
+    pub file_type: u8,
+    pub name: &'a str,
+}
+
+/// Encode one 8-byte-aligned directory record into the supplied slice.
+/// Returns the exact record byte length; callers concatenate records.
+pub fn encode_dir_record(
+    dst: &mut [u8],
+    inode: u64,
+    file_type: u8,
+    name: &str,
+) -> Result<usize, Error> {
+    let bytes = name.as_bytes();
+    if inode == 0
+        || !(1..=5).contains(&file_type)
+        || bytes.is_empty()
+        || bytes.len() > 255
+        || bytes.contains(&0)
+        || bytes.contains(&b'/')
+    {
+        return Err(Error::Directory);
+    }
+    let used = 16usize.checked_add(bytes.len()).ok_or(Error::Directory)?;
+    let record = used
+        .checked_add(7)
+        .map(|n| n & !7)
+        .ok_or(Error::Directory)?;
+    let out = dst.get_mut(..record).ok_or(Error::Truncated)?;
+    out.fill(0);
+    out[..8].copy_from_slice(&inode.to_le_bytes());
+    out[8..10].copy_from_slice(
+        &u16::try_from(record)
+            .map_err(|_| Error::Directory)?
+            .to_le_bytes(),
+    );
+    out[10] = u8::try_from(bytes.len()).map_err(|_| Error::Directory)?;
+    out[11] = file_type;
+    out[16..16 + bytes.len()].copy_from_slice(bytes);
+    Ok(record)
+}
+
+/// Decode one directory record without following its inode reference.
+/// The caller validates allocation and type agreement against the inode table.
+pub fn parse_dir_record(data: &[u8], max_inode: u64) -> Result<(DirEntry<'_>, usize), Error> {
+    if data.len() < 16 {
+        return Err(Error::Truncated);
+    }
+    let inode = u64_at(data, 0)?;
+    let record = usize::from(u16_at(data, 8)?);
+    let name_len = usize::from(data[10]);
+    let file_type = data[11];
+    if inode == 0
+        || inode > max_inode
+        || !(1..=5).contains(&file_type)
+        || record < 16
+        || !record.is_multiple_of(8)
+        || record > data.len()
+        || 16usize
+            .checked_add(name_len)
+            .is_none_or(|used| used > record)
+        || data[12..16].iter().any(|&byte| byte != 0)
+    {
+        return Err(Error::Directory);
+    }
+    let name_bytes = &data[16..16 + name_len];
+    if name_bytes.is_empty() || name_bytes.contains(&0) || name_bytes.contains(&b'/') {
+        return Err(Error::Directory);
+    }
+    let name = core::str::from_utf8(name_bytes).map_err(|_| Error::Directory)?;
+    if data[16 + name_len..record].iter().any(|&byte| byte != 0) {
+        return Err(Error::Directory);
+    }
+    Ok((
+        DirEntry {
+            inode,
+            file_type,
+            name,
+        },
+        record,
+    ))
+}
+
 #[cfg(not(test))]
 fn main() {
     eprintln!("VibrixFS wire conformance helper: run with rustc --test");
@@ -699,5 +785,52 @@ mod tests {
         let mut inode = sample_inode();
         inode.allocated_blocks = 3;
         assert_eq!(encode_inode(&inode, &fs), Err(Error::Inode));
+    }
+    #[test]
+    fn directory_record_round_trip_and_alignment() {
+        let mut buf = [0u8; 64];
+        let used = encode_dir_record(&mut buf, 2, 1, "welcome.txt").unwrap();
+        assert_eq!(used % 8, 0);
+        let (entry, consumed) = parse_dir_record(&buf[..used], 1024).unwrap();
+        assert_eq!(consumed, used);
+        assert_eq!(
+            entry,
+            DirEntry {
+                inode: 2,
+                file_type: 1,
+                name: "welcome.txt",
+            }
+        );
+    }
+
+    #[test]
+    fn directory_record_rejects_bad_names_bounds_types_and_padding() {
+        let mut buf = [0u8; 64];
+        assert_eq!(
+            encode_dir_record(&mut buf, 0, 1, "x"),
+            Err(Error::Directory)
+        );
+        assert_eq!(
+            encode_dir_record(&mut buf, 1, 9, "x"),
+            Err(Error::Directory)
+        );
+        assert_eq!(
+            encode_dir_record(&mut buf, 1, 1, "a/b"),
+            Err(Error::Directory)
+        );
+        assert_eq!(encode_dir_record(&mut buf, 1, 1, ""), Err(Error::Directory));
+
+        let used = encode_dir_record(&mut buf, 2, 1, "ok").unwrap();
+        buf[12] = 1;
+        assert_eq!(parse_dir_record(&buf[..used], 1024), Err(Error::Directory));
+
+        let mut buf = [0u8; 64];
+        let used = encode_dir_record(&mut buf, 1025, 1, "ok").unwrap();
+        assert_eq!(parse_dir_record(&buf[..used], 1024), Err(Error::Directory));
+
+        let mut buf = [0u8; 64];
+        let used = encode_dir_record(&mut buf, 2, 1, "ok").unwrap();
+        buf[used - 1] = 1;
+        assert_eq!(parse_dir_record(&buf[..used], 1024), Err(Error::Directory));
     }
 }
