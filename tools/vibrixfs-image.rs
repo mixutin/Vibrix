@@ -26,6 +26,17 @@ const MAX_FORMAT_BLOCKS: u64 = 262_144; // 1 GiB early host-tool bound.
 const DIRECTORY_BYTES: usize = 80;
 const WELCOME_NAME: &str = "welcome.txt";
 const WELCOME_BYTES: &[u8] = b"Welcome to VibrixFS.\n";
+const ROOT_MODE: u16 = 0o755;
+const WELCOME_MODE: u16 = 0o640;
+const WELCOME_UID: u32 = 1000;
+const WELCOME_GID: u32 = 1000;
+const ROOT_TIME_SEC: i64 = 1_700_000_000;
+const WELCOME_ATIME_SEC: i64 = 1_700_000_101;
+const WELCOME_MTIME_SEC: i64 = 1_700_000_202;
+const WELCOME_CTIME_SEC: i64 = 1_700_000_303;
+const WELCOME_ATIME_NSEC: u32 = 123_456_789;
+const WELCOME_MTIME_NSEC: u32 = 234_567_890;
+const WELCOME_CTIME_NSEC: u32 = 345_678_901;
 
 fn raw_device_like(path: &Path) -> bool {
     let s = path.to_string_lossy();
@@ -301,17 +312,17 @@ fn format_image(
     let root = Inode {
         number: 1,
         file_type: 2,
-        mode: 0o755,
+        mode: ROOT_MODE,
         uid: 0,
         gid: 0,
         links: 2,
         size: DIRECTORY_BYTES as u64,
         allocated_blocks: 1,
-        atime_sec: 0,
+        atime_sec: ROOT_TIME_SEC,
         atime_nsec: 0,
-        mtime_sec: 0,
+        mtime_sec: ROOT_TIME_SEC,
         mtime_nsec: 0,
-        ctime_sec: 0,
+        ctime_sec: ROOT_TIME_SEC,
         ctime_nsec: 0,
         nonce: [0x5a; 16],
         extents,
@@ -331,18 +342,18 @@ fn format_image(
     let welcome = Inode {
         number: 2,
         file_type: 1,
-        mode: 0o644,
-        uid: 0,
-        gid: 0,
+        mode: WELCOME_MODE,
+        uid: WELCOME_UID,
+        gid: WELCOME_GID,
         links: 1,
         size: WELCOME_BYTES.len() as u64,
         allocated_blocks: 1,
-        atime_sec: 0,
-        atime_nsec: 0,
-        mtime_sec: 0,
-        mtime_nsec: 0,
-        ctime_sec: 0,
-        ctime_nsec: 0,
+        atime_sec: WELCOME_ATIME_SEC,
+        atime_nsec: WELCOME_ATIME_NSEC,
+        mtime_sec: WELCOME_MTIME_SEC,
+        mtime_nsec: WELCOME_MTIME_NSEC,
+        ctime_sec: WELCOME_CTIME_SEC,
+        ctime_nsec: WELCOME_CTIME_NSEC,
         nonce: [0x6b; 16],
         extents: welcome_extents,
         extent_count: 1,
@@ -481,6 +492,15 @@ fn inspect_image(path: &Path, logical_sector: u64, root_guid: [u8; 16]) -> Resul
         || root.file_type != 2
         || root.extent_count != 1
         || root.allocated_blocks != 1
+        || root.mode != ROOT_MODE
+        || root.uid != 0
+        || root.gid != 0
+        || root.atime_sec != ROOT_TIME_SEC
+        || root.mtime_sec != ROOT_TIME_SEC
+        || root.ctime_sec != ROOT_TIME_SEC
+        || root.atime_nsec != 0
+        || root.mtime_nsec != 0
+        || root.ctime_nsec != 0
     {
         return Err("base-v1 root inode shape is invalid".into());
     }
@@ -497,6 +517,15 @@ fn inspect_image(path: &Path, logical_sector: u64, root_guid: [u8; 16]) -> Resul
         || welcome.extent_count != 1
         || welcome.allocated_blocks != 1
         || welcome.size != WELCOME_BYTES.len() as u64
+        || welcome.mode != WELCOME_MODE
+        || welcome.uid != WELCOME_UID
+        || welcome.gid != WELCOME_GID
+        || welcome.atime_sec != WELCOME_ATIME_SEC
+        || welcome.atime_nsec != WELCOME_ATIME_NSEC
+        || welcome.mtime_sec != WELCOME_MTIME_SEC
+        || welcome.mtime_nsec != WELCOME_MTIME_NSEC
+        || welcome.ctime_sec != WELCOME_CTIME_SEC
+        || welcome.ctime_nsec != WELCOME_CTIME_NSEC
     {
         return Err("base-v1 welcome file inode shape is invalid".into());
     }
@@ -517,13 +546,18 @@ fn inspect_image(path: &Path, logical_sector: u64, root_guid: [u8; 16]) -> Resul
     }
 
     println!(
-        "VibrixFS v1 valid: blocks={} logical_sector={} inodes={} root_block={} file={} file_block={} generation={} clean={}",
+        "VibrixFS v1 valid: blocks={} logical_sector={} inodes={} root_block={} file={} file_block={} mode={:04o} uid={} gid={} mtime={}.{:09} generation={} clean={}",
         sb.total_blocks,
         logical_sector,
         sb.total_inodes,
         root_extent.start,
         WELCOME_NAME,
         welcome_extent.start,
+        welcome.mode,
+        welcome.uid,
+        welcome.gid,
+        welcome.mtime_sec,
+        welcome.mtime_nsec,
         sb.generation,
         sb.clean
     );
@@ -600,6 +634,62 @@ mod tests {
         assert!(sb.inode_bitmap.start + sb.inode_bitmap.blocks <= sb.inode_table.start);
         assert_eq!(root, sb.inode_table.start + sb.inode_table.blocks);
         assert!(root < sb.total_blocks - 1);
+    }
+
+    #[test]
+    fn adopted_permissions_and_timestamps_round_trip_through_wire_inode() {
+        let (sb, root_data) = layout(4096, [1; 16], [2; 16]).unwrap();
+        let mut extents = [Extent {
+            start: 0,
+            blocks: 0,
+        }; 6];
+        extents[0] = Extent {
+            start: root_data + 1,
+            blocks: 1,
+        };
+        let inode = Inode {
+            number: 2,
+            file_type: 1,
+            mode: WELCOME_MODE,
+            uid: WELCOME_UID,
+            gid: WELCOME_GID,
+            links: 1,
+            size: WELCOME_BYTES.len() as u64,
+            allocated_blocks: 1,
+            atime_sec: WELCOME_ATIME_SEC,
+            atime_nsec: WELCOME_ATIME_NSEC,
+            mtime_sec: WELCOME_MTIME_SEC,
+            mtime_nsec: WELCOME_MTIME_NSEC,
+            ctime_sec: WELCOME_CTIME_SEC,
+            ctime_nsec: WELCOME_CTIME_NSEC,
+            nonce: [0x6b; 16],
+            extents,
+            extent_count: 1,
+            device: 0,
+            flags: 0,
+        };
+        let bytes = encode_inode(&inode, &sb).unwrap();
+        assert_eq!(
+            u16::from_le_bytes(bytes[10..12].try_into().unwrap()),
+            WELCOME_MODE
+        );
+        assert_eq!(
+            u32::from_le_bytes(bytes[12..16].try_into().unwrap()),
+            WELCOME_UID
+        );
+        assert_eq!(
+            u32::from_le_bytes(bytes[16..20].try_into().unwrap()),
+            WELCOME_GID
+        );
+        assert_eq!(
+            i64::from_le_bytes(bytes[56..64].try_into().unwrap()),
+            WELCOME_MTIME_SEC
+        );
+        assert_eq!(
+            u32::from_le_bytes(bytes[64..68].try_into().unwrap()),
+            WELCOME_MTIME_NSEC
+        );
+        assert_eq!(parse_inode(&bytes, &sb), Ok(inode));
     }
 
     #[test]

@@ -239,3 +239,26 @@ This is still host regular-file format validation. It is not a kernel VFS,
 mutable file creation API, crash-safe update protocol, USB persistence or
 recovery tool. The M8 files/directories checkbox remains pending exact-head CI
 for this branch.
+
+## 11. Permissions and timestamp conformance checkpoint (QEMU-regression CI verified)
+
+The host formatter now emits deterministic nontrivial inode metadata for the
+named regular-file fixture: mode `0640`, uid/gid `1000:1000`, and distinct
+atime/mtime/ctime values including sub-second nanoseconds. The root directory
+retains mode `0755` and root ownership with deterministic whole-second
+timestamps. The inspector does not merely print these fields: it parses the
+checksummed inode record through the shared wire decoder and requires every
+adopted permission/owner/time value to match before accepting the image.
+
+The production-linked host test also asserts the exact little-endian wire
+offsets for mode, uid, gid, mtime seconds and nanoseconds, followed by an
+encode/decode round trip. The shared inode validator continues to reject mode
+bits outside the low 12 bits and nanoseconds at or above 1,000,000,000.
+
+This is **on-disk metadata conformance**, not credentials enforcement, access
+control, wall-clock acquisition, mutation syscalls, VFS semantics or a
+multi-user security boundary. [Actions run 36379311357](https://github.com/mixutin/Vibrix/actions/runs/36379311357)
+proved both 512- and 4096-byte logical-sector formatter/inspector round trips
+with these values, along with the full repository regression suite. The M8
+permissions/timestamps checkbox therefore records the bounded on-disk metadata
+contract only.
