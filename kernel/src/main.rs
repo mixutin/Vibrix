@@ -304,51 +304,51 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     if !cfg!(any(
         feature = "panic-probe",
         feature = "breakpoint-probe",
-            feature = "page-fault-probe",
-            feature = "vm-write-probe",
-            feature = "vm-unmap-probe"
-        )) {
-            let (
+        feature = "page-fault-probe",
+        feature = "vm-write-probe",
+        feature = "vm-unmap-probe"
+    )) {
+        let (
+            lapic_physical,
+            ioapic_physical,
+            ioapic_gsi_base,
+            timer_gsi,
+            timer_active_low,
+            timer_level_triggered,
+            apic,
+        ) = timer_setup.unwrap_or_else(|| panic!("validated APIC timer topology unavailable"));
+        let route = arch::x86_64::irq::Route::new(
+            timer_gsi,
+            arch::x86_64::irq::TIMER_VECTOR,
+            apic.lapic_id,
+        )
+        .unwrap_or_else(|_| panic!("timer route policy rejected"))
+        .with_signal(timer_active_low, timer_level_triggered);
+        // SAFETY: sole BSP, IF=0, all transient v3-window consumers are
+        // complete; APIC addresses and GSI policy came from validated
+        // MADT plus the immediately preceding architectural APIC probe.
+        unsafe {
+            arch::x86_64::apic::activate_pit_timer(
+                &info,
                 lapic_physical,
                 ioapic_physical,
                 ioapic_gsi_base,
-                timer_gsi,
-                timer_active_low,
-                timer_level_triggered,
-                apic,
-            ) = timer_setup.unwrap_or_else(|| panic!("validated APIC timer topology unavailable"));
-            let route = arch::x86_64::irq::Route::new(
-                timer_gsi,
-                arch::x86_64::irq::TIMER_VECTOR,
-                apic.lapic_id,
+                apic.ioapic_max_redirection_entry,
+                route,
             )
-            .unwrap_or_else(|_| panic!("timer route policy rejected"))
-            .with_signal(timer_active_low, timer_level_triggered);
-            // SAFETY: sole BSP, IF=0, all transient v3-window consumers are
-            // complete; APIC addresses and GSI policy came from validated
-            // MADT plus the immediately preceding architectural APIC probe.
-            unsafe {
-                arch::x86_64::apic::activate_pit_timer(
-                    &info,
-                    lapic_physical,
-                    ioapic_physical,
-                    ioapic_gsi_base,
-                    apic.ioapic_max_redirection_entry,
-                    route,
-                )
-            }
-            .unwrap_or_else(|error| panic!("timer routing activation failed: {:?}", error));
-            let before = arch::x86_64::irq::timer_ticks();
-            // SAFETY: the only unmasked external source is the validated PIT
-            // route into a permanent timer gate; handler state is atomic.
-            unsafe { arch::x86_64::apic::enable_interrupts() };
-            while arch::x86_64::irq::timer_ticks() == before {
-                // SAFETY: IF=1 and the PIT route should wake this BSP. Failure
-                // to deliver is intentionally observable as a QEMU timeout.
-                unsafe { core::arch::asm!("hlt", options(nomem, nostack)) };
-            }
-            crate::println!("kernel timer: tick {}", arch::x86_64::irq::timer_ticks());
-            debugcon::write("VIBRIX: kernel timer IRQ delivered\r\n");
+        }
+        .unwrap_or_else(|error| panic!("timer routing activation failed: {:?}", error));
+        let before = arch::x86_64::irq::timer_ticks();
+        // SAFETY: the only unmasked external source is the validated PIT
+        // route into a permanent timer gate; handler state is atomic.
+        unsafe { arch::x86_64::apic::enable_interrupts() };
+        while arch::x86_64::irq::timer_ticks() == before {
+            // SAFETY: IF=1 and the PIT route should wake this BSP. Failure
+            // to deliver is intentionally observable as a QEMU timeout.
+            unsafe { core::arch::asm!("hlt", options(nomem, nostack)) };
+        }
+        crate::println!("kernel timer: tick {}", arch::x86_64::irq::timer_ticks());
+        debugcon::write("VIBRIX: kernel timer IRQ delivered\r\n");
     }
 
     // Separate QEMU-only smoke configuration exercises the *real* kernel
@@ -359,11 +359,11 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     #[cfg(not(feature = "panic-probe"))]
     {
         // Development QEMU keyboard: read only legacy i8042 ports after
-        // ExitBootServices; IRQs remain disabled and no USB HID is implied.
+        // ExitBootServices; input remains polled even after the timer IRQ is enabled.
         let mut ps2 = arch::x86_64::ps2::SetOne::new();
         debugcon::write("VIBRIX: kernel PS2 polling ready\r\n");
         loop {
-            // SAFETY: sole boot CPU, IF=0, i8042 data has no other consumer.
+            // SAFETY: sole boot CPU; no interrupt handler consumes i8042 data.
             if let Some(scan) = unsafe { arch::x86_64::ps2::poll_scancode() }
                 && let Some(ascii) = ps2.feed(scan)
             {
