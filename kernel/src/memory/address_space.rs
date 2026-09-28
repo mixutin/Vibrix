@@ -965,7 +965,7 @@ pub unsafe fn enter_probe(probe: ActivatedProbe) -> ! {
 }
 
 #[cfg(feature = "process-syscall-probe")]
-pub fn copy_to_user(mut address: u64, mut bytes: &[u8]) -> Result<(), AddressSpaceError> {
+pub fn copy_to_user(address: u64, bytes: &[u8]) -> Result<(), AddressSpaceError> {
     if bytes.is_empty() {
         return Ok(());
     }
@@ -986,32 +986,30 @@ pub fn copy_to_user(mut address: u64, mut bytes: &[u8]) -> Result<(), AddressSpa
         return Err(AddressSpaceError::InvalidRoot);
     }
 
-    while !bytes.is_empty() {
-        let page_address = address & !0xfff;
-        let offset = (address & 0xfff) as usize;
-        let page = Page::new_user(page_address)?;
+    // Validate the entire destination before writing any byte. The current CR3
+    // is the same private root queried below, so a later raw user-VA write does
+    // not need the kernel-root scratch mapper and cannot partially succeed
+    // because of a missing or read-only second page.
+    let mut cursor = address;
+    loop {
+        let page = Page::new_user(cursor & !0xfff)?;
         let mapping = space.vm.query(page)?.ok_or(Error::NotMapped)?;
         if mapping.privilege != Privilege::User || mapping.permissions != Permissions::ReadWrite {
             return Err(AddressSpaceError::InvalidRoot);
         }
-        let count = core::cmp::min(4096 - offset, bytes.len());
-        // SAFETY: the queried frame is owned by the active private user VM.
-        // Staging slot 509 is supervisor-only and exclusively owned here.
-        let staged = unsafe { space.staging.map(mapping.physical, true) }
-            .map_err(|_| AddressSpaceError::Scratch)?;
-        unsafe {
-            for (index, byte) in bytes[..count].iter().copied().enumerate() {
-                (staged as *mut u8).add(offset + index).write_volatile(byte);
-            }
-            space
-                .staging
-                .unmap()
-                .map_err(|_| AddressSpaceError::Scratch)?;
+        if (cursor & !0xfff) == (final_address & !0xfff) {
+            break;
         }
-        address = address
-            .checked_add(count as u64)
+        cursor = (cursor & !0xfff)
+            .checked_add(4096)
             .ok_or(AddressSpaceError::InvalidRoot)?;
-        bytes = &bytes[count..];
+    }
+
+    // SAFETY: every page covering [address, final_address] was just proven
+    // user RW in the active private CR3; IF remains masked, no Rust reference
+    // is constructed, and the source is a disjoint kernel slice.
+    unsafe {
+        core::ptr::copy_nonoverlapping(bytes.as_ptr(), address as *mut u8, bytes.len());
     }
     Ok(())
 }
