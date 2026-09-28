@@ -464,7 +464,6 @@ jobs:
           print("All applicable CI checks passed.")
           PY
 
-
       - name: QEMU supervisor write-protection fault
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,vm-write-probe bash tools/build-qemu.sh
