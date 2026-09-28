@@ -7,6 +7,7 @@ use core::slice;
 
 use crate::BootInfo;
 use crate::arch::x86_64::acpi::{AcpiError, EcamSummary, McfgEntry, Rsdp, Sdt};
+use crate::arch::x86_64::irq::LEGACY_TIMER_IRQ;
 use crate::memory::{self, virtual_memory::Window};
 
 const PAGE: u64 = 4096;
@@ -233,7 +234,7 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
                 if &table.signature == b"APIC" {
                     let madt = table.madt_entries()?;
                     let first = madt.ioapics().next().ok_or(ReadError::MissingApic)??;
-                    let timer = madt.interrupt_override(0)?;
+                    let timer = madt.interrupt_override(LEGACY_TIMER_IRQ)?;
                     let (timer_gsi, timer_active_low, timer_level_triggered) =
                         if let Some(override_) = timer {
                             (
@@ -242,7 +243,7 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
                                 override_.level_triggered,
                             )
                         } else {
-                            (0, false, false)
+                            (u32::from(LEGACY_TIMER_IRQ), false, false)
                         };
                     return Ok((
                         0usize,
