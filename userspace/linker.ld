@@ -16,12 +16,19 @@ SECTIONS
     *(.text .text.*)
   } :text
 
+  /*
+   * The kernel ELF sink reserves one unmapped guard page on both sides of
+   * every PT_LOAD payload. Keep two whole pages between independently mapped
+   * segments so the previous upper guard and the next lower guard are distinct.
+   */
+  . = ALIGN(0x1000) + 0x2000;
   .rodata ALIGN(0x1000) :
   {
     *(.rodata .rodata.*)
     *(.srodata .srodata.*)
   } :rodata
 
+  . = ALIGN(0x1000) + 0x2000;
   .data ALIGN(0x1000) :
   {
     *(.data .data.*)
