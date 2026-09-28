@@ -127,6 +127,19 @@ class PageBuilderTests(unittest.TestCase):
         self.assertIn('class="site-header wrap"', output)
         self.assertEqual((self.source / 'style.css').read_bytes(), (self.output / 'style.css').read_bytes())
 
+    def test_legal_page_without_site_footer_gains_layout_without_changing_article(self):
+        article = '<article><h2>Legal terms</h2><p>Preserve the original legal text.</p><footer>Article attribution</footer></article>'
+        original = page('legal/terms/', 'Terms', 'Terms of Use', 'Original terms', article).replace('<footer></footer>', '')
+        result = shell(original, 'legal/terms/', 'Terms')
+        self.assertIn(article, result)
+        self.assertEqual(result.count('class="site-footer wrap"'), 1)
+        self.assertLess(result.index('class="site-footer wrap"'), result.index('</body>'))
+
+    def test_multiple_site_footers_fail_instead_of_silently_discarding_content(self):
+        original = fixture().replace('</body>', '<footer>Another site footer</footer></body>')
+        with self.assertRaisesRegex(ValueError, 'at most one site footer'):
+            shell(original, '', 'Home')
+
     def test_noindex_404_uses_project_absolute_links_at_arbitrary_depth(self):
         build(self.source, self.output)
         not_found = (self.output / '404.html').read_text()

@@ -196,7 +196,11 @@ def shell(text, route, label):
     text = relocate(text, route, route)
     doc = Document(text)
     body, head, main = doc.one("body"), doc.one("head"), doc.one("main")
-    header, foot = doc.one("header", body), doc.one("footer", body)
+    header = doc.one("header", body)
+    footers = [node for node in doc.elements if node.tag == "footer" and node.parent is body]
+    if len(footers) > 1:
+        raise ValueError("Expected at most one site footer")
+    foot_start, foot_end = ((footers[0].start, footers[0].end) if footers else (body.closed, body.closed))
     attrs = dict(main.attrs)
     if attrs.get("id") not in (None, "main-content"):
         raise ValueError("Existing main id needs an explicit bookmark migration")
@@ -205,7 +209,7 @@ def shell(text, route, label):
     trail, structured = breadcrumbs(route, label)
     css = f'<link rel="stylesheet" href="{href("multipage.css", route)}">'
     return edits(text, [(header.start, header.end, navigation(route)),
-                        (foot.start, foot.end, footer(route)),
+                        (foot_start, foot_end, footer(route)),
                         (main.start, main.opened, opening + trail),
                         (head.closed, head.closed, css + structured)])
 
@@ -295,7 +299,10 @@ def build(source, output):
                         ("blog/why-vibrix-exists/", "Why Vibrix exists"), ("404.html", "Page not found")])
     for path, text in rendered.items():
         route = route_of(path)
-        rendered[path] = shell(text, route, labels.get(route, route.strip("/").split("/")[-1].replace("-", " ").title()))
+        try:
+            rendered[path] = shell(text, route, labels.get(route, route.strip("/").split("/")[-1].replace("-", " ").title()))
+        except ValueError as error:
+            raise ValueError(f"{path}: {error}") from error
     # All transformations succeed before touching the owned output directory.
     if output.exists():
         shutil.rmtree(output)
