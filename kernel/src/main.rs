@@ -326,8 +326,9 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
 
     #[cfg(feature = "qemu-debugcon")]
     {
-        let stats = thread::smoke_test()
-            .unwrap_or_else(|error| panic!("cooperative kernel thread validation failed: {:?}", error));
+        let stats = thread::smoke_test().unwrap_or_else(|error| {
+            panic!("cooperative kernel thread validation failed: {:?}", error)
+        });
         crate::println!(
             "kernel threads: cooperative A1 B1 A2 B2 switches={} completed={}",
             stats.switches,
