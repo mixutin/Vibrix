@@ -306,7 +306,11 @@ pub fn parse_superblock(
     }
     let journal_start = u64_at(block, 104)?;
     let journal_blocks = u64_at(block, 112)?;
-    let journal = match (incompat & INCOMPAT_JOURNAL != 0, journal_start, journal_blocks) {
+    let journal = match (
+        incompat & INCOMPAT_JOURNAL != 0,
+        journal_start,
+        journal_blocks,
+    ) {
         (false, 0, 0) => None,
         (true, start, blocks) if start != 0 && blocks != 0 => Some(Range { start, blocks }),
         _ => return Err(Error::Layout),
