@@ -483,8 +483,10 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             // SAFETY: the feature-gated owner was initialized pre-STI. This
             // masks local interrupts, switches to its private CR3 and leaves
             // IF=0 for the immediate privilege transition below.
-            let probe = unsafe { memory::address_space::activate_probe() }
-                .unwrap_or_else(|error| panic!("address-space probe activation failed: {:?}", error));
+            let probe =
+                unsafe { memory::address_space::activate_probe() }.unwrap_or_else(|error| {
+                    panic!("address-space probe activation failed: {:?}", error)
+                });
             debugcon::write("VIBRIX: kernel userspace CR3 activated\r\n");
             crate::println!(
                 "kernel address space probe: kernel_cr3={:#x} user_cr3={:#x} rip={:#x} rsp={:#x}",
