@@ -366,8 +366,8 @@ the first real userspace CLI.
 - [x] Preemptive scheduler
 - [x] Ring 3 userspace
 - [x] Userspace address spaces
-- [ ] Vibrix syscall ABI v1
-- [ ] syscall/sysret
+- [x] Vibrix syscall ABI v1
+- [x] syscall/sysret
 - [ ] Native Rust syscall library
 - [ ] PID/process lifecycle
 - [ ] Executable loading
@@ -442,6 +442,35 @@ diagnostic single-BSP address space with shared supervisor kernel mappings. It
 does not yet provide a process address-space allocator, scheduler-integrated
 CR3 switching, PCID/SMP TLB shootdowns, copy-in/copy-out, the Vibrix syscall
 ABI, `syscall/sysret`, executable loading, or PID lifecycle.
+
+**Verified M5 Vibrix syscall ABI v1 contract (PR #129):**
+[Actions run 36458069736](https://github.com/mixutin/Vibrix/actions/runs/36458069736)
+passed the full repository CI on implementation head
+`a7611798928f8af9737a3cf3537d93a5a72512e4`. The shared contract freezes ABI
+version 1, RAX syscall-number/result semantics, the six x86-64 argument
+registers, syscall numbers 0 through 8, the bounded negative errno window, and
+lower-half userspace pointer-range validation. Canonical CI formats, compiles
+with warnings denied, and executes the exact shared ABI source as a host test.
+
+This checks the **ABI contract** only. It does not by itself provide the
+instruction transport, dispatcher, copy-in/copy-out, native userspace wrappers,
+PID lifecycle, executable loading, file descriptors, or PID 1.
+
+**Verified M5 x86-64 SYSCALL/SYSRETQ transport (PR #131):**
+[Actions run 36468101302](https://github.com/mixutin/Vibrix/actions/runs/36468101302)
+passed the full repository CI on implementation head
+`1f0a8ea9a836845e91b4620af89c21aa2b5afb0d`. Production-linked host tests
+bind STAR selector derivation to the live GDT, and the dedicated real-QEMU proof
+programs EFER/STAR/LSTAR/FMASK, enters through a real CPL3 `SYSCALL`, switches
+to a dedicated 16 KiB CPL0 syscall stack, returns ABI v1 `NotSupported`, then
+executes `SYSRETQ` back to CPL3 under the same private userspace CR3. The final
+DPL3 diagnostic trap requires the observed syscall entry and reports the
+SYSRET-compatible user selectors CS=`0x23`, SS=`0x1b`.
+
+This completes the bounded **syscall/sysret transport** item only. It remains a
+single-BSP proof with no general dispatcher, copy-in/copy-out, per-process
+kernel stacks, scheduler-integrated process address spaces, native Rust
+userspace syscall library, PID lifecycle, executable loading, or PID 1.
 
 **Exit:** PID 1 executes in userspace and makes Vibrix syscalls.
 
