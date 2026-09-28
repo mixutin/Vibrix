@@ -148,8 +148,9 @@ struct StaticTransitionStack(UnsafeCell<TransitionStack>);
 // Rust reference to its bytes exists while hardware is using RSP within it.
 unsafe impl Sync for StaticTransitionStack {}
 
-static TRANSITION_STACK: StaticTransitionStack =
-    StaticTransitionStack(UnsafeCell::new(TransitionStack([0; TRANSITION_STACK_BYTES])));
+static TRANSITION_STACK: StaticTransitionStack = StaticTransitionStack(UnsafeCell::new(
+    TransitionStack([0; TRANSITION_STACK_BYTES]),
+));
 static mut ADDRESS_SPACE_KERNEL_RSP: u64 = 0;
 
 global_asm!(
