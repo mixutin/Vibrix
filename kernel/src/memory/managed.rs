@@ -383,14 +383,8 @@ pub fn prepare_ring3_probe() -> Result<(u64, u64), RuntimeError> {
         };
 
         let result = (|| {
-            let code_page = code_layout
-                .payload()
-                .page(0)
-                .ok_or(Error::InvalidRange)?;
-            let stack_page = stack_layout
-                .payload()
-                .page(0)
-                .ok_or(Error::InvalidRange)?;
+            let code_page = code_layout.payload().page(0).ok_or(Error::InvalidRange)?;
+            let stack_page = stack_layout.payload().page(0).ok_or(Error::InvalidRange)?;
             // SAFETY: code_page is a live, exclusively owned RW user mapping.
             // Volatile byte stores finish before protection changes to RX.
             unsafe {
