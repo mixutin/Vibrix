@@ -4,6 +4,7 @@
 extern crate std;
 
 pub mod block;
+pub mod config_policy;
 pub mod cpu_topology;
 pub mod nic;
 
@@ -14,4 +15,6 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel block abstraction verified");
     nic::self_test().expect("NIC abstraction self-test failed");
     report("VIBRIX: kernel NIC abstraction verified");
+    config_policy::self_test().expect("portable configuration policy self-test failed");
+    report("VIBRIX: kernel portable configuration policy verified");
 }
