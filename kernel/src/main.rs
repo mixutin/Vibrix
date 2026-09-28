@@ -558,10 +558,9 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                         // The development console and /dev/tty observe the same
                         // physical PS/2 stream. Drain the committed canonical
                         // line here so repeated commands cannot fill the TTY.
-                        if let Ok(tty) = files.open(
-                            "/dev/tty",
-                            vibrix_kernel::vfs::files::Open::READ,
-                        ) {
+                        if let Ok(tty) =
+                            files.open("/dev/tty", vibrix_kernel::vfs::files::Open::READ)
+                        {
                             let mut tty_line = [0u8; 128];
                             let _ = files.read(tty, &mut tty_line);
                             let _ = files.close(tty);
