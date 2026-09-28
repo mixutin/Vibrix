@@ -25,6 +25,7 @@ ring3-probe = ["qemu-debugcon"]
 address-space-probe = ["qemu-debugcon"]
 elf-load-probe = ["qemu-debugcon", "address-space-probe"]
 syscall-probe = ["qemu-debugcon", "address-space-probe"]
+process-syscall-probe = ["qemu-debugcon", "address-space-probe"]
 
 [dependencies]
 vibrix-vmm = { path = "../shared/vmm", version = "=0.0.1" }
