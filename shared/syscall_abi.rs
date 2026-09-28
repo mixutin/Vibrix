@@ -172,10 +172,7 @@ mod tests {
 
     #[test]
     fn register_contract_never_uses_transport_clobbers() {
-        assert_eq!(
-            ARGUMENT_REGISTERS,
-            ["rdi", "rsi", "rdx", "r10", "r8", "r9"]
-        );
+        assert_eq!(ARGUMENT_REGISTERS, ["rdi", "rsi", "rdx", "r10", "r8", "r9"]);
         assert!(!ARGUMENT_REGISTERS.contains(&"rcx"));
         assert!(!ARGUMENT_REGISTERS.contains(&"r11"));
     }
