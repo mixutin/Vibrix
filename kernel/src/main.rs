@@ -157,8 +157,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                 subclass: device.subclass,
                 programming_interface: device.programming_interface,
             });
-            if let Some(candidate) = device_model.observe(identity)
-                && driver_binder.bind(candidate).is_err()
+            if device_model.observe(identity).is_some()
+                && driver_binder.bind_identity(identity).is_err()
             {
                 bind_failures = bind_failures.saturating_add(1);
             }
