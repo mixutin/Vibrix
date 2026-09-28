@@ -102,10 +102,7 @@ mod tests {
         vm.map_user_region(range, Permissions::ReadWrite).unwrap();
         for index in 0..range.count() {
             let translation = vm.query(range.page(index).unwrap()).unwrap().unwrap();
-            assert_eq!(
-                translation.privilege,
-                crate::vmm::address::Privilege::User
-            );
+            assert_eq!(translation.privilege, crate::vmm::address::Privilege::User);
         }
         vm.unmap_region(range).unwrap();
         assert_eq!(vm.free_frames(), 12);
