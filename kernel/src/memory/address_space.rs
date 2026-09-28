@@ -5,7 +5,7 @@
 //! the managed user arena gets a fresh hierarchy rooted in a different CR3.
 use super::virtual_memory::{SlotWindow, runtime};
 use crate::BootInfo;
-use core::arch::{asm, x86_64::__cpuid_count};
+use core::arch::{asm, global_asm, x86_64::__cpuid_count};
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicU64, Ordering};
 use vibrix_vmm::address::{Page, Permissions, PhysicalFrame, Privilege, USER_SLOT};
@@ -16,6 +16,8 @@ use vibrix_vmm::{Error, GuardedLayout, GuardedVm, Vm};
 const ADDRESS_SPACE_POOL_FRAMES: usize = 32;
 const ADDRESS_SPACE_GUARDED_SLOTS: usize = 4;
 const ADDRESS_SPACE_SCRATCH_SLOT: usize = 510;
+const ADDRESS_SPACE_DATA_SLOT: usize = 509;
+const TRANSITION_STACK_BYTES: usize = 16 * 1024;
 const ROOT_COPY_CHUNK: usize = 64;
 
 type UserVm = GuardedVm<AddressSpaceMemory, ADDRESS_SPACE_POOL_FRAMES, ADDRESS_SPACE_GUARDED_SLOTS>;
@@ -123,6 +125,7 @@ impl Memory for AddressSpaceMemory {
 
 struct AddressSpace {
     vm: UserVm,
+    staging: SlotWindow,
     kernel_root: u64,
     user_root: u64,
 }
@@ -135,6 +138,19 @@ unsafe impl Sync for AddressSpaceCell {}
 
 static ADDRESS_SPACE: AddressSpaceCell = AddressSpaceCell(UnsafeCell::new(None));
 static ACTIVE_ROOT: AtomicU64 = AtomicU64::new(0);
+
+#[repr(C, align(16))]
+struct TransitionStack([u8; TRANSITION_STACK_BYTES]);
+
+struct StaticTransitionStack(UnsafeCell<TransitionStack>);
+
+// SAFETY: only the sole BSP uses this feature-gated transition stack, and no
+// Rust reference to its bytes exists while hardware is using RSP within it.
+unsafe impl Sync for StaticTransitionStack {}
+
+static TRANSITION_STACK: StaticTransitionStack =
+    StaticTransitionStack(UnsafeCell::new(TransitionStack([0; TRANSITION_STACK_BYTES])));
+static mut ADDRESS_SPACE_KERNEL_RSP: u64 = 0;
 
 fn interrupts_enabled() -> bool {
     let flags: u64;
