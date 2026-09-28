@@ -322,7 +322,10 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                                 debugcon::write("VIBRIX: kernel console command help\r\n");
                             }
                             console::Command::Info => {
-                                crate::println!("Vibrix kernel build {}", env!("CARGO_PKG_VERSION"));
+                                crate::println!(
+                                    "Vibrix kernel build {}",
+                                    env!("CARGO_PKG_VERSION")
+                                );
                                 debugcon::write("VIBRIX: kernel console command info\r\n");
                             }
                             console::Command::Unknown => {
