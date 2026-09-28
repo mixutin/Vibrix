@@ -1,8 +1,9 @@
 //! Minimal single-CPU x86-64 exception table for Vibrix.
 //!
-//! The kernel still keeps interrupts disabled: this installs only
-//! synchronous #BP, #DF, #GP and #PF gates. No APIC/IRQ/IST support yet.
-//! Uses the nightly Rust x86-interrupt ABI for hardware-saved registers.
+//! Installs synchronous exception gates plus the first timer/spurious IRQ
+//! vectors. Hardware IRQ delivery remains disabled until APIC/PIT routing is
+//! explicitly activated later in kernel startup. No privilege-transition IST
+//! policy or SMP IDT synchronization exists yet.
 
 use core::{arch::asm, cell::UnsafeCell};
 
@@ -15,6 +16,7 @@ use layout::{
 };
 
 use crate::arch::x86_64::gdt::Gdt;
+use crate::arch::x86_64::irq::{SPURIOUS_VECTOR, TIMER_VECTOR};
 
 /// This is the CPU-pushed frame interpreted by the nightly x86-interrupt ABI.
 /// All five machine words are valid for the current 64-bit kernel entry stack.
@@ -63,6 +65,14 @@ pub unsafe fn init() {
         page_fault_handler as *const () as usize as u64,
         Gdt::KERNEL_CODE_SELECTOR,
     );
+    table.0[usize::from(TIMER_VECTOR)] = IdtGate::interrupt(
+        timer_handler as *const () as usize as u64,
+        Gdt::KERNEL_CODE_SELECTOR,
+    );
+    table.0[usize::from(SPURIOUS_VECTOR)] = IdtGate::interrupt(
+        spurious_handler as *const () as usize as u64,
+        Gdt::KERNEL_CODE_SELECTOR,
+    );
 
     let pointer = IdtPointer {
         limit: (core::mem::size_of::<IdtTable>() - 1) as u16,
@@ -71,6 +81,17 @@ pub unsafe fn init() {
     // SAFETY: the IDTR points to persistent, initialized supervisor-mapped
     // kernel memory; the gate selector is the live ring-0 code descriptor.
     unsafe { asm!("lidt [{}]", in(reg) &pointer, options(readonly, nostack, preserves_flags)) };
+}
+
+extern "x86-interrupt" fn timer_handler(_frame: InterruptStackFrame) {
+    crate::arch::x86_64::irq::record_timer_tick();
+    // SAFETY: the timer vector is unmasked only after activate_pit_timer()
+    // permanently maps the LAPIC page on this sole BSP.
+    unsafe { crate::arch::x86_64::apic::eoi() };
+}
+
+extern "x86-interrupt" fn spurious_handler(_frame: InterruptStackFrame) {
+    // Architectural spurious-vector interrupts do not require an EOI.
 }
 
 extern "x86-interrupt" fn breakpoint_handler(frame: InterruptStackFrame) {
