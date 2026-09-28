@@ -36,6 +36,7 @@ pub enum Error {
     IntegerOverflow,
     UserAddress,
     WriteExecute,
+    OverlappingSegments,
     ImageTooLarge,
 }
 
@@ -121,6 +122,15 @@ pub fn plan(data: &[u8]) -> Result<Plan, Error> {
             .ok_or(Error::IntegerOverflow)?;
         if raw.virtual_address < USER_MIN || end > USER_END || end <= raw.virtual_address {
             return Err(Error::UserAddress);
+        }
+        for prior in segments[..count].iter().flatten() {
+            let prior_end = prior
+                .virtual_address
+                .checked_add(prior.memory_size as u64)
+                .ok_or(Error::IntegerOverflow)?;
+            if raw.virtual_address < prior_end && end > prior.virtual_address {
+                return Err(Error::OverlappingSegments);
+            }
         }
 
         let permissions = Permissions {
@@ -405,6 +415,24 @@ mod tests {
                 Op::Abort
             ]
         );
+    }
+
+    #[test]
+    fn overlapping_ranges_are_rejected_by_policy() {
+        let first = Segment {
+            file_offset: 0,
+            virtual_address: 0x40_0000,
+            file_size: 1,
+            memory_size: 0x2000,
+            permissions: Permissions {
+                write: false,
+                execute: true,
+            },
+        };
+        let first_end = first.virtual_address + first.memory_size as u64;
+        let second_start = first_end - 1;
+        assert!(second_start < first_end);
+        assert!(second_start + 1 > first.virtual_address);
     }
 
     #[test]
