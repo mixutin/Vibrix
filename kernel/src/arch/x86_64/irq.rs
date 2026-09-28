@@ -95,10 +95,7 @@ mod tests {
     fn timer_vector_is_outside_exceptions_and_spurious_slot() {
         assert!(TIMER_VECTOR >= 32);
         assert_ne!(TIMER_VECTOR, SPURIOUS_VECTOR);
-        assert_eq!(
-            Route::new(0, 14, 0),
-            Err(RouteError::VectorReserved)
-        );
+        assert_eq!(Route::new(0, 14, 0), Err(RouteError::VectorReserved));
         assert_eq!(
             Route::new(0, SPURIOUS_VECTOR, 0),
             Err(RouteError::VectorReserved)
