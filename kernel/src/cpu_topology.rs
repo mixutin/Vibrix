@@ -260,7 +260,10 @@ mod tests {
         );
         entries.truncate(8);
         entries.extend_from_slice(&x2apic(1, 3, 1));
-        assert_eq!(Topology::from_madt(&table(&entries)), Err(Error::DuplicateUid));
+        assert_eq!(
+            Topology::from_madt(&table(&entries)),
+            Err(Error::DuplicateUid)
+        );
     }
 
     #[test]
@@ -270,7 +273,9 @@ mod tests {
             entries.extend_from_slice(&x2apic(id as u32, id as u32, 1));
         }
         assert_eq!(
-            Topology::from_madt(&table(&entries)).unwrap().enabled_count(),
+            Topology::from_madt(&table(&entries))
+                .unwrap()
+                .enabled_count(),
             64
         );
         entries.extend_from_slice(&x2apic(64, 64, 1));
