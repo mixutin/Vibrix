@@ -169,6 +169,7 @@ impl<'a> Sdt<'a> {
         let mut offset = 0usize;
         let mut ioapics = 0usize;
         let mut lapic_override_seen = false;
+        let mut interrupt_override_seen = [false; 256];
         while offset < entries.len() {
             let header = entries
                 .get(offset..offset + 2)
@@ -199,7 +200,22 @@ impl<'a> Sdt<'a> {
                     }
                     ioapics = ioapics.checked_add(1).ok_or(AcpiError::InvalidEntry)?;
                 }
-                2 if length == 10 => {}
+                2 if length == 10 => {
+                    if entry[2] != 0 {
+                        return Err(AcpiError::UnsupportedEntry);
+                    }
+                    let source = usize::from(entry[3]);
+                    if interrupt_override_seen[source] {
+                        return Err(AcpiError::InvalidEntry);
+                    }
+                    interrupt_override_seen[source] = true;
+                    let flags = u16_at(entry, 8)?;
+                    let polarity = flags & 0b11;
+                    let trigger = (flags >> 2) & 0b11;
+                    if flags & !0x0f != 0 || polarity == 2 || trigger == 2 {
+                        return Err(AcpiError::InvalidEntry);
+                    }
+                }
                 5 if length == 12 => {
                     if entry[2..4] != [0; 2] || lapic_override_seen {
                         return Err(AcpiError::InvalidEntry);
@@ -258,6 +274,14 @@ impl<'a> Sdt<'a> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InterruptOverride {
+    pub source_irq: u8,
+    pub gsi: u32,
+    pub active_low: bool,
+    pub level_triggered: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IoApic {
     pub id: u8,
     pub address: u64,
@@ -274,6 +298,47 @@ pub struct Madt<'a> {
 impl Madt<'_> {
     pub fn ioapic_count(&self) -> usize {
         self.ioapics
+    }
+
+    pub fn interrupt_override(
+        &self,
+        source_irq: u8,
+    ) -> Result<Option<InterruptOverride>, AcpiError> {
+        let mut offset = 0usize;
+        while offset < self.entries.len() {
+            let header = self
+                .entries
+                .get(offset..offset + 2)
+                .ok_or(AcpiError::Truncated)?;
+            let length = usize::from(header[1]);
+            let end = offset
+                .checked_add(length)
+                .ok_or(AcpiError::InvalidEntry)?;
+            let entry = self
+                .entries
+                .get(offset..end)
+                .ok_or(AcpiError::InvalidEntry)?;
+            offset = end;
+            if entry[0] != 2 || entry[3] != source_irq {
+                continue;
+            }
+            if length != 10 || entry[2] != 0 {
+                return Err(AcpiError::InvalidEntry);
+            }
+            let flags = u16_at(entry, 8)?;
+            let polarity = flags & 0b11;
+            let trigger = (flags >> 2) & 0b11;
+            if flags & !0x0f != 0 || polarity == 2 || trigger == 2 {
+                return Err(AcpiError::InvalidEntry);
+            }
+            return Ok(Some(InterruptOverride {
+                source_irq,
+                gsi: u32_at(entry, 4)?,
+                active_low: polarity == 3,
+                level_triggered: trigger == 3,
+            }));
+        }
+        Ok(None)
     }
 
     pub fn ioapics(&self) -> impl Iterator<Item = Result<IoApic, AcpiError>> + '_ {
@@ -587,6 +652,78 @@ mod tests {
                 gsi_base: 0,
             }
         );
+    }
+
+    #[test]
+    fn madt_decodes_isa_interrupt_override_and_signal_mode() {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&0xfee0_0000u32.to_le_bytes());
+        payload.extend_from_slice(&1u32.to_le_bytes());
+        payload.extend_from_slice(&[1, 12, 1, 0]);
+        payload.extend_from_slice(&0xfec0_0000u32.to_le_bytes());
+        payload.extend_from_slice(&0u32.to_le_bytes());
+        payload.extend_from_slice(&[2, 10, 0, 0]);
+        payload.extend_from_slice(&2u32.to_le_bytes());
+        payload.extend_from_slice(&0u16.to_le_bytes());
+        payload.extend_from_slice(&[2, 10, 0, 9]);
+        payload.extend_from_slice(&9u32.to_le_bytes());
+        payload.extend_from_slice(&0x000fu16.to_le_bytes());
+        let raw = table(b"APIC", &payload);
+        let table = Sdt::parse(&raw).unwrap();
+        let madt = table.madt_entries().unwrap();
+        assert_eq!(
+            madt.interrupt_override(0),
+            Ok(Some(InterruptOverride {
+                source_irq: 0,
+                gsi: 2,
+                active_low: false,
+                level_triggered: false,
+            }))
+        );
+        assert_eq!(
+            madt.interrupt_override(9),
+            Ok(Some(InterruptOverride {
+                source_irq: 9,
+                gsi: 9,
+                active_low: true,
+                level_triggered: true,
+            }))
+        );
+        assert_eq!(madt.interrupt_override(1), Ok(None));
+    }
+
+    #[test]
+    fn madt_rejects_duplicate_or_reserved_interrupt_overrides() {
+        for (bus, flags) in [(1u8, 0u16), (0, 2), (0, 8)] {
+            let mut payload = Vec::new();
+            payload.extend_from_slice(&0xfee0_0000u32.to_le_bytes());
+            payload.extend_from_slice(&1u32.to_le_bytes());
+            payload.extend_from_slice(&[1, 12, 1, 0]);
+            payload.extend_from_slice(&0xfec0_0000u32.to_le_bytes());
+            payload.extend_from_slice(&0u32.to_le_bytes());
+            payload.extend_from_slice(&[2, 10, bus, 0]);
+            payload.extend_from_slice(&2u32.to_le_bytes());
+            payload.extend_from_slice(&flags.to_le_bytes());
+            let raw = table(b"APIC", &payload);
+            assert!(Sdt::parse(&raw).unwrap().madt_entries().is_err());
+        }
+
+        let mut duplicate = Vec::new();
+        duplicate.extend_from_slice(&0xfee0_0000u32.to_le_bytes());
+        duplicate.extend_from_slice(&1u32.to_le_bytes());
+        duplicate.extend_from_slice(&[1, 12, 1, 0]);
+        duplicate.extend_from_slice(&0xfec0_0000u32.to_le_bytes());
+        duplicate.extend_from_slice(&0u32.to_le_bytes());
+        for gsi in [0u32, 2] {
+            duplicate.extend_from_slice(&[2, 10, 0, 0]);
+            duplicate.extend_from_slice(&gsi.to_le_bytes());
+            duplicate.extend_from_slice(&0u16.to_le_bytes());
+        }
+        let raw = table(b"APIC", &duplicate);
+        assert!(matches!(
+            Sdt::parse(&raw).unwrap().madt_entries(),
+            Err(AcpiError::InvalidEntry)
+        ));
     }
 
     #[test]
