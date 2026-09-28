@@ -153,6 +153,9 @@ jobs:
       - name: Test argv and environment initial stack builder
         run: |
           cargo test --locked --package vibrix-kernel --lib user_stack::
+      - name: Test production PID/process lifecycle on host
+        run: |
+          cargo test --locked --package vibrix-kernel --lib process::
       - name: Test safe GPT image creation and inspect both copies
         run: |
           rustfmt --edition 2024 --check tools/create-usb-image.rs
@@ -394,7 +397,9 @@ jobs:
         env:
           VIBRIX_SKIP_BUILD: "1"
           VIBRIX_EXPECT_TIMER_IRQ: "1"
-        run: bash tools/test-qemu.sh
+        run: |
+          bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel process lifecycle verified" build/qemu/debugcon.log
       - name: QEMU native PCI scan with virtual xHCI controller
         env:
           VIBRIX_SKIP_BUILD: "1"
