@@ -38,7 +38,6 @@ const ERSTBA: usize = 0x10;
 const ERDP: usize = 0x18;
 const INTERRUPTER_ZERO: usize = 0x20;
 
-const COMMAND_RING_TRBS: u32 = 256;
 const EVENT_RING_TRBS: u32 = 256;
 const WAIT_SPINS: usize = 4_000_000;
 
