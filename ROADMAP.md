@@ -371,7 +371,7 @@ the first real userspace CLI.
 - [x] Native Rust syscall library
 - [x] PID/process lifecycle
 - [ ] Executable loading
-- [ ] argv/environment
+- [x] argv/environment
 - [ ] wait/exit
 
 **Verified M5 cooperative kernel threads and context switching (PR #118):**
@@ -505,6 +505,33 @@ reparenting, pending waits and stale/reaped identities.
 This checks the bounded **PID/process lifecycle model** only. Scheduling a
 general user process, loading its ELF into a private lower-half CR3, syscall
 copy-in/copy-out, and syscall-visible wait/exit remain separate work.
+
+**Verified M5 argv/environment entry-stack contract (PR #144):**
+[Actions run 36478650105](https://github.com/mixutin/Vibrix/actions/runs/36478650105)
+passed the full repository CI on implementation head
+`81d41624926e688f2ad80f050d18e1ea8ccd4f83`. The bounded userspace-entry
+builder validates argument/environment counts and byte budgets, copies strings
+into the userspace stack image, constructs null-terminated argv/envp pointer
+vectors, aligns the final stack, and rejects overflow or out-of-range layouts
+before exposing an entry frame. Host tests exercise success and fail-closed
+cases on the production implementation.
+
+This checks the **argv/environment construction contract** only. It does not
+claim a completed executable loader, persistent process image replacement,
+general userspace allocator, or PID 1.
+
+**Verified M5 bounded PID/process lifecycle (PR #148):**
+[Actions run 36480021255](https://github.com/mixutin/Vibrix/actions/runs/36480021255)
+passed the full repository CI on implementation head
+`9e00006842aac08acb0728305b45dd4c030c3698`. The kernel owns a bounded process
+table with stable PIDs, parent identity, lifecycle states, exit status,
+generation-safe slot reuse and fail-closed transition rules. Production-linked
+host tests and the QEMU self-test exercise creation, running/exited transitions,
+lookup, reuse and invalid-state rejection.
+
+This checks the **bounded PID/process lifecycle model** only. Scheduler-integrated
+process execution, executable image replacement, wait/exit syscall semantics
+and PID 1 execution remain separate work.
 
 **Exit:** PID 1 executes in userspace and makes Vibrix syscalls.
 
