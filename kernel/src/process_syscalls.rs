@@ -120,10 +120,7 @@ mod tests {
             ),
             Ok(Action::Terminated)
         );
-        assert_eq!(
-            table.get(child).unwrap().state,
-            process::State::Zombie(-17)
-        );
+        assert_eq!(table.get(child).unwrap().state, process::State::Zombie(-17));
     }
 
     #[test]
@@ -147,11 +144,11 @@ mod tests {
                 status_address
             })
         );
+        assert_eq!(table.get(child).unwrap().state, process::State::Zombie(23));
         assert_eq!(
-            table.get(child).unwrap().state,
-            process::State::Zombie(23)
+            commit_wait(&mut table, init, child),
+            Ok(u64::from(child.get()))
         );
-        assert_eq!(commit_wait(&mut table, init, child), Ok(u64::from(child.get())));
         assert_eq!(table.get(child), None);
     }
 
@@ -162,12 +159,7 @@ mod tests {
         let child = table.spawn_child(init).unwrap();
 
         assert_eq!(
-            dispatch(
-                &mut table,
-                init,
-                abi::Syscall::Wait.number(),
-                args(0, 0, 0)
-            ),
+            dispatch(&mut table, init, abi::Syscall::Wait.number(), args(0, 0, 0)),
             Err(abi::Errno::Busy)
         );
         assert_eq!(
