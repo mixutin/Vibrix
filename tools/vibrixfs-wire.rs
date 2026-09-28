@@ -3,9 +3,9 @@
 //! This host-only tool encodes/validates synthetic metadata in memory. It does
 //! not open a path, create a filesystem, format a partition, or write a device.
 
-const BLOCK: usize = 4096;
+pub const BLOCK: usize = 4096;
 const HEADER: u32 = 256;
-const INODE_BYTES: usize = 256;
+pub const INODE_BYTES: usize = 256;
 const MIN_BLOCKS: u64 = 4096;
 const MAX_BLOCKS: u64 = 1u64 << 48;
 const MAGIC: &[u8; 8] = b"VIBRIXFS";
@@ -14,9 +14,9 @@ const CLEAN: u32 = 1;
 const INODE_EXTENTS: usize = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Range {
-    start: u64,
-    blocks: u64,
+pub struct Range {
+    pub start: u64,
+    pub blocks: u64,
 }
 
 impl Range {
@@ -38,50 +38,50 @@ impl Range {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Superblock {
-    minor: u16,
-    clean: bool,
-    generation: u64,
-    total_blocks: u64,
-    total_inodes: u64,
-    block_bitmap: Range,
-    inode_bitmap: Range,
-    inode_table: Range,
-    filesystem_uuid: [u8; 16],
-    root_partition_guid: [u8; 16],
+pub struct Superblock {
+    pub minor: u16,
+    pub clean: bool,
+    pub generation: u64,
+    pub total_blocks: u64,
+    pub total_inodes: u64,
+    pub block_bitmap: Range,
+    pub inode_bitmap: Range,
+    pub inode_table: Range,
+    pub filesystem_uuid: [u8; 16],
+    pub root_partition_guid: [u8; 16],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Extent {
-    start: u64,
-    blocks: u32,
+pub struct Extent {
+    pub start: u64,
+    pub blocks: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Inode {
-    number: u64,
-    file_type: u8,
-    mode: u16,
-    uid: u32,
-    gid: u32,
-    links: u32,
-    size: u64,
-    allocated_blocks: u64,
-    atime_sec: i64,
-    atime_nsec: u32,
-    mtime_sec: i64,
-    mtime_nsec: u32,
-    ctime_sec: i64,
-    ctime_nsec: u32,
-    nonce: [u8; 16],
-    extents: [Extent; INODE_EXTENTS],
-    extent_count: u8,
-    device: u64,
-    flags: u32,
+pub struct Inode {
+    pub number: u64,
+    pub file_type: u8,
+    pub mode: u16,
+    pub uid: u32,
+    pub gid: u32,
+    pub links: u32,
+    pub size: u64,
+    pub allocated_blocks: u64,
+    pub atime_sec: i64,
+    pub atime_nsec: u32,
+    pub mtime_sec: i64,
+    pub mtime_nsec: u32,
+    pub ctime_sec: i64,
+    pub ctime_nsec: u32,
+    pub nonce: [u8; 16],
+    pub extents: [Extent; INODE_EXTENTS],
+    pub extent_count: u8,
+    pub device: u64,
+    pub flags: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Error {
+pub enum Error {
     Truncated,
     Magic,
     Version,
@@ -225,7 +225,7 @@ fn validate_superblock(
     Ok(())
 }
 
-fn encode_superblock(
+pub fn encode_superblock(
     info: &Superblock,
     partition_blocks: u64,
     expected_root_guid: &[u8; 16],
@@ -257,7 +257,7 @@ fn encode_superblock(
     Ok(out)
 }
 
-fn parse_superblock(
+pub fn parse_superblock(
     data: &[u8],
     partition_blocks: u64,
     expected_root_guid: &[u8; 16],
@@ -321,7 +321,7 @@ fn parse_superblock(
     Ok(result)
 }
 
-fn immutable_superblock_fields_match(a: &Superblock, b: &Superblock) -> bool {
+pub fn immutable_superblock_fields_match(a: &Superblock, b: &Superblock) -> bool {
     a.minor == b.minor
         && a.total_blocks == b.total_blocks
         && a.total_inodes == b.total_inodes
@@ -332,7 +332,7 @@ fn immutable_superblock_fields_match(a: &Superblock, b: &Superblock) -> bool {
         && a.root_partition_guid == b.root_partition_guid
 }
 
-fn encode_inode(inode: &Inode, fs: &Superblock) -> Result<[u8; INODE_BYTES], Error> {
+pub fn encode_inode(inode: &Inode, fs: &Superblock) -> Result<[u8; INODE_BYTES], Error> {
     validate_inode(inode, fs)?;
     let mut out = [0u8; INODE_BYTES];
     out[0..8].copy_from_slice(&inode.number.to_le_bytes());
@@ -369,7 +369,7 @@ fn encode_inode(inode: &Inode, fs: &Superblock) -> Result<[u8; INODE_BYTES], Err
     Ok(out)
 }
 
-fn parse_inode(data: &[u8], fs: &Superblock) -> Result<Inode, Error> {
+pub fn parse_inode(data: &[u8], fs: &Superblock) -> Result<Inode, Error> {
     let raw: &[u8; INODE_BYTES] = data
         .get(..INODE_BYTES)
         .ok_or(Error::Truncated)?
