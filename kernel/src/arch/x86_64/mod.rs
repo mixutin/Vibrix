@@ -30,5 +30,5 @@ pub mod reset;
 #[cfg(any(feature = "ring3-probe", feature = "address-space-probe"))]
 pub mod ring3;
 pub mod serial;
-#[cfg(feature = "syscall-probe")]
+#[cfg(any(feature = "syscall-probe", feature = "process-syscall-probe"))]
 pub mod syscall;
