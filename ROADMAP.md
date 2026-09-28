@@ -118,7 +118,23 @@ and SMP handling are separate unchecked work. Target 001 is untested.
 - [x] BAR parsing
 - [ ] MSI/MSI-X
 - [x] Device/driver model
-- [ ] Driver binding
+- [x] Driver binding
+
+**Verified M4 driver binding registry (PR #90):**
+[Actions run 36388347347](https://github.com/mixutin/Vibrix/actions/runs/36388347347)
+passed both required jobs on the synchronized post-M4.5 head. Host tests exercised
+exclusive device ownership, duplicate-binding rejection, unknown-device
+rejection, and fixed-capacity overflow. The native post-firmware PCI scan then
+committed every matched device identity to the bounded driver registry. Normal
+QEMU required the independent binding-registry-ready marker, while the explicit
+virtual-xHCI boot required at least one live xHCI binding and **zero binding
+failures** through the same discovered PCI identities.
+
+This checkbox means **device-to-driver ownership association** is implemented;
+it does not activate any device. Binding performs no PCI configuration writes,
+BAR MMIO, bus mastering, DMA, MSI/MSI-X programming, USB transactions,
+Ethernet I/O, interrupt setup, or Target 001 hardware access. Native xHCI and
+RTL8168 initialization remain later driver milestones.
 
 **Verified M4 device/driver candidate model (PR #87):**
 [Actions run 36384062012](https://github.com/mixutin/Vibrix/actions/runs/36384062012)
@@ -403,7 +419,23 @@ the independent inspector. This checkbox means **offline GPT tooling**,
 not a bootable ESP, formatted root, USB device provisioning or QEMU native
 USB persistence. Those remain separate unchecked M9/M7 tasks.
 
-- [ ] EFI System Partition layout
+- [x] EFI System Partition layout
+
+**Verified M9 EFI System Partition layout (PR #91):**
+[Actions run 36388232003](https://github.com/mixutin/Vibrix/actions/runs/36388232003)
+passed both required jobs. Host tests created fresh regular-file GPT images for
+both 512- and 4096-byte logical-sector models, populated the adopted 32 MiB ESP
+as FAT16, independently re-read both FAT copies and the exact
+`/EFI/BOOT/BOOTX64.EFI` plus `/VIBRIX/KERNEL.ELF` short-name tree, and
+proved a second population attempt fails closed on a non-blank ESP. The runtime
+proof populated a GPT image with the production Vibrix UEFI loader and kernel,
+attached it **read-only** to QEMU q35/OVMF as virtual USB mass storage, observed
+firmware entry through `BOOTX64.EFI`, `kernel.elf` discovery,
+`ExitBootServices`, and standalone kernel entry, then required the image
+SHA-256 to remain unchanged. This checkbox proves the regular-file **ESP
+on-media layout and firmware boot path** only. It does not claim native
+post-EBS USB mass-storage I/O, persistent root, physical-device provisioning,
+Target 001 boot, update/recovery behavior or safe writes to a real USB device.
 - [x] Vibrix USB system partition layout
 - [ ] Persistent root
 

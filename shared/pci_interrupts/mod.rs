@@ -317,7 +317,11 @@ mod tests {
     fn visits_all_48_unknown_headers_once() {
         let mut words = config();
         for (index, word) in words.iter_mut().enumerate().skip(16) {
-            *word = 1 | if index == 63 { 0 } else { ((index + 1) as u32 * 4) << 8 };
+            *word = 1 | if index == 63 {
+                0
+            } else {
+                ((index + 1) as u32 * 4) << 8
+            };
         }
         assert_eq!(parse(&words).unwrap().count, 48);
     }
@@ -330,8 +334,20 @@ mod tests {
         words[18] = 0x9000;
         let msix = parse(&words).unwrap().msix.unwrap();
         assert_eq!(msix.vectors(), 2048);
-        assert_eq!(msix.table(), BarRegion { bir: 5, offset: 0x1000 });
-        assert_eq!(msix.pending(), BarRegion { bir: 0, offset: 0x9000 });
+        assert_eq!(
+            msix.table(),
+            BarRegion {
+                bir: 5,
+                offset: 0x1000
+            }
+        );
+        assert_eq!(
+            msix.pending(),
+            BarRegion {
+                bir: 0,
+                offset: 0x9000
+            }
+        );
         words[3] = 0x80 << 16;
         assert!(parse(&words).is_ok());
         words[3] = 1 << 16;
@@ -362,7 +378,11 @@ mod tests {
         words[16] = 0x11;
         assert_eq!(
             discover(&mut |offset| {
-                if offset == 0x48 { None } else { Some(words[offset as usize / 4]) }
+                if offset == 0x48 {
+                    None
+                } else {
+                    Some(words[offset as usize / 4])
+                }
             }),
             Err(Error::ReadFailed)
         );
