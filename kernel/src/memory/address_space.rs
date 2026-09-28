@@ -12,6 +12,10 @@ use vibrix_vmm::address::{Page, Permissions, PhysicalFrame, Privilege, USER_SLOT
 use vibrix_vmm::frames::Frames;
 use vibrix_vmm::walk::{ADDRESS_MASK, Memory, USER};
 use vibrix_vmm::{Error, GuardedLayout, GuardedVm, Vm};
+#[cfg(feature = "elf-load-probe")]
+use vibrix_vmm::GuardedId;
+#[cfg(feature = "elf-load-probe")]
+use vibrix_kernel::user_image;
 
 const ADDRESS_SPACE_POOL_FRAMES: usize = 32;
 const ADDRESS_SPACE_GUARDED_SLOTS: usize = 4;
@@ -507,6 +511,406 @@ pub unsafe fn activate_probe() -> Result<ActivatedProbe, AddressSpaceError> {
         kernel_root: space.kernel_root,
         user_root: space.user_root,
         user_rip: code_page.address(),
+        user_rsp: stack_layout.payload_end(),
+    })
+}
+
+#[cfg(feature = "elf-load-probe")]
+const ELF_SEGMENT_SLOTS: usize = 3;
+
+#[cfg(feature = "elf-load-probe")]
+#[derive(Clone, Copy)]
+struct ImageAllocation {
+    id: GuardedId,
+    start: u64,
+    bytes: usize,
+    pages: usize,
+    target: Permissions,
+}
+
+#[cfg(feature = "elf-load-probe")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImageSinkError {
+    State,
+    Capacity,
+    Layout,
+    Range,
+    Scratch,
+    Vm(Error),
+}
+
+#[cfg(feature = "elf-load-probe")]
+impl From<Error> for ImageSinkError {
+    fn from(error: Error) -> Self {
+        Self::Vm(error)
+    }
+}
+
+#[cfg(feature = "elf-load-probe")]
+#[derive(Debug, PartialEq, Eq)]
+pub enum ElfProbeError {
+    AddressSpace(AddressSpaceError),
+    Image(user_image::Error),
+    Sink(ImageSinkError),
+}
+
+#[cfg(feature = "elf-load-probe")]
+struct ImageSink<'a> {
+    space: &'a mut AddressSpace,
+    allocations: [Option<ImageAllocation>; ELF_SEGMENT_SLOTS],
+    count: usize,
+    begun: bool,
+    committed: bool,
+}
+
+#[cfg(feature = "elf-load-probe")]
+impl<'a> ImageSink<'a> {
+    fn new(space: &'a mut AddressSpace) -> Self {
+        Self {
+            space,
+            allocations: [None; ELF_SEGMENT_SLOTS],
+            count: 0,
+            begun: false,
+            committed: false,
+        }
+    }
+
+    fn allocation_for(&self, address: u64, bytes: usize) -> Result<ImageAllocation, ImageSinkError> {
+        let end = address
+            .checked_add(bytes as u64)
+            .ok_or(ImageSinkError::Range)?;
+        self.allocations[..self.count]
+            .iter()
+            .flatten()
+            .copied()
+            .find(|allocation| {
+                let allocation_end = allocation
+                    .start
+                    .checked_add(allocation.bytes as u64)
+                    .unwrap_or(0);
+                address >= allocation.start && end <= allocation_end
+            })
+            .ok_or(ImageSinkError::Range)
+    }
+
+    fn stage(&mut self, address: u64, bytes: &[u8]) -> Result<(), ImageSinkError> {
+        self.allocation_for(address, bytes.len())?;
+        let mut copied = 0usize;
+        while copied < bytes.len() {
+            let current = address
+                .checked_add(copied as u64)
+                .ok_or(ImageSinkError::Range)?;
+            let page_address = current & !0xfff;
+            let offset = (current - page_address) as usize;
+            let count = (4096 - offset).min(bytes.len() - copied);
+            let page = Page::new_user(page_address).map_err(ImageSinkError::Vm)?;
+            let translation = self
+                .space
+                .vm
+                .query(page)
+                .map_err(ImageSinkError::Vm)?
+                .ok_or(ImageSinkError::Range)?;
+            if translation.privilege != Privilege::User
+                || translation.permissions != Permissions::ReadWrite
+            {
+                return Err(ImageSinkError::State);
+            }
+            let scratch = unsafe {
+                self.space
+                    .staging
+                    .map(translation.physical, true)
+                    .map_err(|_| ImageSinkError::Scratch)?
+            };
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    bytes[copied..copied + count].as_ptr(),
+                    (scratch as *mut u8).add(offset),
+                    count,
+                );
+                self.space
+                    .staging
+                    .unmap()
+                    .map_err(|_| ImageSinkError::Scratch)?;
+            }
+            copied += count;
+        }
+        Ok(())
+    }
+
+    fn zero_bytes(&mut self, address: u64, bytes: usize) -> Result<(), ImageSinkError> {
+        self.allocation_for(address, bytes)?;
+        let mut done = 0usize;
+        while done < bytes {
+            let current = address
+                .checked_add(done as u64)
+                .ok_or(ImageSinkError::Range)?;
+            let page_address = current & !0xfff;
+            let offset = (current - page_address) as usize;
+            let count = (4096 - offset).min(bytes - done);
+            let page = Page::new_user(page_address).map_err(ImageSinkError::Vm)?;
+            let translation = self
+                .space
+                .vm
+                .query(page)
+                .map_err(ImageSinkError::Vm)?
+                .ok_or(ImageSinkError::Range)?;
+            if translation.privilege != Privilege::User
+                || translation.permissions != Permissions::ReadWrite
+            {
+                return Err(ImageSinkError::State);
+            }
+            let scratch = unsafe {
+                self.space
+                    .staging
+                    .map(translation.physical, true)
+                    .map_err(|_| ImageSinkError::Scratch)?
+            };
+            unsafe {
+                core::ptr::write_bytes((scratch as *mut u8).add(offset), 0, count);
+                self.space
+                    .staging
+                    .unmap()
+                    .map_err(|_| ImageSinkError::Scratch)?;
+            }
+            done += count;
+        }
+        Ok(())
+    }
+
+    fn release_all(&mut self) {
+        while self.count != 0 {
+            self.count -= 1;
+            if let Some(allocation) = self.allocations[self.count].take() {
+                let _ = self.space.vm.release(allocation.id);
+            }
+        }
+    }
+}
+
+#[cfg(feature = "elf-load-probe")]
+impl user_image::Sink for ImageSink<'_> {
+    type Error = ImageSinkError;
+
+    fn begin(&mut self) -> Result<(), Self::Error> {
+        if self.begun || self.committed {
+            return Err(ImageSinkError::State);
+        }
+        self.begun = true;
+        Ok(())
+    }
+
+    fn map(
+        &mut self,
+        virtual_address: u64,
+        memory_size: usize,
+        permissions: user_image::Permissions,
+    ) -> Result<(), Self::Error> {
+        if !self.begun || self.committed || self.count == ELF_SEGMENT_SLOTS || memory_size == 0 {
+            return Err(ImageSinkError::State);
+        }
+        if virtual_address & 0xfff != 0 {
+            return Err(ImageSinkError::Layout);
+        }
+        let pages = memory_size
+            .checked_add(4095)
+            .ok_or(ImageSinkError::Range)?
+            / 4096;
+        let lower = virtual_address
+            .checked_sub(4096)
+            .ok_or(ImageSinkError::Layout)?;
+        let layout = GuardedLayout::new(Page::new_user(lower).map_err(ImageSinkError::Vm)?, pages)
+            .map_err(ImageSinkError::Vm)?;
+        let id = self.space.vm.allocate_user(layout).map_err(ImageSinkError::Vm)?;
+        let target = if permissions.write {
+            Permissions::ReadWrite
+        } else if permissions.execute {
+            Permissions::ReadExecute
+        } else {
+            Permissions::ReadOnly
+        };
+        self.allocations[self.count] = Some(ImageAllocation {
+            id,
+            start: virtual_address,
+            bytes: memory_size,
+            pages,
+            target,
+        });
+        self.count += 1;
+        Ok(())
+    }
+
+    fn write(&mut self, virtual_address: u64, bytes: &[u8]) -> Result<(), Self::Error> {
+        if !self.begun || self.committed {
+            return Err(ImageSinkError::State);
+        }
+        self.stage(virtual_address, bytes)
+    }
+
+    fn zero(&mut self, virtual_address: u64, bytes: usize) -> Result<(), Self::Error> {
+        if !self.begun || self.committed {
+            return Err(ImageSinkError::State);
+        }
+        self.zero_bytes(virtual_address, bytes)
+    }
+
+    fn commit(&mut self, entry: u64) -> Result<(), Self::Error> {
+        if !self.begun || self.committed || self.count == 0 {
+            return Err(ImageSinkError::State);
+        }
+        for allocation in self.allocations[..self.count].iter().flatten().copied() {
+            for index in 0..allocation.pages {
+                if allocation.target != Permissions::ReadWrite {
+                    self.space
+                        .vm
+                        .protect(allocation.id, index, allocation.target)
+                        .map_err(ImageSinkError::Vm)?;
+                }
+            }
+        }
+        let page = Page::new_user(entry & !0xfff).map_err(ImageSinkError::Vm)?;
+        let translation = self
+            .space
+            .vm
+            .query(page)
+            .map_err(ImageSinkError::Vm)?
+            .ok_or(ImageSinkError::Range)?;
+        if translation.privilege != Privilege::User || !translation.permissions.executable() {
+            return Err(ImageSinkError::State);
+        }
+        self.committed = true;
+        Ok(())
+    }
+
+    fn abort(&mut self) {
+        self.release_all();
+        self.begun = false;
+        self.committed = false;
+    }
+}
+
+#[cfg(feature = "elf-load-probe")]
+fn elf_probe_image() -> [u8; 124] {
+    const ELF_HEADER: usize = 64;
+    const PROGRAM_HEADER: usize = 56;
+    const PAYLOAD: usize = ELF_HEADER + PROGRAM_HEADER;
+    const VADDR: u64 = 0x0040_0000;
+
+    let mut data = [0u8; 124];
+    data[0..4].copy_from_slice(b"\x7fELF");
+    data[4] = 2;
+    data[5] = 1;
+    data[6] = 1;
+    data[16..18].copy_from_slice(&2u16.to_le_bytes());
+    data[18..20].copy_from_slice(&62u16.to_le_bytes());
+    data[20..24].copy_from_slice(&1u32.to_le_bytes());
+    data[24..32].copy_from_slice(&VADDR.to_le_bytes());
+    data[32..40].copy_from_slice(&(ELF_HEADER as u64).to_le_bytes());
+    data[52..54].copy_from_slice(&(ELF_HEADER as u16).to_le_bytes());
+    data[54..56].copy_from_slice(&(PROGRAM_HEADER as u16).to_le_bytes());
+    data[56..58].copy_from_slice(&1u16.to_le_bytes());
+
+    let ph = ELF_HEADER;
+    data[ph..ph + 4].copy_from_slice(&1u32.to_le_bytes());
+    data[ph + 4..ph + 8].copy_from_slice(&1u32.to_le_bytes());
+    data[ph + 8..ph + 16].copy_from_slice(&(PAYLOAD as u64).to_le_bytes());
+    data[ph + 16..ph + 24].copy_from_slice(&VADDR.to_le_bytes());
+    data[ph + 32..ph + 40].copy_from_slice(&4u64.to_le_bytes());
+    data[ph + 40..ph + 48].copy_from_slice(&4096u64.to_le_bytes());
+    data[ph + 48..ph + 56].copy_from_slice(&1u64.to_le_bytes());
+    data[PAYLOAD..PAYLOAD + 4].copy_from_slice(&[0xcd, 0x80, 0x0f, 0x0b]);
+    data
+}
+
+#[cfg(feature = "elf-load-probe")]
+pub unsafe fn load_elf_probe() -> Result<ActivatedProbe, ElfProbeError> {
+    const STACK_GUARD: u64 = 0x007f_e000;
+
+    let restore_interrupts = interrupts_enabled();
+    unsafe { asm!("cli", options(nomem, nostack)) };
+
+    let state = unsafe { &mut *ADDRESS_SPACE.0.get() };
+    let Some(space) = state.as_mut() else {
+        if restore_interrupts {
+            unsafe { asm!("sti", options(nomem, nostack)) };
+        }
+        return Err(ElfProbeError::AddressSpace(
+            AddressSpaceError::NotInitialized,
+        ));
+    };
+
+    let stack_layout = GuardedLayout::new(
+        Page::new_user(STACK_GUARD).map_err(|e| ElfProbeError::AddressSpace(e.into()))?,
+        1,
+    )
+    .map_err(|e| ElfProbeError::AddressSpace(e.into()))?;
+    let stack_id = space
+        .vm
+        .allocate_user(stack_layout)
+        .map_err(|e| ElfProbeError::AddressSpace(e.into()))?;
+
+    let image = elf_probe_image();
+    let loaded = {
+        let mut sink = ImageSink::new(space);
+        match user_image::load(&image, &mut sink) {
+            Ok(loaded) => loaded,
+            Err(user_image::LoadError::Image(error)) => {
+                let _ = space.vm.release(stack_id);
+                if restore_interrupts {
+                    unsafe { asm!("sti", options(nomem, nostack)) };
+                }
+                return Err(ElfProbeError::Image(error));
+            }
+            Err(user_image::LoadError::Sink(error)) => {
+                let _ = space.vm.release(stack_id);
+                if restore_interrupts {
+                    unsafe { asm!("sti", options(nomem, nostack)) };
+                }
+                return Err(ElfProbeError::Sink(error));
+            }
+        }
+    };
+
+    let stack_page = stack_layout
+        .payload()
+        .page(0)
+        .ok_or(ElfProbeError::AddressSpace(AddressSpaceError::Vm(
+            Error::InvalidRange,
+        )))?;
+    let stack = space
+        .vm
+        .query(stack_page)
+        .map_err(|e| ElfProbeError::AddressSpace(e.into()))?
+        .ok_or(ElfProbeError::AddressSpace(AddressSpaceError::Vm(
+            Error::NotMapped,
+        )))?;
+    let entry_page = Page::new_user(loaded.entry & !0xfff)
+        .map_err(|e| ElfProbeError::AddressSpace(e.into()))?;
+    let entry = space
+        .vm
+        .query(entry_page)
+        .map_err(|e| ElfProbeError::AddressSpace(e.into()))?
+        .ok_or(ElfProbeError::AddressSpace(AddressSpaceError::Vm(
+            Error::NotMapped,
+        )))?;
+    if stack.privilege != Privilege::User
+        || stack.permissions != Permissions::ReadWrite
+        || entry.privilege != Privilege::User
+        || entry.permissions != Permissions::ReadExecute
+    {
+        if restore_interrupts {
+            unsafe { asm!("sti", options(nomem, nostack)) };
+        }
+        return Err(ElfProbeError::AddressSpace(AddressSpaceError::InvalidRoot));
+    }
+
+    if restore_interrupts {
+        unsafe { asm!("sti", options(nomem, nostack)) };
+    }
+
+    Ok(ActivatedProbe {
+        kernel_root: space.kernel_root,
+        user_root: space.user_root,
+        user_rip: loaded.entry,
         user_rsp: stack_layout.payload_end(),
     })
 }
