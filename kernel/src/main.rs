@@ -10,6 +10,8 @@ mod device;
 mod framebuffer;
 mod memory;
 mod thread;
+#[cfg(feature = "userspace-io-probe")]
+mod userspace_io;
 
 use core::panic::PanicInfo;
 
@@ -125,6 +127,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     #[cfg(feature = "process-syscall-probe")]
     arch::x86_64::syscall::init_process_probe()
         .unwrap_or_else(|error| panic!("process syscall probe initialization failed: {:?}", error));
+    #[cfg(feature = "userspace-io-probe")]
+    userspace_io::init().unwrap_or_else(|error| panic!("userspace stdio init failed: {:?}", error));
 
     // A kernel-side ACPI read after ExitBootServices, not a loader marker.
     // The XSDT/MCFG table pages are NOT mapped yet: consume RSDP metadata
