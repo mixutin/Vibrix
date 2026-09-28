@@ -175,3 +175,35 @@ root and real USB power-loss behavior remain separate unchecked milestones.
 - [Vibrix USB system model](../USB_MODEL.md)
 
 No external operating-system filesystem implementation source was used.
+
+## Initial journal wire encoding checkpoint (implementation candidate)
+
+The first-party host conformance codec proposes a concrete fixed-block encoding
+for the bounded redo transaction described above. This section records the
+implementation under test; it does **not** enable the superblock journal feature
+or writable mounts yet.
+
+The journal region begins with one 4096-byte manifest block. Its header contains
+an 8-byte `VJMANF01` magic, wire version 1, 64-byte header size, entry count,
+nonzero transaction id, previous/new generations, full-block CRC-32, and the
+journal start/length. Starting at byte 64, at most 64 descriptors each contain
+the destination home block, CRC-32 of the corresponding complete 4096-byte
+after-image, and zero reserved bytes. Unused manifest bytes are zero.
+
+After the manifest, slots 1 through entry_count contain the **exact 4096-byte
+metadata after-images**. The next slot is a 4096-byte commit block with
+`VJCOMT01` magic, the same transaction/generation/count tuple, the manifest
+CRC, and its own whole-block CRC. Remaining journal slots are outside that
+transaction.
+
+Before replay is permitted, the validator independently checks both checksums,
+exact generation increment, journal geometry, payload count and CRCs, commit
+binding, nonzero/in-range home blocks, rejection of superblock targets, no
+home target inside the journal, and no duplicate targets. Any failure rejects
+the transaction as a unit.
+
+This encoding is still **host-only conformance groundwork**. The superblock
+feature bit/journal geometry activation, actual image journal writes,
+durability barriers, interrupted-write simulation and recovery replay remain
+separate implementation work. Exact-head CI is required before this proposed
+encoding can be treated as tested groundwork.
