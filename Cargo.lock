@@ -14,5 +14,9 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibrix-syscall"
+version = "0.0.1"
+
+[[package]]
 name = "vibrix-vmm"
 version = "0.0.1"
