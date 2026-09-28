@@ -140,7 +140,11 @@ extern "x86-interrupt" fn ring3_probe_handler(frame: InterruptStackFrame) -> ! {
         crate::memory::address_space::active_root_status();
     #[cfg(not(feature = "address-space-probe"))]
     let address_space_ok = true;
-    if selectors_ok && rsp0_ok && address_space_ok {
+    #[cfg(feature = "syscall-probe")]
+    let syscall_ok = super::syscall::probe_observed();
+    #[cfg(not(feature = "syscall-probe"))]
+    let syscall_ok = true;
+    if selectors_ok && rsp0_ok && address_space_ok && syscall_ok {
         crate::debugcon::write("VIBRIX: kernel CPL3 trap reached via TSS RSP0\r\n");
         crate::println!(
             "kernel ring3 probe: cs={:#x} ss={:#x} user_rsp={:#x} kernel_rsp={:#x}",
@@ -158,6 +162,11 @@ extern "x86-interrupt" fn ring3_probe_handler(frame: InterruptStackFrame) -> ! {
                 current_root
             );
         }
+        #[cfg(feature = "syscall-probe")]
+        {
+            crate::debugcon::write("VIBRIX: kernel SYSCALL/SYSRETQ round trip verified\r\n");
+            crate::println!("kernel syscall round trip: observed=true");
+        }
     } else {
         crate::debugcon::write("VIBRIX: kernel CPL3 trap validation failed\r\n");
         crate::println!(
@@ -172,6 +181,11 @@ extern "x86-interrupt" fn ring3_probe_handler(frame: InterruptStackFrame) -> ! {
             "kernel address space trap rejected: expected_cr3={:#x} current_cr3={:#x}",
             expected_root,
             current_root
+        );
+        #[cfg(feature = "syscall-probe")]
+        crate::println!(
+            "kernel syscall round trip rejected: observed={}",
+            syscall_ok
         );
     }
     loop {

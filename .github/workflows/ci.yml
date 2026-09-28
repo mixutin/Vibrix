@@ -280,6 +280,11 @@ jobs:
           "$RUNNER_TEMP/vibrix-gdt-layout-tests"
           rustc --edition=2024 --test host-tests/gdt_tss.rs -o "$RUNNER_TEMP/vibrix-gdt-tss-tests"
           "$RUNNER_TEMP/vibrix-gdt-tss-tests"
+      - name: Test production-linked SYSCALL/SYSRETQ policy on host
+        run: |
+          rustfmt --edition 2024 --check kernel/src/arch/x86_64/syscall.rs host-tests/syscall_transport.rs
+          rustc --edition=2024 -D warnings --test host-tests/syscall_transport.rs -o "$RUNNER_TEMP/vibrix-syscall-transport-tests"
+          "$RUNNER_TEMP/vibrix-syscall-transport-tests"
       - name: Test APIC IRQ routing policy on host
         run: |
           rustfmt --edition 2024 --check kernel/src/arch/x86_64/irq.rs
@@ -304,7 +309,7 @@ jobs:
           set -euo pipefail
           for fixture in host-tests/*.rs; do
             case "$fixture" in
-              host-tests/gdt_layout.rs|host-tests/gdt_tss.rs|host-tests/loader_cleanup.rs|host-tests/transition.rs) continue ;;
+              host-tests/gdt_layout.rs|host-tests/gdt_tss.rs|host-tests/syscall_transport.rs|host-tests/loader_cleanup.rs|host-tests/transition.rs) continue ;;
             esac
             echo "[vibrix] fixture: $fixture"
             rustc --edition=2024 "$fixture" -o "$RUNNER_TEMP/vibrix-host-fixture"
@@ -420,7 +425,7 @@ jobs:
           VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
           grep -Fq "VIBRIX: kernel CPL3 mappings ready" build/qemu/debugcon.log
           grep -Fq "VIBRIX: kernel CPL3 trap reached via TSS RSP0" build/qemu/debugcon.log
-          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel ring3 probe: cs=0x1b ss=0x23 "
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel ring3 probe: cs=0x23 ss=0x1b "
       - name: QEMU independent userspace CR3 and CPL3 trap proof
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,address-space-probe bash tools/build-qemu.sh
@@ -430,6 +435,16 @@ jobs:
           grep -Fq "VIBRIX: kernel userspace CR3 preserved across CPL3 trap" build/qemu/debugcon.log
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel address space probe: kernel_cr3="
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel address space trap: expected_cr3="
+      - name: QEMU real SYSCALL and SYSRETQ round trip
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,syscall-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel SYSCALL MSRs configured" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel SYSCALL entry reached" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel SYSCALL/SYSRETQ round trip verified" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel syscall probe: number=0xffffffffffffffff"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel ring3 probe: cs=0x23 ss=0x1b "
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel syscall round trip: observed=true"
 
       - name: QEMU supervisor write-protection fault
         run: |

@@ -204,17 +204,20 @@ impl Gdt {
     /// - 0x00: null descriptor (required)
     /// - 0x08: kernel code
     /// - 0x10: kernel data
-    /// - 0x18: user code
-    /// - 0x20: user data
+    /// - 0x18: user data
+    /// - 0x20: user code
     /// - 0x28: TSS descriptor (16 bytes, spans 0x28-0x37)
+    ///
+    /// The user-data/user-code order is deliberate: x86-64 SYSRETQ derives
+    /// SS as STAR[63:48]+8 and CS as STAR[63:48]+16.
     pub fn new(tss: &Tss) -> Self {
         Self {
             entries: [
                 GdtEntry::NULL,
                 GdtEntry::KERNEL_CODE,
                 GdtEntry::KERNEL_DATA,
-                GdtEntry::USER_CODE,
                 GdtEntry::USER_DATA,
+                GdtEntry::USER_CODE,
             ],
             tss_descriptor: TssDescriptor::new(
                 tss as *const _ as u64,
@@ -235,10 +238,10 @@ impl Gdt {
     pub const KERNEL_CODE_SELECTOR: u16 = 0x08;
     /// Get the kernel data segment selector.
     pub const KERNEL_DATA_SELECTOR: u16 = 0x10;
-    /// Get the user code segment selector.
-    pub const USER_CODE_SELECTOR: u16 = 0x1b; // descriptor 0x18 | ring-3 RPL
     /// Get the user data segment selector.
-    pub const USER_DATA_SELECTOR: u16 = 0x23; // descriptor 0x20 | ring-3 RPL
+    pub const USER_DATA_SELECTOR: u16 = 0x1b; // descriptor 0x18 | ring-3 RPL
+    /// Get the user code segment selector.
+    pub const USER_CODE_SELECTOR: u16 = 0x23; // descriptor 0x20 | ring-3 RPL
     /// Get the TSS segment selector (the offset of the actual 16-byte descriptor).
     pub const TSS_SELECTOR: u16 = core::mem::offset_of!(Self, tss_descriptor) as u16;
 }
@@ -389,8 +392,8 @@ mod tests {
         assert_eq!(Gdt::TSS_SELECTOR, 0x28);
         assert_eq!(Gdt::KERNEL_CODE_SELECTOR, 0x08);
         assert_eq!(Gdt::KERNEL_DATA_SELECTOR, 0x10);
-        assert_eq!(Gdt::USER_CODE_SELECTOR, 0x1b);
-        assert_eq!(Gdt::USER_DATA_SELECTOR, 0x23);
+        assert_eq!(Gdt::USER_DATA_SELECTOR, 0x1b);
+        assert_eq!(Gdt::USER_CODE_SELECTOR, 0x23);
     }
 
     #[test]
@@ -463,8 +466,8 @@ mod tests {
         assert_eq!(gdt.entries[0].access, 0);
         assert_eq!(gdt.entries[1].access, 0x9a);
         assert_eq!(gdt.entries[2].access, 0x92);
-        assert_eq!(gdt.entries[3].access, 0xfa);
-        assert_eq!(gdt.entries[4].access, 0xf2);
+        assert_eq!(gdt.entries[3].access, 0xf2);
+        assert_eq!(gdt.entries[4].access, 0xfa);
     }
 
     #[test]

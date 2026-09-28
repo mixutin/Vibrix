@@ -326,7 +326,17 @@ pub unsafe fn init(info: &BootInfo) -> Result<(), AddressSpaceError> {
 pub unsafe fn activate_probe() -> Result<ActivatedProbe, AddressSpaceError> {
     const CODE_GUARD: u64 = ARENA_BASE;
     const STACK_GUARD: u64 = ARENA_BASE + 4 * PAGE_BYTES;
-    const USER_CODE: [u8; 4] = [0xcd, 0x80, 0x0f, 0x0b];
+    #[cfg(not(feature = "syscall-probe"))]
+    const USER_CODE: &[u8] = &[0xcd, 0x80, 0x0f, 0x0b];
+    #[cfg(feature = "syscall-probe")]
+    const USER_CODE: &[u8] = &[
+        0x48, 0xc7, 0xc0, 0xff, 0xff, 0xff, 0xff, // mov rax, -1
+        0x0f, 0x05, // syscall
+        0x48, 0x83, 0xf8, 0xfb, // cmp rax, -5 (NotSupported)
+        0x75, 0x02, // jne trailing ud2
+        0xcd, 0x80, // diagnostic DPL3 trap after SYSRETQ
+        0x0f, 0x0b, // ud2: failure/fallthrough stop
+    ];
 
     let restore_interrupts = interrupts_enabled();
     // SAFETY: serialize the one static address-space owner and CR3 mutation.

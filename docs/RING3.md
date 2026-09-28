@@ -13,11 +13,11 @@ reserve two guarded user mappings inside its existing owned PML4 slot:
 - one user RW/NX page for the CPL3 stack.
 
 The fixed instruction stream is `int 0x80; ud2`. The kernel constructs a
-hardware `IRETQ` frame with the GDT user selectors (CS `0x1b`, SS `0x23`)
+hardware `IRETQ` frame with the GDT user selectors (CS `0x23`, SS `0x1b`)
 and IF clear, then transfers from CPL0 to CPL3. Vector `0x80` exists only in
 this feature-gated proof and is a DPL3 interrupt gate back to the ring-0 code
 selector. The CPU must perform the privilege stack switch through the permanent
-TSS RSP0 value installed during GDT/TSS initialization.
+TSS RSP0 value installed during GDT/TSS initialization. The user-data descriptor intentionally precedes the user-code descriptor so the same GDT also satisfies x86-64 `SYSRETQ` selector derivation.
 
 The diagnostic handler validates the CPU-pushed user selectors and confirms its
 live kernel RSP lies inside the dedicated 16 KiB RSP0 stack. It reports the
