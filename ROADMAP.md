@@ -346,7 +346,7 @@ the first real userspace CLI.
 ## M5 — Processes and syscalls
 - [x] Kernel threads
 - [x] Context switching
-- [ ] Preemptive scheduler
+- [x] Preemptive scheduler
 - [ ] Ring 3 userspace
 - [ ] Userspace address spaces
 - [ ] Vibrix syscall ABI v1
@@ -374,6 +374,22 @@ reference survives the raw assembly stack switch. This completes the **kernel
 threads** and **context switching** items only. Timer preemption, IRQ-safe
 scheduler synchronization, SMP, RSP0/IST privilege stacks, Ring 3, userspace
 address spaces, syscalls and process lifecycle remain unchecked.
+
+**Verified M5 timer-driven preemptive scheduler (PR #119):**
+[Actions run 36424156362](https://github.com/mixutin/Vibrix/actions/runs/36424156362)
+ran both the cooperative context-switch proof and a dedicated preemptive timer
+job on the exact implementation head. Two kernel threads make progress without
+calling `yield_now()`; the guest-origin sequence requires PIT delivery followed
+by `A1 → B1 → A2 → B2`, at least three timer-attributed preemptions, at least
+six total context switches, exactly two completed threads, and a working kernel
+console afterward. The timer handler records the tick and sends LAPIC EOI before
+switching away, and resumption returns through the suspended interrupt handler
+and its normal IRETQ epilogue.
+
+This completes the **single-BSP kernel preemptive scheduler** item only. Threads
+still share one kernel CR3 and there are no priorities, sleep/wakeup queues,
+SMP run queues, FPU/XSAVE ownership, Ring 3, userspace address spaces, syscall
+ABI or process lifecycle yet.
 
 **Exit:** PID 1 executes in userspace and makes Vibrix syscalls.
 
