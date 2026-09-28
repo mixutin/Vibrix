@@ -1,8 +1,10 @@
-//! Fixed-capacity single-BSP cooperative kernel threads.
+//! Fixed-capacity single-BSP kernel thread scheduler.
 //!
-//! This is not a preemptive scheduler. All switches are explicit while IF=0,
-//! every thread uses the same CR3/kernel address space, and stacks are static
-//! kernel BSS. No user mode, TLS, FPU ownership, SMP or blocking primitives.
+//! Cooperative switches are explicit while IF=0. The optional preemptive mode
+//! is entered only after the PIT/LAPIC route is live; timer IRQs may then
+//! suspend a kernel thread inside the interrupt handler and resume it later
+//! through the same handler/iretq path. All threads share one kernel CR3.
+//! No user mode, TLS, FPU ownership, SMP or blocking primitives.
 
 use core::arch::{asm, global_asm};
 use core::cell::UnsafeCell;
@@ -83,6 +85,8 @@ struct Scheduler {
     current: usize,
     switches: u64,
     completions: u64,
+    preemptions: u64,
+    preemptive: bool,
 }
 
 impl Scheduler {
@@ -93,6 +97,8 @@ impl Scheduler {
             current: BOOT_CONTEXT,
             switches: 0,
             completions: 0,
+            preemptions: 0,
+            preemptive: false,
         }
     }
 }
@@ -120,7 +126,9 @@ static STACKS: StackCell = StackCell(UnsafeCell::new([Stack([0; STACK_BYTES]); M
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Error {
     InterruptsEnabled,
+    InterruptsDisabled,
     WrongContext,
+    PreemptiveMode,
     Capacity,
     Invariant,
 }
@@ -129,6 +137,7 @@ pub enum Error {
 pub struct RunStats {
     pub switches: u64,
     pub completed: usize,
+    pub preemptions: u64,
 }
 
 fn interrupts_disabled() -> bool {
@@ -239,6 +248,9 @@ pub fn yield_now() -> Result<(), Error> {
         return Err(Error::InterruptsEnabled);
     }
     let scheduler = SCHEDULER.0.get();
+    if unsafe { (*scheduler).preemptive } {
+        return Err(Error::PreemptiveMode);
+    }
     let current = unsafe { (*scheduler).current };
     if current == BOOT_CONTEXT || current >= MAX_THREADS {
         return Err(Error::WrongContext);
@@ -257,8 +269,12 @@ pub fn run() -> Result<RunStats, Error> {
     if unsafe { (*scheduler).current } != BOOT_CONTEXT {
         return Err(Error::WrongContext);
     }
+    if unsafe { (*scheduler).preemptive } {
+        return Err(Error::PreemptiveMode);
+    }
     let switches_before = unsafe { (*scheduler).switches };
     let completions_before = unsafe { (*scheduler).completions };
+    let preemptions_before = unsafe { (*scheduler).preemptions };
     loop {
         let next = unsafe { first_ready(&(*scheduler).threads) };
         let Some(next) = next else {
@@ -275,10 +291,14 @@ pub fn run() -> Result<RunStats, Error> {
             unsafe { (*scheduler).completions }.saturating_sub(completions_before),
         )
         .unwrap_or(usize::MAX),
+        preemptions: unsafe { (*scheduler).preemptions }.saturating_sub(preemptions_before),
     })
 }
 
 unsafe fn finish_current() -> ! {
+    if !interrupts_disabled() {
+        panic!("kernel thread exit requires IF=0");
+    }
     let scheduler = SCHEDULER.0.get();
     let current = unsafe { (*scheduler).current };
     if current == BOOT_CONTEXT || current >= MAX_THREADS {
@@ -302,8 +322,95 @@ extern "C" fn thread_bootstrap() -> ! {
     }
     let entry = unsafe { (*scheduler).threads[current].entry }
         .unwrap_or_else(|| panic!("kernel thread has no entry point"));
+    let preemptive = unsafe { (*scheduler).preemptive };
+    if preemptive {
+        // SAFETY: preemptive mode is entered only after the PIT/LAPIC route,
+        // permanent timer gate and scheduler state are fully initialized.
+        unsafe { asm!("sti", options(nostack)) };
+    }
     entry();
+    if preemptive {
+        // SAFETY: serialize scheduler exit against the timer IRQ hook.
+        unsafe { asm!("cli", options(nostack)) };
+    }
     unsafe { finish_current() }
+}
+
+/// Called by the permanent PIT timer interrupt after LAPIC EOI.
+///
+/// The x86-interrupt ABI owns the interrupted register frame. This hook only
+/// switches when a different Ready kernel thread exists. Suspending this call
+/// preserves the handler's stack; selecting the same thread later resumes here
+/// and the handler subsequently returns through IRETQ.
+///
+/// # Safety boundary
+/// Sole BSP, interrupt gate has cleared IF, LAPIC EOI already completed, and
+/// preemptive mode was entered by run_preemptive_locked().
+pub fn on_timer_interrupt() {
+    if !interrupts_disabled() {
+        return;
+    }
+    let scheduler = SCHEDULER.0.get();
+    if !unsafe { (*scheduler).preemptive } {
+        return;
+    }
+    let current = unsafe { (*scheduler).current };
+    if current == BOOT_CONTEXT || current >= MAX_THREADS {
+        return;
+    }
+    let Some(next) = (unsafe { next_ready(&(*scheduler).threads, current) }) else {
+        return;
+    };
+    unsafe {
+        (*scheduler).threads[current].state = State::Ready;
+        (*scheduler).preemptions = (*scheduler).preemptions.saturating_add(1);
+        switch_to(next);
+    }
+}
+
+/// Run every currently Ready thread under timer preemption.
+///
+/// Caller owns interrupt state. Entry requires IF=0 after the PIT/APIC route is
+/// active and returns with IF=0 once every participating thread has exited.
+///
+/// # Safety
+/// Timer vector, LAPIC EOI mapping and PIT route must be permanent on this sole
+/// BSP. No other scheduler owner or CPU may exist.
+pub unsafe fn run_preemptive_locked() -> Result<RunStats, Error> {
+    if !interrupts_disabled() {
+        return Err(Error::InterruptsEnabled);
+    }
+    let scheduler = SCHEDULER.0.get();
+    if unsafe { (*scheduler).current } != BOOT_CONTEXT {
+        return Err(Error::WrongContext);
+    }
+    if unsafe { (*scheduler).preemptive } {
+        return Err(Error::PreemptiveMode);
+    }
+    let Some(next) = (unsafe { first_ready(&(*scheduler).threads) }) else {
+        return Ok(RunStats {
+            switches: 0,
+            completed: 0,
+            preemptions: 0,
+        });
+    };
+    let switches_before = unsafe { (*scheduler).switches };
+    let completions_before = unsafe { (*scheduler).completions };
+    let preemptions_before = unsafe { (*scheduler).preemptions };
+    unsafe { (*scheduler).preemptive = true };
+    unsafe { switch_to(next) };
+    if unsafe { (*scheduler).current } != BOOT_CONTEXT || !interrupts_disabled() {
+        return Err(Error::Invariant);
+    }
+    unsafe { (*scheduler).preemptive = false };
+    Ok(RunStats {
+        switches: unsafe { (*scheduler).switches }.saturating_sub(switches_before),
+        completed: usize::try_from(
+            unsafe { (*scheduler).completions }.saturating_sub(completions_before),
+        )
+        .unwrap_or(usize::MAX),
+        preemptions: unsafe { (*scheduler).preemptions }.saturating_sub(preemptions_before),
+    })
 }
 
 #[cfg(feature = "qemu-debugcon")]
@@ -359,10 +466,101 @@ pub fn smoke_test() -> Result<RunStats, Error> {
         return Err(Error::Invariant);
     }
     let stats = run()?;
-    if SMOKE_PHASE.load(Ordering::SeqCst) != 4 || stats.switches != 5 || stats.completed != 2 {
+    if SMOKE_PHASE.load(Ordering::SeqCst) != 4
+        || stats.switches != 5
+        || stats.completed != 2
+        || stats.preemptions != 0
+    {
         return Err(Error::Invariant);
     }
     Ok(stats)
+}
+
+#[cfg(feature = "preempt-thread-probe")]
+static PREEMPT_PHASE: AtomicU8 = AtomicU8::new(0);
+
+#[cfg(feature = "preempt-thread-probe")]
+fn preempt_a() {
+    crate::debugcon::write("VIBRIX: preempt thread A phase 1\r\n");
+    if PREEMPT_PHASE
+        .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        panic!("preempt thread A phase 1 executed out of order");
+    }
+    while PREEMPT_PHASE.load(Ordering::SeqCst) < 2 {
+        core::hint::spin_loop();
+    }
+    crate::debugcon::write("VIBRIX: preempt thread A phase 2\r\n");
+    if PREEMPT_PHASE
+        .compare_exchange(2, 3, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        panic!("preempt thread A phase 2 executed out of order");
+    }
+    while PREEMPT_PHASE.load(Ordering::SeqCst) < 4 {
+        core::hint::spin_loop();
+    }
+}
+
+#[cfg(feature = "preempt-thread-probe")]
+fn preempt_b() {
+    while PREEMPT_PHASE.load(Ordering::SeqCst) < 1 {
+        core::hint::spin_loop();
+    }
+    crate::debugcon::write("VIBRIX: preempt thread B phase 1\r\n");
+    if PREEMPT_PHASE
+        .compare_exchange(1, 2, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        panic!("preempt thread B phase 1 executed out of order");
+    }
+    while PREEMPT_PHASE.load(Ordering::SeqCst) < 3 {
+        core::hint::spin_loop();
+    }
+    crate::debugcon::write("VIBRIX: preempt thread B phase 2\r\n");
+    if PREEMPT_PHASE
+        .compare_exchange(3, 4, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        panic!("preempt thread B phase 2 executed out of order");
+    }
+}
+
+/// QEMU-only proof: two threads make forward progress without calling yield.
+///
+/// # Safety
+/// Called on the sole BSP with IF=1 only after timer delivery was observed.
+/// The function restores IF=1 before returning.
+#[cfg(feature = "preempt-thread-probe")]
+pub unsafe fn preemptive_smoke_test() -> Result<RunStats, Error> {
+    if interrupts_disabled() {
+        return Err(Error::InterruptsDisabled);
+    }
+    // SAFETY: establish exclusive scheduler setup before publishing preemptive
+    // mode. No timer hook can enter until STI in the first thread bootstrap.
+    unsafe { asm!("cli", options(nostack)) };
+    PREEMPT_PHASE.store(0, Ordering::SeqCst);
+    let result = (|| {
+        let a = spawn(preempt_a)?;
+        let b = spawn(preempt_b)?;
+        if a.index() == b.index() {
+            return Err(Error::Invariant);
+        }
+        let stats = unsafe { run_preemptive_locked()? };
+        if PREEMPT_PHASE.load(Ordering::SeqCst) != 4
+            || stats.completed != 2
+            || stats.preemptions < 3
+            || stats.switches < 6
+        {
+            return Err(Error::Invariant);
+        }
+        Ok(stats)
+    })();
+    // SAFETY: run_preemptive_locked returned to the boot context with IF=0 and
+    // preemptive mode disabled, so normal PIT delivery may resume.
+    unsafe { asm!("sti", options(nostack)) };
+    result
 }
 
 #[cfg(test)]
