@@ -971,8 +971,8 @@ pub fn copy_to_user(mut address: u64, mut bytes: &[u8]) -> Result<(), AddressSpa
     let final_address = address
         .checked_add(bytes.len() as u64 - 1)
         .ok_or(AddressSpaceError::InvalidRoot)?;
-    Page::new_user(address)?;
-    Page::new_user(final_address)?;
+    Page::new_user(address & !0xfff)?;
+    Page::new_user(final_address & !0xfff)?;
     if interrupts_enabled() {
         return Err(AddressSpaceError::InterruptsEnabled);
     }
