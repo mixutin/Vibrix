@@ -168,6 +168,7 @@ for expected in \
   "VIBRIX: kernel PCI ECAM bus0 read" \
   "VIBRIX: kernel LAPIC and IOAPIC registers read" \
   "VIBRIX: kernel heap allocation and reuse verified" \
+  "VIBRIX: kernel cooperative threads verified" \
   "VIBRIX: kernel framebuffer wrote pixels" \
   "VIBRIX: kernel framebuffer status banner drawn"; do
   if ! grep -Fq "$expected" "$LOG"; then
@@ -176,6 +177,27 @@ for expected in \
     exit 1
   fi
 done
+
+python3 - "$LOG" <<'PY'
+import pathlib
+import sys
+
+text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+markers = [
+    "VIBRIX: kernel thread A phase 1",
+    "VIBRIX: kernel thread B phase 1",
+    "VIBRIX: kernel thread A phase 2",
+    "VIBRIX: kernel thread B phase 2",
+    "VIBRIX: kernel cooperative threads verified",
+]
+positions = []
+for marker in markers:
+    if text.count(marker) != 1:
+        raise SystemExit(f"missing or duplicate cooperative-thread marker: {marker}")
+    positions.append(text.index(marker))
+if positions != sorted(positions):
+    raise SystemExit("cooperative-thread execution markers are out of order")
+PY
 
 if [[ ! -f "$SERIAL_LOG" ]] || ! grep -Fq "Vibrix kernel started." "$SERIAL_LOG"; then
   echo "[vibrix] missing native kernel COM1 serial output" >&2
