@@ -368,7 +368,7 @@ the first real userspace CLI.
 - [x] Userspace address spaces
 - [x] Vibrix syscall ABI v1
 - [x] syscall/sysret
-- [ ] Native Rust syscall library
+- [x] Native Rust syscall library
 - [ ] PID/process lifecycle
 - [ ] Executable loading
 - [ ] argv/environment
@@ -469,8 +469,26 @@ SYSRET-compatible user selectors CS=`0x23`, SS=`0x1b`.
 
 This completes the bounded **syscall/sysret transport** item only. It remains a
 single-BSP proof with no general dispatcher, copy-in/copy-out, per-process
-kernel stacks, scheduler-integrated process address spaces, native Rust
-userspace syscall library, PID lifecycle, executable loading, or PID 1.
+kernel stacks, scheduler-integrated process address spaces, PID lifecycle,
+executable loading, or PID 1.
+
+**Verified M5 native Rust syscall library (PR #133):**
+[Actions run 36472077028](https://github.com/mixutin/Vibrix/actions/runs/36472077028)
+passed the full repository CI on implementation head
+`bf2e6c082d35e73bb5ef63ad42074ccbb9504868`. The new `no_std`
+`vibrix-syscall` crate consumes the shared ABI v1 source of truth, emits the
+x86-64 `syscall` instruction with the exact RAX/RDI/RSI/RDX/R10/R8/R9
+register contract, declares RCX/R11 clobbers, and provides named Rust wrappers
+for exit, yield, getpid, read, write, open, close, wait and exec. Safe wrappers
+use slices/references where pointer lifetime can be represented in Rust; raw
+nested argv/envp pointers remain explicitly unsafe. CI host-tests wrapper
+policy without invoking the host OS syscall ABI and cross-checks the crate for
+`x86_64-unknown-none`.
+
+This checks the **native Rust syscall library** item only. The kernel still
+does not provide general v1 syscall semantics, copy-in/copy-out, PID/process
+lifecycle, executable loading, argv/environment handling, wait/exit process
+semantics, or PID 1.
 
 **Exit:** PID 1 executes in userspace and makes Vibrix syscalls.
 
