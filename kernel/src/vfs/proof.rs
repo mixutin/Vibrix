@@ -8,7 +8,7 @@ use super::{
 
 pub fn self_test(mut report: impl FnMut(&str)) -> Result<()> {
     let mut ram = MemFs::<12, 64>::new()?;
-    let mut dev = DevFs;
+    let mut dev = DevFs::new();
     let root = ram.root();
     let stale = ram.create(root, "recycled", Kind::File)?;
     ram.remove(root, "recycled")?;
