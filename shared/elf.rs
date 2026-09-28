@@ -281,6 +281,8 @@ fn read_u64(data: &[u8], offset: usize) -> Result<u64, ElfError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::vec;
+    use std::vec::Vec;
 
     const PAYLOAD_OFFSET: usize = ELF_HEADER_SIZE + PROGRAM_HEADER_SIZE;
 

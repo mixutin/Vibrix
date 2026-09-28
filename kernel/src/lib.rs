@@ -9,6 +9,7 @@ pub mod cpu_topology;
 pub mod nic;
 pub mod process;
 pub mod update_policy;
+pub mod user_image;
 pub mod user_stack;
 pub mod vfs;
 
