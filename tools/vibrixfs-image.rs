@@ -1,8 +1,9 @@
 //! Host-only regular-file VibrixFS v1 formatter and inspector.
 //!
 //! This tool deliberately refuses paths that look like raw devices and the
-//! formatter uses create_new: it cannot overwrite an existing image. It is
-//! development tooling, not the future USB provisioning/recovery utility.
+//! formatter uses create_new: it cannot overwrite an existing image. Recovery
+//! is limited to regular-file development images; this is not a raw-device
+//! provisioner or a kernel filesystem implementation.
 
 use std::env;
 use std::fs::{File, OpenOptions};
@@ -12,6 +13,9 @@ use std::path::Path;
 #[allow(dead_code)]
 #[path = "vibrixfs-wire.rs"]
 mod wire;
+#[allow(dead_code)]
+#[path = "vibrixfs-journal.rs"]
+mod journal;
 
 use wire::{
     BLOCK, Extent, INODE_BYTES, Inode, Range, Superblock, encode_dir_record, encode_inode,
@@ -22,6 +26,7 @@ use wire::{
 const TOTAL_INODES: u64 = 1024;
 const INODE_BITMAP_BLOCKS: u64 = 1;
 const INODE_TABLE_BLOCKS: u64 = (TOTAL_INODES * INODE_BYTES as u64).div_ceil(BLOCK as u64);
+const JOURNAL_BLOCKS: u64 = 66; // manifest + 64 full-block after-images + commit.
 const MAX_FORMAT_BLOCKS: u64 = 262_144; // 1 GiB early host-tool bound.
 const DIRECTORY_BYTES: usize = 80;
 const WELCOME_NAME: &str = "welcome.txt";
@@ -212,10 +217,17 @@ fn layout(
             .ok_or_else(|| "metadata geometry overflow".to_string())?,
         blocks: INODE_TABLE_BLOCKS,
     };
-    let root_data = inode_table
+    let journal = Range {
+        start: inode_table
+            .start
+            .checked_add(inode_table.blocks)
+            .ok_or_else(|| "metadata geometry overflow".to_string())?,
+        blocks: JOURNAL_BLOCKS,
+    };
+    let root_data = journal
         .start
-        .checked_add(inode_table.blocks)
-        .ok_or_else(|| "metadata geometry overflow".to_string())?;
+        .checked_add(journal.blocks)
+        .ok_or_else(|| "journal geometry overflow".to_string())?;
     let welcome_data = root_data
         .checked_add(1)
         .ok_or_else(|| "data geometry overflow".to_string())?;
@@ -233,6 +245,7 @@ fn layout(
             block_bitmap,
             inode_bitmap,
             inode_table,
+            journal: Some(journal),
             filesystem_uuid,
             root_partition_guid: root_guid,
         },
@@ -288,6 +301,12 @@ fn format_image(
         set_bit(&mut block_bitmap, block)?;
     }
     for block in sb.inode_table.start..sb.inode_table.start + sb.inode_table.blocks {
+        set_bit(&mut block_bitmap, block)?;
+    }
+    let journal = sb
+        .journal
+        .ok_or_else(|| "formatter requires journal-enabled superblock".to_string())?;
+    for block in journal.start..journal.start + journal.blocks {
         set_bit(&mut block_bitmap, block)?;
     }
     set_bit(&mut block_bitmap, root_data)?;
@@ -455,6 +474,10 @@ fn inspect_image(path: &Path, logical_sector: u64, root_guid: [u8; 16]) -> Resul
     require_allocated_range(&block_bitmap, sb.block_bitmap)?;
     require_allocated_range(&block_bitmap, sb.inode_bitmap)?;
     require_allocated_range(&block_bitmap, sb.inode_table)?;
+    let journal = sb
+        .journal
+        .ok_or_else(|| "journal-enabled VibrixFS image required".to_string())?;
+    require_allocated_range(&block_bitmap, journal)?;
     require_allocated_range(
         &block_bitmap,
         Range {
@@ -546,10 +569,12 @@ fn inspect_image(path: &Path, logical_sector: u64, root_guid: [u8; 16]) -> Resul
     }
 
     println!(
-        "VibrixFS v1 valid: blocks={} logical_sector={} inodes={} root_block={} file={} file_block={} mode={:04o} uid={} gid={} mtime={}.{:09} generation={} clean={}",
+        "VibrixFS v1 valid: blocks={} logical_sector={} inodes={} journal_start={} journal_blocks={} root_block={} file={} file_block={} mode={:04o} uid={} gid={} mtime={}.{:09} generation={} clean={}",
         sb.total_blocks,
         logical_sector,
         sb.total_inodes,
+        journal.start,
+        journal.blocks,
         root_extent.start,
         WELCOME_NAME,
         welcome_extent.start,
@@ -564,8 +589,182 @@ fn inspect_image(path: &Path, logical_sector: u64, root_guid: [u8; 16]) -> Resul
     Ok(())
 }
 
+
+fn write_checkpoint(
+    file: &mut File,
+    mut sb: Superblock,
+    root_guid: &[u8; 16],
+    generation: u64,
+) -> Result<(), String> {
+    sb.generation = generation;
+    sb.clean = true;
+    let encoded = encode_superblock(&sb, sb.total_blocks, root_guid)
+        .map_err(|e| format!("encode recovery checkpoint: {e:?}"))?;
+    write_at(file, sb.total_blocks - 1, &encoded)?;
+    file.sync_all()
+        .map_err(|e| format!("sync secondary checkpoint: {e}"))?;
+    write_at(file, 0, &encoded)?;
+    file.sync_all()
+        .map_err(|e| format!("sync primary checkpoint: {e}"))?;
+    Ok(())
+}
+
+fn zero_journal(file: &mut File, journal_range: Range) -> Result<(), String> {
+    let zero = [0u8; BLOCK];
+    for block in journal_range.start..journal_range.start + journal_range.blocks {
+        write_at(file, block, &zero)?;
+    }
+    file.sync_all()
+        .map_err(|e| format!("sync retired journal: {e}"))
+}
+
+fn recover_image(path: &Path, logical_sector: u64, root_guid: [u8; 16]) -> Result<(), String> {
+    if BLOCK as u64 % logical_sector != 0 {
+        return Err("filesystem block is not an integer number of logical sectors".into());
+    }
+    if raw_device_like(path) {
+        return Err("refusing a path that looks like a raw device".into());
+    }
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .map_err(|e| format!("open recovery image: {e}"))?;
+    let meta = file.metadata().map_err(|e| format!("stat recovery image: {e}"))?;
+    if !meta.file_type().is_file() || meta.len() % BLOCK as u64 != 0 {
+        return Err("recovery input must be a regular 4096-byte-aligned file".into());
+    }
+    let total_blocks = meta.len() / BLOCK as u64;
+    if total_blocks < 4096 {
+        return Err("filesystem image is below the v1 minimum size".into());
+    }
+
+    let mut primary_raw = [0u8; BLOCK];
+    let mut secondary_raw = [0u8; BLOCK];
+    read_at(&mut file, 0, &mut primary_raw)?;
+    read_at(&mut file, total_blocks - 1, &mut secondary_raw)?;
+    let primary = parse_superblock(&primary_raw, total_blocks, &root_guid);
+    let secondary = parse_superblock(&secondary_raw, total_blocks, &root_guid);
+
+    let checkpoint = match (primary, secondary) {
+        (Ok(a), Ok(b)) => {
+            if !immutable_superblock_fields_match(&a, &b) {
+                return Err("valid superblocks disagree on immutable geometry or identity".into());
+            }
+            if a.generation >= b.generation { a } else { b }
+        }
+        (Ok(a), Err(_)) => a,
+        (Err(_), Ok(b)) => b,
+        (Err(a), Err(b)) => {
+            return Err(format!(
+                "both superblocks are invalid: primary={a:?} secondary={b:?}"
+            ));
+        }
+    };
+    if checkpoint.total_blocks != total_blocks {
+        return Err("checkpoint geometry does not match image extent".into());
+    }
+    let journal_range = checkpoint
+        .journal
+        .ok_or_else(|| "filesystem does not advertise the VibrixFS journal feature".to_string())?;
+
+    let mut manifest_block = [0u8; BLOCK];
+    read_at(&mut file, journal_range.start, &mut manifest_block)?;
+    if manifest_block.iter().all(|&byte| byte == 0) {
+        if !checkpoint.clean {
+            return Err("dirty checkpoint has no recoverable journal transaction".into());
+        }
+        // Rewriting both copies is safe and repairs a stale/invalid peer while
+        // preserving the already-clean checkpoint generation.
+        write_checkpoint(&mut file, checkpoint, &root_guid, checkpoint.generation)?;
+        println!(
+            "VibrixFS recovery: no committed journal transaction; checkpoint generation={}",
+            checkpoint.generation
+        );
+        return Ok(());
+    }
+
+    let manifest = journal::parse_manifest(&manifest_block)
+        .map_err(|e| format!("journal manifest is not recoverable: {e:?}"))?;
+    if manifest.journal_start != journal_range.start || manifest.journal_blocks != journal_range.blocks {
+        return Err("journal manifest geometry does not match superblock".into());
+    }
+    let count = usize::from(manifest.entry_count);
+    let mut payloads = Vec::with_capacity(count);
+    for index in 0..count {
+        let mut block = [0u8; BLOCK];
+        let block_number = journal_range
+            .start
+            .checked_add(1)
+            .and_then(|value| value.checked_add(index as u64))
+            .ok_or_else(|| "journal payload offset overflow".to_string())?;
+        read_at(&mut file, block_number, &mut block)?;
+        payloads.push(block);
+    }
+    let commit_block_number = journal_range
+        .start
+        .checked_add(1)
+        .and_then(|value| value.checked_add(count as u64))
+        .ok_or_else(|| "journal commit offset overflow".to_string())?;
+    let mut commit_block = [0u8; BLOCK];
+    read_at(&mut file, commit_block_number, &mut commit_block)?;
+
+    if commit_block.iter().all(|&byte| byte == 0) {
+        // Publish a clean checkpoint before retiring the only recovery record.
+        // A crash after checkpointing but before journal retirement is
+        // idempotently recoverable; the reverse order can strand a dirty image
+        // with no journal record at all.
+        write_checkpoint(&mut file, checkpoint, &root_guid, checkpoint.generation)?;
+        zero_journal(&mut file, journal_range)?;
+        println!(
+            "VibrixFS recovery: ignored incomplete uncommitted transaction; checkpoint generation={}",
+            checkpoint.generation
+        );
+        return Ok(());
+    }
+
+    let validated = journal::validate_transaction(
+        &manifest_block,
+        &payloads,
+        &commit_block,
+        total_blocks,
+    )
+    .map_err(|e| format!("committed journal transaction failed validation: {e:?}"))?;
+
+    if checkpoint.generation < validated.previous_generation {
+        return Err(format!(
+            "checkpoint generation {} is older than transaction prerequisite {}",
+            checkpoint.generation, validated.previous_generation
+        ));
+    }
+
+    let mut replayed = false;
+    let target_generation = if checkpoint.generation < validated.new_generation {
+        if checkpoint.generation != validated.previous_generation {
+            return Err("transaction generation is not the next checkpoint".into());
+        }
+        for (index, payload) in payloads.iter().enumerate() {
+            write_at(&mut file, validated.descriptors[index].home_block, payload)?;
+        }
+        file.sync_all()
+            .map_err(|e| format!("sync replayed home blocks: {e}"))?;
+        replayed = true;
+        validated.new_generation
+    } else {
+        checkpoint.generation
+    };
+
+    write_checkpoint(&mut file, checkpoint, &root_guid, target_generation)?;
+    zero_journal(&mut file, journal_range)?;
+    println!(
+        "VibrixFS recovery: transaction={} replayed={} generation={}",
+        validated.transaction_id, replayed, target_generation
+    );
+    Ok(())
+}
+
 fn usage() -> String {
-    "usage: vibrixfs-image format <new-regular-file> <blocks> <logical-sector:512|4096> <fs-uuid-hex32> <root-guid-wire-hex32>\n       vibrixfs-image inspect <regular-file> <logical-sector:512|4096> <root-guid-wire-hex32>".into()
+    "usage: vibrixfs-image format <new-regular-file> <blocks> <logical-sector:512|4096> <fs-uuid-hex32> <root-guid-wire-hex32>\n       vibrixfs-image inspect <regular-file> <logical-sector:512|4096> <root-guid-wire-hex32>\n       vibrixfs-image recover <regular-file> <logical-sector:512|4096> <root-guid-wire-hex32>".into()
 }
 
 fn run() -> Result<(), String> {
@@ -586,6 +785,11 @@ fn run() -> Result<(), String> {
             inspect_image(Path::new(&args[2]), sector, hex16(&args[6])?)
         }
         Some("inspect") if args.len() == 5 => inspect_image(
+            Path::new(&args[2]),
+            sector_size(&args[3])?,
+            hex16(&args[4])?,
+        ),
+        Some("recover") if args.len() == 5 => recover_image(
             Path::new(&args[2]),
             sector_size(&args[3])?,
             hex16(&args[4])?,
@@ -632,7 +836,10 @@ mod tests {
         assert_eq!(sb.block_bitmap.start, 1);
         assert!(sb.block_bitmap.start + sb.block_bitmap.blocks <= sb.inode_bitmap.start);
         assert!(sb.inode_bitmap.start + sb.inode_bitmap.blocks <= sb.inode_table.start);
-        assert_eq!(root, sb.inode_table.start + sb.inode_table.blocks);
+        let journal = sb.journal.unwrap();
+        assert_eq!(journal.start, sb.inode_table.start + sb.inode_table.blocks);
+        assert_eq!(journal.blocks, JOURNAL_BLOCKS);
+        assert_eq!(root, journal.start + journal.blocks);
         assert!(root < sb.total_blocks - 1);
     }
 
@@ -690,6 +897,187 @@ mod tests {
             WELCOME_MTIME_NSEC
         );
         assert_eq!(parse_inode(&bytes, &sb), Ok(inode));
+    }
+
+
+
+    fn temp_image(label: &str) -> std::path::PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "vibrixfs-{label}-{}-{}.img",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        path
+    }
+
+    fn stage_committed_repair(path: &Path, root_guid: [u8; 16], corrupt_payload: bool) -> Vec<u8> {
+        let mut file = OpenOptions::new().read(true).write(true).open(path).unwrap();
+        let total_blocks = file.metadata().unwrap().len() / BLOCK as u64;
+        let mut raw = [0u8; BLOCK];
+        read_at(&mut file, 0, &mut raw).unwrap();
+        let mut sb = parse_superblock(&raw, total_blocks, &root_guid).unwrap();
+        let journal_range = sb.journal.unwrap();
+        let home = sb.inode_bitmap.start;
+        let mut payload = [0u8; BLOCK];
+        read_at(&mut file, home, &mut payload).unwrap();
+        let expected = payload.to_vec();
+
+        sb.clean = false;
+        let dirty = encode_superblock(&sb, total_blocks, &root_guid).unwrap();
+        write_at(&mut file, 0, &dirty).unwrap();
+        write_at(&mut file, total_blocks - 1, &dirty).unwrap();
+
+        let manifest = journal::encode_manifest(
+            9,
+            sb.generation,
+            sb.generation + 1,
+            journal_range.start,
+            journal_range.blocks,
+            &[(home, &payload)],
+        )
+        .unwrap();
+        let commit = journal::encode_commit(&manifest).unwrap();
+        write_at(&mut file, journal_range.start, &manifest).unwrap();
+        if corrupt_payload {
+            payload[17] ^= 1;
+        }
+        write_at(&mut file, journal_range.start + 1, &payload).unwrap();
+        write_at(&mut file, journal_range.start + 2, &commit).unwrap();
+        write_at(&mut file, home, &[0u8; BLOCK]).unwrap();
+        file.sync_all().unwrap();
+        expected
+    }
+
+    #[test]
+    fn committed_transaction_replays_then_checkpoints_and_retires_journal() {
+        let path = temp_image("recover");
+        let root_guid = [2u8; 16];
+        format_image(&path, 4096, 512, [1u8; 16], root_guid).unwrap();
+        let expected = stage_committed_repair(&path, root_guid, false);
+
+        recover_image(&path, 512, root_guid).unwrap();
+        inspect_image(&path, 512, root_guid).unwrap();
+
+        let mut file = File::open(&path).unwrap();
+        let mut primary = [0u8; BLOCK];
+        let mut home = vec![0u8; BLOCK];
+        read_at(&mut file, 0, &mut primary).unwrap();
+        let sb = parse_superblock(&primary, 4096, &root_guid).unwrap();
+        assert_eq!(sb.generation, 2);
+        assert!(sb.clean);
+        read_at(&mut file, sb.inode_bitmap.start, &mut home).unwrap();
+        assert_eq!(home, expected);
+        let mut journal_head = [0u8; BLOCK];
+        read_at(&mut file, sb.journal.unwrap().start, &mut journal_head).unwrap();
+        assert!(journal_head.iter().all(|&byte| byte == 0));
+        drop(file);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn corrupt_committed_payload_fails_before_any_home_replay() {
+        let path = temp_image("corrupt-recovery");
+        let root_guid = [4u8; 16];
+        format_image(&path, 4096, 4096, [3u8; 16], root_guid).unwrap();
+        let _ = stage_committed_repair(&path, root_guid, true);
+        assert!(recover_image(&path, 4096, root_guid).is_err());
+
+        let mut file = File::open(&path).unwrap();
+        let mut primary = [0u8; BLOCK];
+        read_at(&mut file, 0, &mut primary).unwrap();
+        let sb = parse_superblock(&primary, 4096, &root_guid).unwrap();
+        let mut home = [0u8; BLOCK];
+        read_at(&mut file, sb.inode_bitmap.start, &mut home).unwrap();
+        assert!(home.iter().all(|&byte| byte == 0));
+        drop(file);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn dirty_checkpoint_without_journal_fails_closed() {
+        let path = temp_image("dirty-no-journal");
+        let root_guid = [6u8; 16];
+        format_image(&path, 4096, 512, [5u8; 16], root_guid).unwrap();
+
+        let mut file = OpenOptions::new().read(true).write(true).open(&path).unwrap();
+        let mut raw = [0u8; BLOCK];
+        read_at(&mut file, 0, &mut raw).unwrap();
+        let mut sb = parse_superblock(&raw, 4096, &root_guid).unwrap();
+        sb.clean = false;
+        let dirty = encode_superblock(&sb, 4096, &root_guid).unwrap();
+        write_at(&mut file, 0, &dirty).unwrap();
+        write_at(&mut file, 4095, &dirty).unwrap();
+        file.sync_all().unwrap();
+        drop(file);
+
+        let error = recover_image(&path, 512, root_guid).unwrap_err();
+        assert!(error.contains("dirty checkpoint has no recoverable journal transaction"));
+
+        let mut file = File::open(&path).unwrap();
+        read_at(&mut file, 0, &mut raw).unwrap();
+        let after = parse_superblock(&raw, 4096, &root_guid).unwrap();
+        assert!(!after.clean);
+        let mut journal_head = [0u8; BLOCK];
+        read_at(&mut file, after.journal.unwrap().start, &mut journal_head).unwrap();
+        assert!(journal_head.iter().all(|&byte| byte == 0));
+        drop(file);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn uncommitted_transaction_checkpoints_before_retirement() {
+        let path = temp_image("uncommitted");
+        let root_guid = [8u8; 16];
+        format_image(&path, 4096, 4096, [7u8; 16], root_guid).unwrap();
+
+        let mut file = OpenOptions::new().read(true).write(true).open(&path).unwrap();
+        let mut raw = [0u8; BLOCK];
+        read_at(&mut file, 0, &mut raw).unwrap();
+        let mut sb = parse_superblock(&raw, 4096, &root_guid).unwrap();
+        let journal_range = sb.journal.unwrap();
+        let home = sb.inode_bitmap.start;
+        let mut payload = [0u8; BLOCK];
+        read_at(&mut file, home, &mut payload).unwrap();
+        let expected_home = payload;
+
+        sb.clean = false;
+        let dirty = encode_superblock(&sb, 4096, &root_guid).unwrap();
+        write_at(&mut file, 0, &dirty).unwrap();
+        write_at(&mut file, 4095, &dirty).unwrap();
+        let manifest = journal::encode_manifest(
+            11,
+            sb.generation,
+            sb.generation + 1,
+            journal_range.start,
+            journal_range.blocks,
+            &[(home, &payload)],
+        )
+        .unwrap();
+        write_at(&mut file, journal_range.start, &manifest).unwrap();
+        write_at(&mut file, journal_range.start + 1, &payload).unwrap();
+        file.sync_all().unwrap();
+        drop(file);
+
+        recover_image(&path, 4096, root_guid).unwrap();
+        inspect_image(&path, 4096, root_guid).unwrap();
+
+        let mut file = File::open(&path).unwrap();
+        read_at(&mut file, 0, &mut raw).unwrap();
+        let after = parse_superblock(&raw, 4096, &root_guid).unwrap();
+        assert_eq!(after.generation, 1);
+        assert!(after.clean);
+        let mut actual_home = [0u8; BLOCK];
+        read_at(&mut file, home, &mut actual_home).unwrap();
+        assert_eq!(actual_home, expected_home);
+        let mut journal_head = [0u8; BLOCK];
+        read_at(&mut file, journal_range.start, &mut journal_head).unwrap();
+        assert!(journal_head.iter().all(|&byte| byte == 0));
+        drop(file);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
