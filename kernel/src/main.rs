@@ -455,6 +455,21 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             );
             debugcon::write("VIBRIX: kernel preemptive scheduler verified\r\n");
         }
+
+        #[cfg(feature = "ring3-probe")]
+        {
+            let (user_rip, user_rsp) = memory::managed::prepare_ring3_probe()
+                .unwrap_or_else(|error| panic!("ring3 probe mapping failed: {:?}", error));
+            debugcon::write("VIBRIX: kernel CPL3 mappings ready\r\n");
+            crate::println!(
+                "kernel ring3 probe: entering rip={:#x} rsp={:#x}",
+                user_rip,
+                user_rsp
+            );
+            // SAFETY: prepare_ring3_probe leaves guarded user RX/RW mappings
+            // live; GDT/TSS/IDT are permanent and the DPL3 probe gate exists.
+            unsafe { arch::x86_64::ring3::enter(user_rip, user_rsp) };
+        }
     }
 
     // Separate QEMU-only smoke configuration exercises the *real* kernel
