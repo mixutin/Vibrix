@@ -17,7 +17,8 @@ impl<M: Memory, const N: usize> Vm<M, N> {
             return Err(Error::NotMapped);
         }
         let previous = self.decode_leaf(current)?;
-        let updated = (current & !(WRITE | NX)) | (permission_flags(permissions, previous.privilege) & (WRITE | NX));
+        let updated = (current & !(WRITE | NX))
+            | (permission_flags(permissions, previous.privilege) & (WRITE | NX));
         if updated != current {
             self.memory.write_entry(tables[3], index, updated);
             self.memory.invalidate(page.address());
