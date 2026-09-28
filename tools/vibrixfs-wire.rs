@@ -262,7 +262,7 @@ pub fn encode_superblock(
     if let Some(journal) = info.journal {
         out[104..112].copy_from_slice(&journal.start.to_le_bytes());
         out[112..120].copy_from_slice(&journal.blocks.to_le_bytes());
-        out[132..136].copy_from_slice(&INCOMPAT_JOURNAL.to_le_bytes());
+        out[128..132].copy_from_slice(&INCOMPAT_JOURNAL.to_le_bytes());
     }
     out[136..152].copy_from_slice(&info.filesystem_uuid);
     out[152..168].copy_from_slice(&info.root_partition_guid);
@@ -297,10 +297,10 @@ pub fn parse_superblock(
     if u64_at(block, 96)? != 1 {
         return Err(Error::Layout);
     }
-    if u32_at(block, 124)? != 0 || u32_at(block, 128)? != 0 {
+    if u32_at(block, 124)? != 0 || u32_at(block, 132)? != 0 {
         return Err(Error::Features);
     }
-    let incompat = u32_at(block, 132)?;
+    let incompat = u32_at(block, 128)?;
     if incompat & !INCOMPAT_JOURNAL != 0 {
         return Err(Error::Features);
     }
@@ -694,7 +694,7 @@ mod tests {
         assert_eq!(&bytes[32..40], &8192u64.to_le_bytes());
         assert_eq!(&bytes[96..104], &1u64.to_le_bytes());
         assert_eq!(&bytes[104..120], &[0u8; 16]);
-        assert_eq!(&bytes[132..136], &0u32.to_le_bytes());
+        assert_eq!(&bytes[128..132], &0u32.to_le_bytes());
         assert_eq!(&bytes[136..152], &[0x11; 16]);
         assert_eq!(&bytes[152..168], &ROOT_GUID);
         assert_ne!(u32_at(&bytes, 120).unwrap(), 0);
@@ -711,7 +711,7 @@ mod tests {
         let bytes = encode_superblock(&sb, 8192, &ROOT_GUID).unwrap();
         assert_eq!(&bytes[104..112], &67u64.to_le_bytes());
         assert_eq!(&bytes[112..120], &66u64.to_le_bytes());
-        assert_eq!(&bytes[132..136], &INCOMPAT_JOURNAL.to_le_bytes());
+        assert_eq!(&bytes[128..132], &INCOMPAT_JOURNAL.to_le_bytes());
         assert_eq!(parse_superblock(&bytes, 8192, &ROOT_GUID), Ok(sb));
 
         let mut inode = sample_inode();
