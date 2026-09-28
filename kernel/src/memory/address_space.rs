@@ -1062,8 +1062,7 @@ pub fn copy_to_user(address: u64, bytes: &[u8]) -> Result<(), AddressSpaceError>
         loop {
             let page = Page::new_user(cursor & !0xfff)?;
             let mapping = space.vm.query(page)?.ok_or(Error::NotMapped)?;
-            if mapping.privilege != Privilege::User
-                || mapping.permissions != Permissions::ReadWrite
+            if mapping.privilege != Privilege::User || mapping.permissions != Permissions::ReadWrite
             {
                 return Err(AddressSpaceError::InvalidRoot);
             }
