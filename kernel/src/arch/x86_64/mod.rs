@@ -12,9 +12,17 @@ mod pci_caps;
 pub mod pci_interrupts;
 #[cfg(all(feature = "pci-irq-probe", not(feature = "panic-probe")))]
 mod pci_irq_probe;
-#[cfg(all(feature = "pci-irq-probe", not(feature = "panic-probe")))]
+#[cfg(all(
+    any(feature = "pci-irq-probe", feature = "pci-msix-probe"),
+    not(feature = "panic-probe")
+))]
 #[path = "../../../../shared/pci_interrupts/msi.rs"]
 mod pci_msi;
+#[cfg(all(feature = "pci-msix-probe", not(feature = "panic-probe")))]
+#[path = "../../../../shared/pci_interrupts/msix.rs"]
+mod pci_msix;
+#[cfg(all(feature = "pci-msix-probe", not(feature = "panic-probe")))]
+mod pci_msix_probe;
 #[cfg(not(feature = "panic-probe"))]
 pub mod ps2;
 #[cfg(not(feature = "panic-probe"))]

@@ -202,14 +202,14 @@ pub unsafe fn probe(
 ///
 /// On success window slots 0 and 1 are intentionally retained for the entire
 /// early-kernel runtime; no later Window owner may be created. The explicit
-/// pci-irq-probe build also retains slot 2 for the isolated QEMU EDU device.
+/// PCI interrupt probe builds may temporarily use slot 2 for one isolated QEMU device.
 ///
 /// # Safety
 /// Sole BSP, IF=0, no other mapping-window owner. The supplied APIC summary
 /// and physical addresses must come from the immediately preceding validated
 /// MADT/APIC probe. The selected route must describe this I/O APIC's GSI range.
-/// With pci-irq-probe, use only the dedicated QEMU TCG test environment without
-/// IOMMU/passthrough; its permanent vector-0x50 IDT gate must be installed.
+/// With a PCI interrupt probe feature, use only the dedicated QEMU TCG test
+/// environment without IOMMU/passthrough; its permanent IDT gate must exist.
 pub unsafe fn activate_pit_timer(
     info: &BootInfo,
     lapic_physical: u64,
@@ -283,13 +283,32 @@ pub unsafe fn activate_pit_timer(
         outb(PIT_CHANNEL_ZERO, PIT_DIVISOR_100HZ as u8);
         outb(PIT_CHANNEL_ZERO, (PIT_DIVISOR_100HZ >> 8) as u8);
     }
-    #[cfg(all(feature = "pci-irq-probe", not(feature = "panic-probe")))]
+    #[cfg(all(
+        feature = "pci-irq-probe",
+        not(feature = "pci-msix-probe"),
+        not(feature = "panic-probe")
+    ))]
     {
         // SAFETY: reuse this exclusive live window owner, never construct a
         // second one after APIC mappings become permanent. IF is still zero.
         unsafe { super::pci_irq_probe::prepare(&mut vm, route.destination_apic_id) }.map_err(
             |reason| {
                 crate::println!("EDU MSI probe setup failed: {}", reason);
+                ApicError::Routing
+            },
+        )?;
+    }
+    #[cfg(all(
+        feature = "pci-msix-probe",
+        not(feature = "pci-irq-probe"),
+        not(feature = "panic-probe")
+    ))]
+    {
+        // SAFETY: same exclusive pre-STI Window owner; slot 2 is temporary and
+        // the ivshmem proof removes it before returning.
+        unsafe { super::pci_msix_probe::prepare(&mut vm, route.destination_apic_id) }.map_err(
+            |reason| {
+                crate::println!("ivshmem MSI-X probe setup failed: {}", reason);
                 ApicError::Routing
             },
         )?;
@@ -312,16 +331,33 @@ pub unsafe fn eoi() {
 /// # Safety
 /// Call only after every IDT gate and interrupt controller route that can
 /// deliver to this CPU is initialized. No SMP or reentrant shared state.
-/// The pci-irq-probe build additionally runs its one-shot QEMU-only test.
+/// A single selected PCI interrupt probe may additionally run its QEMU-only test.
 pub unsafe fn enable_interrupts() {
     unsafe { asm!("sti", options(nostack)) };
-    #[cfg(all(feature = "pci-irq-probe", not(feature = "panic-probe")))]
+    #[cfg(all(
+        feature = "pci-irq-probe",
+        not(feature = "pci-msix-probe"),
+        not(feature = "panic-probe")
+    ))]
     {
         // SAFETY: successful activation prepared permanent EDU/APIC mappings
         // and installed the handler; IF is now set on this sole BSP.
         if let Err(reason) = unsafe { super::pci_irq_probe::exercise() } {
             crate::debugcon::write("VIBRIX: native MSI delivery probe failed\r\n");
             panic!("EDU MSI delivery probe failed: {}", reason);
+        }
+    }
+    #[cfg(all(
+        feature = "pci-msix-probe",
+        not(feature = "pci-irq-probe"),
+        not(feature = "panic-probe")
+    ))]
+    {
+        // SAFETY: the ivshmem table was programmed before STI and its handler,
+        // configuration identity and LAPIC mapping remain live.
+        if let Err(reason) = unsafe { super::pci_msix_probe::exercise() } {
+            crate::debugcon::write("VIBRIX: native MSI-X delivery probe failed\r\n");
+            panic!("ivshmem MSI-X delivery probe failed: {}", reason);
         }
     }
 }
