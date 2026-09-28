@@ -75,6 +75,20 @@ impl<M: Memory, const N: usize, const G: usize> GuardedVm<M, N, G> {
     }
 
     pub fn allocate(&mut self, layout: GuardedLayout) -> Result<GuardedId, Error> {
+        self.allocate_with_privilege(layout, false)
+    }
+
+    /// Reserve guard pages around a user-accessible RW payload. Address-space
+    /// ownership remains identical to supervisor allocations.
+    pub fn allocate_user(&mut self, layout: GuardedLayout) -> Result<GuardedId, Error> {
+        self.allocate_with_privilege(layout, true)
+    }
+
+    fn allocate_with_privilege(
+        &mut self,
+        layout: GuardedLayout,
+        user: bool,
+    ) -> Result<GuardedId, Error> {
         if self
             .slots
             .iter()
@@ -95,11 +109,32 @@ impl<M: Memory, const N: usize, const G: usize> GuardedVm<M, N, G> {
                 return Err(Error::AddressInUse);
             }
         }
-        self.vm.map_region(layout.payload, Permissions::ReadWrite)?;
+        if user {
+            self.vm
+                .map_user_region(layout.payload, Permissions::ReadWrite)?;
+        } else {
+            self.vm.map_region(layout.payload, Permissions::ReadWrite)?;
+        }
         let id = GuardedId(self.next_id);
         self.slots[slot] = Some((id, layout));
         self.next_id = next_id;
         Ok(id)
+    }
+
+    /// Change one payload page's W^X-safe protection while preserving its
+    /// existing privilege. Guards and pages outside this allocation are denied.
+    pub fn protect(
+        &mut self,
+        id: GuardedId,
+        payload_index: usize,
+        permissions: Permissions,
+    ) -> Result<Translation, Error> {
+        let layout = self.layout(id)?;
+        let page = layout
+            .payload()
+            .page(payload_index)
+            .ok_or(Error::InvalidRange)?;
+        self.vm.protect(page, permissions)
     }
 
     pub fn layout(&self, id: GuardedId) -> Result<GuardedLayout, Error> {
@@ -194,6 +229,29 @@ mod tests {
         guarded.release(second).unwrap();
         assert_eq!(guarded.free_frames(), 16);
         assert_eq!(guarded.active_allocations(), 0);
+    }
+
+    #[test]
+    fn user_allocation_preserves_guards_and_can_be_made_executable() {
+        let mut guarded = GuardedVm::<_, 12, 1>::new(vm::<12>(12)).unwrap();
+        let allocation = layout(0, 1);
+        let id = guarded.allocate_user(allocation).unwrap();
+        let payload = allocation.payload().page(0).unwrap();
+        assert_eq!(guarded.query(allocation.lower_guard()), Ok(None));
+        assert_eq!(guarded.query(allocation.upper_guard()), Ok(None));
+        let before = guarded.query(payload).unwrap().unwrap();
+        assert_eq!(before.privilege, crate::vmm::address::Privilege::User);
+        assert_eq!(before.permissions, Permissions::ReadWrite);
+        guarded.protect(id, 0, Permissions::ReadExecute).unwrap();
+        let after = guarded.query(payload).unwrap().unwrap();
+        assert_eq!(after.privilege, crate::vmm::address::Privilege::User);
+        assert_eq!(after.permissions, Permissions::ReadExecute);
+        assert_eq!(
+            guarded.protect(id, 1, Permissions::ReadOnly),
+            Err(Error::InvalidRange)
+        );
+        guarded.release(id).unwrap();
+        assert_eq!(guarded.free_frames(), 12);
     }
 
     #[test]
