@@ -177,6 +177,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     // Actual retained firmware SDTs are not identity mapped. Read only
     // ACPI-type WB pages via the now-empty temporary v3 mapping window,
     // unmapping all leaves before later kernel facilities use that window.
+    let mut timer_setup = None;
     let acpi_mcfg = unsafe { parse_boot_rsdp(&info) }.and_then(|rsdp| {
         // SAFETY: sole boot CPU, IF=0, physical allocator initialized and
         // mapping-window smoke test has unmapped every temporary leaf.
@@ -224,6 +225,15 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                         apic.ioapic_max_redirection_entry
                     );
                     debugcon::write("VIBRIX: kernel LAPIC and IOAPIC registers read\r\n");
+                    timer_setup = Some((
+                        discovery.lapic_physical,
+                        discovery.ioapic_physical,
+                        discovery.ioapic_gsi_base,
+                        discovery.timer_gsi,
+                        discovery.timer_active_low,
+                        discovery.timer_level_triggered,
+                        apic,
+                    ));
                 }
                 Err(error) => {
                     crate::println!("kernel APIC validation failed: {:?}", error);
@@ -292,6 +302,61 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
 
     #[cfg(not(feature = "panic-probe"))]
     {
+        // The default interactive QEMU kernel activates the validated timer
+        // route only after all temporary mapping-window users and fault probes.
+        // Feature-probe kernels preserve the historical IF=0 environment.
+        if !cfg!(any(
+            feature = "breakpoint-probe",
+            feature = "page-fault-probe",
+            feature = "vm-write-probe",
+            feature = "vm-unmap-probe"
+        )) {
+            let (
+                lapic_physical,
+                ioapic_physical,
+                ioapic_gsi_base,
+                timer_gsi,
+                timer_active_low,
+                timer_level_triggered,
+                apic,
+            ) = timer_setup.unwrap_or_else(|| panic!("validated APIC timer topology unavailable"));
+            let route = arch::x86_64::irq::Route::new(
+                timer_gsi,
+                arch::x86_64::irq::TIMER_VECTOR,
+                apic.lapic_id,
+            )
+            .unwrap_or_else(|_| panic!("timer route policy rejected"))
+            .with_signal(timer_active_low, timer_level_triggered);
+            // SAFETY: sole BSP, IF=0, all transient v3-window consumers are
+            // complete; APIC addresses and GSI policy came from validated
+            // MADT plus the immediately preceding architectural APIC probe.
+            unsafe {
+                arch::x86_64::apic::activate_pit_timer(
+                    &info,
+                    lapic_physical,
+                    ioapic_physical,
+                    ioapic_gsi_base,
+                    apic.ioapic_max_redirection_entry,
+                    route,
+                )
+            }
+            .unwrap_or_else(|error| panic!("timer routing activation failed: {:?}", error));
+            let before = arch::x86_64::irq::timer_ticks();
+            // SAFETY: the only unmasked external source is the validated PIT
+            // route into a permanent timer gate; handler state is atomic.
+            unsafe { arch::x86_64::apic::enable_interrupts() };
+            while arch::x86_64::irq::timer_ticks() == before {
+                // SAFETY: IF=1 and the PIT route should wake this BSP. Failure
+                // to deliver is intentionally observable as a QEMU timeout.
+                unsafe { core::arch::asm!("hlt", options(nomem, nostack)) };
+            }
+            crate::println!(
+                "kernel timer: tick {}",
+                arch::x86_64::irq::timer_ticks()
+            );
+            debugcon::write("VIBRIX: kernel timer IRQ delivered\r\n");
+        }
+
         // Development QEMU keyboard: read only legacy i8042 ports after
         // ExitBootServices; IRQs remain disabled and no USB HID is implied.
         let mut ps2 = arch::x86_64::ps2::SetOne::new();
