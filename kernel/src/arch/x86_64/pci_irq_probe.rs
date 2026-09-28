@@ -137,8 +137,8 @@ pub(super) unsafe fn prepare(vm: &mut Window, destination: u8) -> Result<(), &'s
         return Err("EDU BAR conflicts with firmware memory ownership");
     }
     // SAFETY: same live window owner; first EDU register page is validated.
-    let virtual_page = unsafe { vm.map_mmio_writable(2, physical) }
-        .map_err(|_| "EDU register mapping failed")?;
+    let virtual_page =
+        unsafe { vm.map_mmio_writable(2, physical) }.map_err(|_| "EDU register mapping failed")?;
     let base = usize::try_from(virtual_page).map_err(|_| "EDU virtual address")?;
     let command = io.read32(4).ok_or("EDU command unavailable")? as u16;
     // Enable memory decoding with INTx disabled, but keep bus mastering OFF
