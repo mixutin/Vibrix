@@ -448,6 +448,7 @@ jobs:
           grep -Fq "VIBRIX: kernel userspace CR3 activated" build/qemu/debugcon.log
           grep -Fq "VIBRIX: kernel userspace CR3 preserved across CPL3 trap" build/qemu/debugcon.log
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel address space probe: kernel_cr3="
+          tr -d '\r' < build/qemu/serial.log | grep -Fq " rip=0x400000 rsp=0x800000"
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel address space trap: expected_cr3="
       - name: QEMU real SYSCALL and SYSRETQ round trip
         run: |
