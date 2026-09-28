@@ -34,8 +34,8 @@ fi
 ARGS=(
   -machine q35
   -accel tcg
-  -cpu max
-  -m 512M
+  -cpu "${VIBRIX_QEMU_CPU:-max}"
+  -m "${VIBRIX_QEMU_RAM:-512M}"
   -drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE"
   -drive "if=pflash,format=raw,file=$QEMU_DIR/OVMF_VARS.test.fd"
   -drive "format=raw,file=fat:rw:$QEMU_DIR/esp"
@@ -55,6 +55,8 @@ fi
 
 echo "[vibrix] OVMF CODE: $OVMF_CODE"
 echo "[vibrix] OVMF VARS: $OVMF_VARS"
+echo "[vibrix] QEMU CPU: ${VIBRIX_QEMU_CPU:-max}"
+echo "[vibrix] QEMU RAM: ${VIBRIX_QEMU_RAM:-512M}"
 echo "[vibrix] running headless QEMU smoke test"
 if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" ]]; then
   # Connect through QEMU's HMP monitor and send an actual emulated key

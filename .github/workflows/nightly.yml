@@ -1,0 +1,67 @@
+name: Vibrix Nightly Torture
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/nightly.yml"
+      - "tools/test-qemu.sh"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-torture-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qemu-matrix:
+    name: QEMU ${{ matrix.ram }} / ${{ matrix.cpu }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        ram: ["128M", "256M", "512M"]
+        cpu: ["qemu64", "max"]
+    steps:
+      - name: Check out source without persisted credentials
+        if: ${{ github.event_name != 'pull_request' || (matrix.ram == '256M' && matrix.cpu == 'qemu64') }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install QEMU and OVMF
+        if: ${{ github.event_name != 'pull_request' || (matrix.ram == '256M' && matrix.cpu == 'qemu64') }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf
+      - name: Build once for this isolated VM
+        if: ${{ github.event_name != 'pull_request' || (matrix.ram == '256M' && matrix.cpu == 'qemu64') }}
+        run: bash tools/build-qemu.sh
+      - name: Boot constrained configuration
+        if: ${{ github.event_name != 'pull_request' || (matrix.ram == '256M' && matrix.cpu == 'qemu64') }}
+        env:
+          VIBRIX_SKIP_BUILD: "1"
+          VIBRIX_QEMU_RAM: ${{ matrix.ram }}
+          VIBRIX_QEMU_CPU: ${{ matrix.cpu }}
+        run: bash tools/test-qemu.sh
+      - name: Reject unexpected fatal diagnostics
+        if: ${{ always() && (github.event_name != 'pull_request' || (matrix.ram == '256M' && matrix.cpu == 'qemu64')) }}
+        run: |
+          for log in build/qemu/serial.log build/qemu/debugcon.log; do
+            if [[ -f "$log" ]] && grep -Eiq 'kernel panic|kernel #DF|double fault|triple fault' "$log"; then
+              echo "::error::unexpected fatal kernel diagnostic in $log"
+              cat "$log"
+              exit 1
+            fi
+          done
+      - name: Preserve QEMU diagnostics
+        if: ${{ always() && (github.event_name != 'pull_request' || (matrix.ram == '256M' && matrix.cpu == 'qemu64')) }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qemu-torture-${{ matrix.ram }}-${{ matrix.cpu }}-${{ github.run_attempt }}
+          path: build/qemu/*.log
+          if-no-files-found: warn
+          retention-days: 7
