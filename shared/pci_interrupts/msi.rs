@@ -88,7 +88,13 @@ pub unsafe fn enable_single(
     }
     let disabled = msi.control() & !0x71;
     let data_offset = msi.offset() + if msi.address_64_bit() { 12 } else { 8 };
-    let mask_offset = data_offset + 4;
+    // Unmasked layouts may end at DWORD 0xfc. Their nonexistent mask register
+    // would lie beyond the u8 configuration offset, so never compute it.
+    let mask_offset = if msi.per_vector_masking() {
+        data_offset + 4
+    } else {
+        0
+    };
     let supported = u32::MAX >> (32 - u32::from(msi.message_capacity()));
     let original_mask = if msi.per_vector_masking() {
         io.read32(mask_offset).ok_or(SetupError::ReadFailed)?
@@ -276,6 +282,22 @@ mod tests {
             // SAFETY: same inert configuration fake, no live resources.
             unsafe { disable_single(&mut io, expected.msi.unwrap()) }.unwrap();
             assert_eq!(io.words[16] & (1 << 16), 0);
+        }
+    }
+
+    #[test]
+    fn capability_can_end_at_final_configuration_dword() {
+        for (flags, offset) in [(0, 0xf4u8), (0x80, 0xf0), (0x100, 0xec), (0x180, 0xe8)] {
+            let mut io = Fake::new(flags);
+            io.words[usize::from(offset / 4)] = io.words[16];
+            io.words[16] = 0;
+            io.words[13] = u32::from(offset);
+            let expected = io.capabilities();
+            let message = Message::new(0, 0x50).unwrap();
+            // SAFETY: in-memory fake; regression covers checked u8 offsets.
+            unsafe { enable_single(&mut io, expected, message) }.unwrap();
+            assert_eq!(io.words[usize::from(offset / 4)] & (1 << 16), 1 << 16);
+            assert!(io.writes[..io.count].iter().all(|entry| entry.1 >= offset));
         }
     }
 

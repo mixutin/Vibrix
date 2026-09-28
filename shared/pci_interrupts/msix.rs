@@ -125,8 +125,8 @@ pub unsafe fn enable_entry(
     if cap != layout.capability || index >= cap.vectors() {
         return Err(MsixError::OutOfBounds);
     }
-    let current = discover(&mut |offset| io.read32(offset))
-        .map_err(|_| MsixError::StaleCapability)?;
+    let current =
+        discover(&mut |offset| io.read32(offset)).map_err(|_| MsixError::StaleCapability)?;
     if current != expected {
         return Err(MsixError::StaleCapability);
     }
@@ -190,20 +190,30 @@ fn table_write(table: &mut impl TableAccess, offset: u32, value: u32) -> Result<
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::pci_interrupts::BarRegion;
+    use super::*;
 
     fn cap(vectors: u16, pending: u32) -> Msix {
         Msix {
             offset: 0x40,
             control: vectors - 1,
             table: BarRegion { bir: 0, offset: 0 },
-            pending: BarRegion { bir: 0, offset: pending },
+            pending: BarRegion {
+                bir: 0,
+                offset: pending,
+            },
         }
     }
 
     fn bars(bytes: u64) -> [Option<MemoryBar>; 6] {
-        [Some(MemoryBar::new(0x8000_0000, bytes).unwrap()), None, None, None, None, None]
+        [
+            Some(MemoryBar::new(0x8000_0000, bytes).unwrap()),
+            None,
+            None,
+            None,
+            None,
+            None,
+        ]
     }
 
     #[test]
@@ -220,10 +230,22 @@ mod tests {
     fn bad_extents_missing_bars_and_aliases_are_rejected() {
         assert_eq!(MemoryBar::new(0, 4096), Err(MsixError::InvalidBar));
         assert_eq!(MemoryBar::new(0x1000, 17), Err(MsixError::InvalidBar));
-        assert_eq!(MemoryBar::new(u64::MAX - 4095, 4096), Err(MsixError::InvalidBar));
-        assert_eq!(Layout::new(cap(1, 0x1000), &[None; 6]), Err(MsixError::MissingBar));
-        assert_eq!(Layout::new(cap(1, 0x1000), &bars(0x1000)), Err(MsixError::OutOfBounds));
-        assert_eq!(Layout::new(cap(2, 16), &bars(0x1000)), Err(MsixError::Overlap));
+        assert_eq!(
+            MemoryBar::new(u64::MAX - 4095, 4096),
+            Err(MsixError::InvalidBar)
+        );
+        assert_eq!(
+            Layout::new(cap(1, 0x1000), &[None; 6]),
+            Err(MsixError::MissingBar)
+        );
+        assert_eq!(
+            Layout::new(cap(1, 0x1000), &bars(0x1000)),
+            Err(MsixError::OutOfBounds)
+        );
+        assert_eq!(
+            Layout::new(cap(2, 16), &bars(0x1000)),
+            Err(MsixError::Overlap)
+        );
         let mut descriptor = cap(2, 0);
         descriptor.pending.bir = 1;
         let mut alias = bars(0x1000);
@@ -245,7 +267,11 @@ mod tests {
             words[13] = 0x40;
             words[16] = (1 << 16) | 0x11;
             words[18] = 0x1000;
-            Self { words, writes: 0, fail: None }
+            Self {
+                words,
+                writes: 0,
+                fail: None,
+            }
         }
     }
 
@@ -277,7 +303,11 @@ mod tests {
 
     impl Table {
         fn new() -> Self {
-            Self { words: [0; 8], writes: 0, fail: None }
+            Self {
+                words: [0; 8],
+                writes: 0,
+                fail: None,
+            }
         }
     }
 
@@ -306,8 +336,16 @@ mod tests {
         let mut table = Table::new();
         // SAFETY: independent in-memory fakes cannot deliver interrupts.
         unsafe {
-            enable_entry(&mut io, &mut table, expected, layout, 1, Message::new(2, 0x51).unwrap())
-        }.unwrap();
+            enable_entry(
+                &mut io,
+                &mut table,
+                expected,
+                layout,
+                1,
+                Message::new(2, 0x51).unwrap(),
+            )
+        }
+        .unwrap();
         assert_eq!(table.words, [0, 0, 0, 1, 0xfee0_2000, 0, 0x51, 0]);
         assert_eq!(io.words[16] >> 16, 0x8001);
         // SAFETY: same inert fake, no resources can escape.
@@ -317,7 +355,8 @@ mod tests {
 
     #[test]
     fn every_table_and_config_write_failure_disables_in_fake() {
-        for (config_fail, table_fail) in (1..=3).map(|n| (Some(n), None))
+        for (config_fail, table_fail) in (1..=3)
+            .map(|n| (Some(n), None))
             .chain((1..=6).map(|n| (None, Some(n))))
         {
             let mut io = Config::new();
@@ -327,9 +366,19 @@ mod tests {
             io.fail = config_fail;
             table.fail = table_fail;
             // SAFETY: inert fakes with deliberate failed writes.
-            assert!(unsafe {
-                enable_entry(&mut io, &mut table, expected, layout, 0, Message::new(0, 0x51).unwrap())
-            }.is_err());
+            assert!(
+                unsafe {
+                    enable_entry(
+                        &mut io,
+                        &mut table,
+                        expected,
+                        layout,
+                        0,
+                        Message::new(0, 0x51).unwrap(),
+                    )
+                }
+                .is_err()
+            );
             assert_eq!(io.words[16] >> 16, 0x4001);
             assert_eq!(table.words[3] & 1, 1);
         }
@@ -342,9 +391,19 @@ mod tests {
         let layout = Layout::new(expected.msix.unwrap(), &bars(0x2000)).unwrap();
         let mut table = Table::new();
         // SAFETY: inert fakes, invalid index must fail before writing.
-        assert_eq!(unsafe {
-            enable_entry(&mut io, &mut table, expected, layout, 2, Message::new(0, 0x51).unwrap())
-        }, Err(MsixError::OutOfBounds));
+        assert_eq!(
+            unsafe {
+                enable_entry(
+                    &mut io,
+                    &mut table,
+                    expected,
+                    layout,
+                    2,
+                    Message::new(0, 0x51).unwrap(),
+                )
+            },
+            Err(MsixError::OutOfBounds)
+        );
         assert_eq!(io.writes, 0);
         assert_eq!(table.writes, 0);
     }
