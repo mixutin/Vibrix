@@ -429,6 +429,22 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         }
         crate::println!("kernel timer: tick {}", arch::x86_64::irq::timer_ticks());
         debugcon::write("VIBRIX: kernel timer IRQ delivered\r\n");
+
+        #[cfg(feature = "preempt-thread-probe")]
+        {
+            // SAFETY: one BSP, IF=1, and the permanent PIT/LAPIC route just
+            // delivered successfully. The probe restores IF=1 before return.
+            let stats = unsafe { thread::preemptive_smoke_test() }.unwrap_or_else(|error| {
+                panic!("preemptive kernel thread validation failed: {:?}", error)
+            });
+            crate::println!(
+                "kernel scheduler: preemptive switches={} preemptions={} completed={}",
+                stats.switches,
+                stats.preemptions,
+                stats.completed
+            );
+            debugcon::write("VIBRIX: kernel preemptive scheduler verified\r\n");
+        }
     }
 
     // Separate QEMU-only smoke configuration exercises the *real* kernel
