@@ -366,7 +366,7 @@ the first real userspace CLI.
 - [x] Preemptive scheduler
 - [x] Ring 3 userspace
 - [x] Userspace address spaces
-- [ ] Vibrix syscall ABI v1
+- [x] Vibrix syscall ABI v1
 - [ ] syscall/sysret
 - [ ] Native Rust syscall library
 - [ ] PID/process lifecycle
@@ -442,6 +442,20 @@ diagnostic single-BSP address space with shared supervisor kernel mappings. It
 does not yet provide a process address-space allocator, scheduler-integrated
 CR3 switching, PCID/SMP TLB shootdowns, copy-in/copy-out, the Vibrix syscall
 ABI, `syscall/sysret`, executable loading, or PID lifecycle.
+
+**Verified M5 Vibrix syscall ABI v1 contract (PR #129):**
+[Actions run 36458069736](https://github.com/mixutin/Vibrix/actions/runs/36458069736)
+passed the full repository CI on implementation head
+`a7611798928f8af9737a3cf3537d93a5a72512e4`. The shared contract freezes ABI
+version 1, RAX syscall-number/result semantics, the six x86-64 argument
+registers, syscall numbers 0 through 8, the bounded negative errno window, and
+lower-half userspace pointer-range validation. Canonical CI formats, compiles
+with warnings denied, and executes the exact shared ABI source as a host test.
+
+This checks the **ABI contract** only. It does not yet implement the x86-64
+`SYSCALL/SYSRETQ` entry path, a dispatcher, copy-in/copy-out, native Rust
+userspace wrappers, PID lifecycle, executable loading, file descriptors, or
+PID 1.
 
 **Exit:** PID 1 executes in userspace and makes Vibrix syscalls.
 
