@@ -1,23 +1,28 @@
+<!-- Credit the actual known authoring model in the PR title as well as below. -->
 ## Summary
 
-## Roadmap
+## Roadmap and current status
 
-## Design
+- Item advanced; what is implemented versus still planned:
+- README/website/relevant docs updated, or why unnecessary:
 
-## Coordination
+## Research and design
 
-- Agent Coordination Board claim/comment (when multi-agent):
-- Current lane/task:
-- Overlapping agents/PRs:
+- Primary source URLs, version/section and date checked:
+- Relevant findings, alternatives considered (including suitable libraries), and decision:
+- Assumptions, unavailable sources and unresolved risks:
+- For mechanical/doc-only work, explain why extra external research is unnecessary and link repository evidence:
 
-## Synchronization
+## Coordination and synchronization
 
 - Main commit synchronized from:
-- Latest open PRs checked:
-- Conflicts/overlap resolved:
-- Validation rerun after synchronization: yes/no
+- Current scope and overlapping/dependent PRs:
+- Material conflicts/contracts resolved:
+- Validation rerun on the synchronized head:
 
 ## Validation
+
+Exact commands, observed results, head SHA and Actions links. Distinguish host, build, QEMU and physical-hardware evidence. Include failed/unavailable tests rather than only successful ones.
 
 ## Safety
 
@@ -26,19 +31,23 @@
 - [ ] Can write to persistent storage
 - [ ] None of the above
 
-## Dependencies
+Invariants, rejection/failure cases and destructive-operation safeguards:
 
-- [ ] Adds a runtime dependency
-- [ ] Adds a development-only dependency
-- [ ] No new dependencies
-- New/updated dependency license(s), source/revision, rationale, features, target compatibility, and lockfile updates:
+## Dependencies and supply chain
 
-## References
+- [ ] Runtime dependencies added/updated
+- [ ] Development tools/actions/dependencies added/updated
+- [ ] No dependency changes
+- Names, versions/full revisions, upstream URLs and license obligations:
+- Maintenance/advisory review, transitive features, build scripts/proc macros/native linkage:
+- Actual target compatibility and default-feature decisions:
+- Updated lockfiles and scanner/inventory results:
+- Scoped source/license/advisory exceptions, rationale, owner and review date (or none):
 
 ## Limitations
 
 ## Agent provenance
 
-- Authoring agent/model:
+- Authoring agent/model (also in title):
 - Role:
-- Reviewing agent/model (if any):
+- Reviewing agent/model, only if an actual review occurred:

@@ -1,70 +1,61 @@
-# Continuous Integration
+# Continuous integration and evidence
 
-Vibrix CI builds the Rust UEFI loader and bare-metal kernel, checks formatting and lints, and boots the resulting EFI tree in headless QEMU.
+Vibrix CI checks policy and dependency changes, builds the real UEFI loader and bare-metal kernel, runs production-linked host tests, and boots the resulting EFI tree in QEMU/OVMF. Source configuration is authoritative: [ci.yml](../.github/workflows/ci.yml), [dependencies.yml](../.github/workflows/dependencies.yml) and [pages.yml](../.github/workflows/pages.yml).
 
-CI checks that every tracked `tools/*.sh` script retains Git executable mode `100755` and passes `bash -n` before installing QEMU. Invoking scripts with `bash` alone does not verify their executable bits, so this protects the M0 script-permissions milestone against regressions.
+## Required-check layout
 
-The CI job also compiles `boot/src/elf.rs` as a standalone host test harness and runs its parser regression tests. This uses only the official Rust toolchain and exercises malformed ELF metadata without requiring UEFI firmware. Host parser tests do not demonstrate kernel handoff.
+`Vibrix CI` runs on PRs, pushes to main, merge groups and manual dispatch. Outdated PR runs are cancelled; main runs are not cancelled by this PR-only rule. Jobs use read-only repository permissions and checkout without persisted credentials.
 
-The parser also rejects a kernel entry point that does not belong to a file-backed, executable `PT_LOAD` range. Host regression fixtures cover non-executable code, BSS-only entry points and out-of-range entry points. This rejects invalid jump targets on the now-implemented firmware-to-kernel handoff path; the separate QEMU gate proves the kernel actually ran.
+- **Workflow and policy checks:** policy-helper regression tests, immutable block-style Action references, tracked Cargo.lock, pinned actionlint and website JavaScript syntax.
+- **Dependency supply-chain gate / Locked Cargo graph audit:** full locked metadata/feature inventory, RustSec and cargo-deny. The same reusable workflow also runs daily at **05:23 UTC** and by manual dispatch.
+- **Review dependency changes:** PR-only review of newly introduced known vulnerabilities across runtime/development/unknown scopes. It is intentionally skipped on other events; full graph auditing still runs there.
+- **Minimal features (vibrix-boot / vibrix-kernel):** locked checks without default features on `x86_64-unknown-uefi` and `x86_64-unknown-none` respectively.
+- **build-and-smoke-test:** the existing production tests, actual-target Clippy/builds and QEMU behavior probes described below.
+- **CI gate:** always evaluates the preceding jobs. Failure, cancellation or an unexpected skip fails the aggregate gate; only the non-PR dependency-review skip is expected.
+- **Website checks:** the Pages workflow validates local links/fragments, JSON-LD, homepage/status metadata and tested browser-data helpers without deploying PR content. Deployment gets Pages/OIDC write permissions only in its separate main-branch job after these checks pass.
 
-The QEMU smoke test captures both the loader/kernel QEMU debug port **and a separate native kernel COM1 serial log**. The graphics window can retain the firmware splash and earlier UEFI console lines while the standalone kernel logs only to debugcon/COM1; inspect `build/qemu/interactive-debugcon.log` and `build/qemu/interactive-serial.log` for `./tools/run-qemu.sh`, or `build/qemu/debugcon.log` and `build/qemu/serial.log` for the headless `./tools/test-qemu.sh`. The graphical framebuffer is not yet a kernel text console. It requires the loader and then standalone kernel to prove that they:
+Configure repository rules to require **CI gate** and **Website checks** before merging, with up-to-date branch/merge-queue validation as appropriate. **YAML does not enable branch protection.** At the 2026-09-28 audit, main had no required-check protection. This pass adds check names, not a claim that repository administration settings changed. Until rules are configured, agents must still honor exact-head passing checks under project policy.
 
-1. entered the Vibrix loader,
-2. opened `/vibrix/kernel.elf`,
-3. validated ELF64 little-endian x86-64 metadata,
-4. parsed at least one valid `PT_LOAD` segment,
-5. accepted the kernel image,
-6. discovered an ACPI RSDP with valid firmware-provided checksum(s),
-7. located a linear UEFI GOP framebuffer with sane mode and size metadata,
-8. allocated physical backing pages for the kernel, zeroed the image span, copied every validated PT_LOAD file range and verified BSS bytes remain zero,
-9. constructed and software-verified higher-half kernel page tables before ExitBootServices; they are subsequently **activated via CR3**.
-10. explicitly mapped and verified the loader image, 16-page kernel stack, BootInfo allocation, full memory-map buffer, RSDP and uncached GOP framebuffer under initially **inactive** page tables, and refreshed the preallocated map buffer after the last paging allocation. Captured the final UEFI memory-map tuple and successfully called ExitBootServices with its fresh key.
-11. allocated a loader-owned BootInfo page before capture, populated validated v2 from the final tuple, and passed it to the **standalone kernel** after changing CR3 and moving to the dedicated stack. The kernel validated BootInfo, discovered CPUID, initialized GDT/TSS and native COM1 and wrote bounded pixels to the uncached framebuffer.
+## Reproducible inputs
 
-Run the same smoke test locally:
+Cargo.lock is committed because Vibrix builds an OS/application, not just a reusable library. Metadata, feature trees, target checks, Clippy and the QEMU build script use `--locked`. CI must not silently regenerate dependency selections. Deliberate dependency changes update and commit the lockfile in their own PR.
 
-```bash
-sudo apt install -y qemu-system-x86 ovmf
-bash tools/test-qemu.sh
-```
+The Rust toolchain is pinned to `nightly-2026-09-28`, the nightly observed in successful main [run 36388253686](https://github.com/mixutin/Vibrix/actions/runs/36388253686). Rustup installation explicitly requests the required components and both targets. Scanner versions and Action SHAs are pinned in workflow source. These pins improve reproducibility but do **not** make the complete hosted runner, apt package set or final binaries bit-for-bit reproducible.
 
-The debug port is compiled only for QEMU builds. Bare-metal Vibrix builds do not write to the QEMU debug I/O port.
+## Dependency evidence and limits
 
-## Evidence levels
+The 14-day `dependency-reports-<run>-<attempt>` artifact contains Cargo metadata, a review inventory, UEFI/kernel feature trees, scanner outputs and tool versions. Inventory includes source/revision, license, dependency edges and enabled features, plus build-script/procedural-macro/native-link indicators. It is not a complete installed-system SBOM or proof that a library is safe.
 
-- **Host tests and builds:** check parser, page-table, memory-map, CPUID,
-  transition and framebuffer functions, but do not prove physical hardware.
-- **QEMU/OVMF firmware-to-kernel handoff:** [CI run 36337520346](https://github.com/mixutin/Vibrix/actions/runs/36337520346)
-  observed `VIBRIX: ExitBootServices succeeded` from the loader, then the
-  **kernel's** `VIBRIX: kernel entry after ExitBootServices`,
-  `VIBRIX: kernel BootInfo v2 validated`, `VIBRIX: kernel GDT/TSS loaded`,
-  `VIBRIX: kernel serial initialized`, and `VIBRIX: kernel framebuffer
-  wrote pixels`. A distinct QEMU serial capture contains
-  `Vibrix kernel started.`; loader debug output cannot satisfy that check.
-- **Post-firmware early frame allocator:** [CI run 36339966455](https://github.com/mixutin/Vibrix/actions/runs/36339966455)
-  required kernel-only `VIBRIX: kernel frame allocator initialized` and
-  `VIBRIX: kernel conventional frames allocated` markers during both normal
-  and panic-probe boots. They prove issuance of two distinct conventional
-  physical frame numbers; not mapping, zeroing, reuse, SMP or virtual memory.
-- **Native IDT and page-fault diagnostics:** [CI run 36340579141](https://github.com/mixutin/Vibrix/actions/runs/36340579141)
-  exercised normal/panic QEMU plus separate real `int3` and canonical
-  unmapped-memory #PF probes after firmware exit. A returning #BP logs
-  RIP; the non-returning #PF logs CR2 = `0x10000000000`, RIP, error code
-  and decoded P/W/U/RSVD/I flags on COM1. The IDT does not enable IF,
-  APIC IRQ routing, IST/RSP0 privilege stacks or SMP execution.
-- **Kernel panic:** [CI run 36337648665](https://github.com/mixutin/Vibrix/actions/runs/36337648665)
-  additionally booted a separately built `panic-probe` kernel, which
-  reached post-firmware execution and printed the real panic handler's
-  `VIBRIX: kernel panic` in debugcon and `kernel panic:` on COM1.
-  The default kernel does not deliberately panic.
+Both RustSec and cargo-deny retain their failure status. The deny checks still run after an audit finding when graph/tool setup succeeded, and report uploads run on success or failure. An unavailable database/scanner is not a successful audit.
 
-- **Historical workstation QEMU/OVMF report:** the owner's now-unavailable comment on deleted issue #14 records a manual run of `./tools/test-qemu.sh` on `main` at `4a1eac2`, including `VIBRIX: kernel segments staged` and the smoke-test success line. Mixutin also ran `./tools/run-qemu.sh` and visually observed the loader sequence through the staging marker via QEMU VNC. This independently reproduces that **loader-stage QEMU milestone**, not a later handoff.
-- **Bare-metal Target 001:** requires a separate observed boot on the named physical machine. Neither GitHub Actions nor a workstation QEMU run is evidence of Target 001 operation; no such result is claimed here.
+Community crates remain permitted. Git repositories and unfamiliar licenses have explicit researched admission paths; see [DEPENDENCIES.md](DEPENDENCIES.md). Do not silence security findings to admit a library. Standalone host binaries, the runner, compiler, firmware and arbitrary vendored source are not magically covered by a Cargo scan.
 
-Neither the owner reproduction of the earlier loader-only code nor these
-QEMU CI results establish a native USB/xHCI driver, persistent USB root,
-hardware IRQ routing, processes, userspace shell, or Target 001 bare-metal boot.
-The older workstation report is historical and its deleted Issue #14
-source is no longer retrievable. The active coordination board is [#46](https://github.com/mixutin/Vibrix/issues/46). Do not generalize QEMU success to physical
-hardware or unrelated milestones.
+## Build and host regression coverage
+
+CI preserves script executable-mode and shell-syntax checks, OVMF discovery fixtures, cargo formatting, UEFI and bare-metal Clippy with warnings denied, and both actual builds.
+
+Host tests exercise ELF64 parsing, BootInfo v3 validation, firmware memory maps and loader cleanup, transition preflight, bounded framebuffer writes, ACPI/MCFG and PCI/BAR parsing, physical frames, early heap/mapping window, CPUID, GDT/TSS, IDT layout, IRQ routing, bounded console editing/dispatch, native serial logic, the PS/2 decoder and the discovery/driver-candidate model. Legacy self-contained host fixtures remain explicitly distinguished from production-linked evidence.
+
+Storage tests include safe regular-file GPT creation and inspection for 512/4096-byte logical sectors, exactly one ESP plus one Vibrix System partition, and rejection of overwrites. VibrixFS host wire/journal/image tests include format/inspect round trips, metadata checks and corruption rejection. These do not mount persistent root or write a physical drive.
+
+Standalone `rustc --test` harnesses cannot automatically link future external crate dependencies. An agent adding a crate to one of these modules must migrate the affected tests to a production-linked Cargo harness or otherwise supply the real dependency, retaining the tests rather than removing them to pass CI.
+
+## QEMU behavior coverage
+
+The production loader/kernel must demonstrate the real post-ExitBootServices handoff and independent native COM1 output. Loader messages cannot substitute for kernel evidence. The current suite exercises normal boot with timer IRQ delivery, PCI discovery with a virtual xHCI controller, real virtual keyboard input, and bounded console editing/commands. Separate kernels deliberately exercise panic, returning breakpoint, page-fault diagnostics, supervisor write protection and access after unmap.
+
+**Current verified console baseline:** main `cfc8bd1a6e7cfce8492eecaef7ba746ac8841aaa`, [run 36388253686](https://github.com/mixutin/Vibrix/actions/runs/36388253686), 2026-09-28. PR #89's [run 36386907847](https://github.com/mixutin/Vibrix/actions/runs/36386907847) additionally records the scoped console-completion evidence. The real q35 kernel accepts edited `help`, `clear`, `mem`, `pci`, `acpi`, `uptime` and `reboot` via virtual keyboard injection; reboot must actually terminate QEMU under `-no-reboot`, not merely print a success string. `info` and malformed/unknown command behavior also have production-module host coverage.
+
+This is a **polled PS/2 development console with native serial output and a QEMU timer IRQ path**. It is not an IRQ-driven USB keyboard, framebuffer terminal, Ring-3 shell, native USB-storage driver, mounted filesystem or physical Target 001 validation. Memory/PCI/ACPI diagnostic snapshots are bounded early-boot state, not a claim of general live system monitoring.
+
+## Diagnostics
+
+Run the interactive build with `./tools/run-qemu.sh` or automated regression with `./tools/test-qemu.sh`. See [QEMU.md](QEMU.md) for prerequisites and controls. Interactive logs are `build/qemu/interactive-debugcon.log` and `interactive-serial.log`; smoke logs are `build/qemu/debugcon.log` and `serial.log`. The framebuffer is not a full terminal.
+
+CI preserves the **most recent** QEMU `.log` files for seven days even on failure. The build script recreates its output directory for each probe, so this artifact is not an archive of every successful earlier boot; the Actions step logs retain the broader run history. Inspect the failed step and its head SHA first.
+
+## Historical evidence
+
+These runs prove their original narrower behavior, not the latest repository state: [initial handoff / BootInfo v2](https://github.com/mixutin/Vibrix/actions/runs/36337520346), [early frame issuance](https://github.com/mixutin/Vibrix/actions/runs/36339966455), [native IDT and fault diagnostics](https://github.com/mixutin/Vibrix/actions/runs/36340579141), and [kernel panic](https://github.com/mixutin/Vibrix/actions/runs/36337648665). Current BootInfo is v3. Earlier claims that IRQ/console work had not landed describe historical revisions, not current main.
+
+No emulator run establishes Target 001 support. Record a separate actual physical boot before making that claim. Exact-head evidence, not a badge or generated transcript, is the integration criterion.

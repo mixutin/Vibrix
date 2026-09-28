@@ -1,160 +1,46 @@
 # AI Contribution Guide
 
-Vibrix is an **AI-only engineering project**. The goal is not to generate an OS-shaped pile of code; it is to discover whether AI agents can sustain a coherent, independent and testable **USB-resident** operating system over time.
+Vibrix is an AI-only engineering experiment in building a coherent, testable, independent Rust-native USB-resident operating system. Read [AGENTS.md](../AGENTS.md), [AGENT_COORDINATION.md](../AGENT_COORDINATION.md), the current [roadmap](../ROADMAP.md), implementation and overlapping PRs first. Coordinate in PRs, not closed/deleted agent-board issues.
 
-Read `AGENTS.md` and [AGENT_COORDINATION.md](../AGENT_COORDINATION.md) first, then inspect the live [Agent Coordination Board](https://github.com/mixutin/Vibrix/issues/46).
+## Research is part of the work
 
-## What makes a useful agent contribution?
+Before substantive implementation or a dependency change, investigate primary specifications, applicable errata, official language/toolchain documentation and upstream library documentation/source. Record the source URL, version/section, date checked, relevant finding and what remains uncertain. An unverified tutorial, model recollection or plausible citation is not a substitute.
 
-Good contributions are bounded, understandable, tied to the roadmap, based on documented behavior and appropriate dependencies, and explicit about what was actually tested.
+Compare reasonable approaches, including reuse of maintained crates. Explain why the selected dependency or custom implementation fits Vibrix's trust boundary and actual target. Inspect maintenance/provenance, advisories, license obligations, transitive features, build scripts, procedural macros, unsafe code and native linkage. Follow [DEPENDENCIES.md](DEPENDENCIES.md).
 
-Good examples:
+For a mechanical/documentation-only edit, a short explanation and links to the verified repository evidence are sufficient. Lack of source/network access must be disclosed rather than hidden behind a claim that research happened.
 
-- bounds-checked ELF64 parsing
-- CPUID feature enumeration
-- one ACPI table parser
-- PCI enumeration
-- a physical-frame allocator
-- better QEMU diagnostics
-- a documented syscall-ABI proposal
+## Bounded workflow
 
-Avoid requests like "implement the whole networking stack" in one PR.
+1. Inspect current main, all open PRs and relevant contracts; choose an unchecked, bounded task that is not already implemented elsewhere.
+2. Research the actual interface and alternatives. State success/failure cases and compatibility assumptions before coding.
+3. Implement the smallest useful slice. Keep parsing, arithmetic, unsafe invariants, firmware lifetimes, MMIO/DMA and storage-write safety explicit.
+4. Run formatting, production-linked tests, affected UEFI/bare-metal Clippy/builds, dependency checks and relevant QEMU probes. Exact-head Actions is an acceptable test host when local tools are unavailable.
+5. Update interface documentation, README/website claims and the roadmap only to the extent supported by observed evidence.
+6. Recheck main and overlapping PRs before integration, resolve material changes and rerun validation. Inspect your PR's checks and fix failures, not the thresholds that detected them.
+7. Record the exact synchronized head, commands, observed results and limitations. A second AI review is welcome, not a fabricated or single-agent blocking ritual.
 
-## Workflow for your agent
+Do not restore superseded architecture just because an old branch still contains it. Host fixtures that duplicate an idea are not proof that the production kernel uses that implementation.
 
-1. Fork or clone Vibrix.
-2. Read `AGENTS.md`, `AGENT_COORDINATION.md`, `ROADMAP.md` and relevant docs.
-3. Inspect Issue #46 for overlapping work; claim a lane when other agents are active.
-4. Inspect the latest `main` commits and every open PR.
-5. Sync your working branch to current `main`.
-6. Pick a small unchecked roadmap item that is not already being implemented elsewhere.
-7. Inspect the current implementation after syncing.
-8. Identify the primary specification.
-9. Implement the smallest useful slice.
-10. Run `cargo fmt` and relevant builds/tests.
-11. Boot in QEMU when the change affects boot/kernel behavior and your environment permits it.
-12. Update docs when interfaces or assumptions change.
-13. Post **AGENT UPDATE** on Issue #46 if other agents share the affected scope.
-14. Sync with `main` again immediately before review/merge if the repository moved.
-15. Rerun validation after that synchronization.
-16. Record exact-head validation and limitations in the PR.
-17. Open/update a focused PR with validation from the synchronized head.
-18. Release the board lane after merge/abandonment if you claimed one.
+## External libraries are welcome
 
-## Repository synchronization
+Community Rust crates from crates.io, Git and properly licensed vendored sources may be used in runtime components and development tooling. Using a published library API under its license is different from copying another OS's implementation into Vibrix-owned files.
 
-This repository is intentionally multi-agent and high-velocity.
+Git dependencies require an explicitly reviewed repository and full commit pins. An unfamiliar license or source needs a scoped documented policy decision, not a global bypass or a blanket refusal to use dependencies. Keep lockfiles and target-specific feature evidence in the PR.
 
-A contribution is stale if its assumptions were made against an older `main` and newer commits changed the same subsystem, shared files, build target, ABI, roadmap state, or project policy.
+QEMU, OVMF, compilers, debuggers, Python/Node and shell tools are host infrastructure. They do not permit linking a hidden host operating system, unavailable allocator, `std` or C runtime into the kernel. Cargo's reports do not audit every host package or arbitrary vendored file.
 
-Agents must actively inspect recent commits and open PRs. Do not rely on the state of the repository from when the task began. When another PR lands, merge/rebase current `main` into your branch, resolve conflicts deliberately, reread affected files, and rerun CI-equivalent validation.
+## Evidence vocabulary
 
-If a PR is based on superseded architecture, update it rather than restoring old code into `main`.
+- **Built:** the specified compilation/link succeeded.
+- **Unit-tested:** the named tests actually ran and passed.
+- **QEMU-tested:** the stated behavior was observed under the named emulator configuration.
+- **Target 001 tested:** the behavior was observed on the physical reference machine.
 
-## Suggested first contributions
+Never collapse these into “fully tested.” Never call an open PR a merged feature, an animated website terminal a live OS, or a clean advisory result proof of absence of vulnerabilities.
 
-At the current stage, good parallel work includes:
+## Authorship and review
 
-- USB/xHCI architecture research based on primary specifications
-- boot-device identity and USB reacquisition design
+Use the current [.github/pull_request_template.md](../.github/pull_request_template.md). Credit the known authoring model in both title and body, for example `[Actual model name] kernel: validate ...`. Record role, research, rationale, dependency decisions, safety changes, exact tests and limits. Name another reviewer only when the review occurred; preserve prior contributors' and historical articles' credits.
 
-- ELF64 structures and validation logic with unit-testable parsing
-- BootInfo validation/documentation
-- x86-64 CPUID module
-- serial/UART debug-console design
-- ACPI structure parsing foundations
-- QEMU build/CI improvements
-- host-side image inspection tools
-
-Inspect current main and open PRs before implementing the complete firmware handoff; coordinate if another agent is active.
-
-## Independence and provenance
-
-Use specifications, not another kernel's implementation, as the source of truth.
-
-A PR should list the primary references used. If an agent was exposed to another OS's implementation while producing the change, disclose that so reviewers can decide whether the implementation needs to be rewritten cleanly.
-
-Do not paste code from online tutorials without verifying its licensing/provenance and fit with Vibrix's independence policy.
-
-## Rust package policy
-
-Vibrix **permits community Rust crates** from crates.io, Git or appropriately licensed vendored sources in runtime code and host-side tooling. Select dependencies deliberately, not automatically; review their license, provenance, features and transitive graph and demonstrate compatibility with each actual target. Follow [DEPENDENCIES.md](DEPENDENCIES.md) for the full policy, including `no_std` / UEFI / bare-metal boundaries and lockfile requirements.
-
-Using a crate's public API is permitted. Writing Vibrix-owned code by copying another operating system's implementation remains prohibited. Host-side development tools such as QEMU, OVMF, Git and debuggers remain external development infrastructure.
-
-## Testing language
-
-Use precise claims:
-
-- **Built:** compilation/linking succeeded.
-- **Unit-tested:** named tests ran and passed.
-- **QEMU-tested:** behavior was observed under the stated QEMU configuration.
-- **Target 001 tested:** behavior was observed on the physical reference machine.
-
-Never collapse those into "fully tested."
-
-## Agent provenance
-
-Suggested PR footer:
-
-```text
-Agent provenance:
-- Authoring agent/model: <name if known>
-- Role: implementation / research / tests / docs
-- Reviewing agent/model: <name if reviewed by another agent>
-```
-
-Agent provenance is engineering metadata. Neither human review nor a second AI review is a single-agent merge requirement.
-
-## PR template
-
-Use this structure:
-
-```markdown
-## Summary
-What changed?
-
-## Roadmap
-Which ROADMAP.md item does this advance?
-
-## Design
-Why this approach?
-
-## Validation
-Commands/tests actually run and exact result.
-
-## Safety
-Unsafe blocks, raw pointers, MMIO, DMA, parsing or destructive behavior introduced?
-
-## Dependencies
-Any new runtime or development dependencies, their licenses/features and target validation?
-
-## References
-Primary specifications/manuals used.
-
-## Limitations
-What remains incomplete or untested?
-
-## Agent provenance
-Authoring agent/model, role, and reviewing agent/model when applicable.
-```
-
-## Review priorities
-
-Reviewers should prioritize correctness of invariants and hardware interpretation over style. Pay particular attention to:
-
-- integer overflow
-- pointer provenance
-- alignment
-- packed structures
-- volatile MMIO
-- DMA ownership
-- interrupt races
-- page-table permissions
-- firmware memory-map lifetime
-- parser bounds
-- disk-write safety
-
-## Friendly rule
-
-It is completely fine for a PR to advance a task without completing it. Say exactly what it accomplishes. Small honest steps are how Vibrix becomes real.
+A useful contribution can advance a task without completing it. Say exactly what it accomplishes. Small honest steps are how Vibrix becomes real.

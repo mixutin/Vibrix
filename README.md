@@ -2,230 +2,107 @@
 
 # ◇ VIBRIX
 
-### A Rust-native operating system that lives on your USB drive.
+### A Rust-native operating system designed to live on your USB drive.
 
 **Independent kernel · persistent by design · built by AI agents**
 
 `x86_64` · `UEFI` · `Rust` · `no_std` · `QEMU/OVMF` · `0BSD`
 
 > **How far can vibe coding go?**  
-> Far enough to boot our own kernel. Now we're giving it a voice.
+> Our own kernel now boots to a working `vibrix>` development console in QEMU.
 
-[**Website**](https://mixutin.github.io/Vibrix/) · [Roadmap](ROADMAP.md) · [Security Roadmap](SECURITY_ROADMAP.md) · [Architecture](docs/ARCHITECTURE.md) · [Dependencies](docs/DEPENDENCIES.md) · [Contributing](CONTRIBUTING.md) · [Agent board](https://github.com/mixutin/Vibrix/issues/46)
+[**Website**](https://mixutin.github.io/Vibrix/) · [Verified status](https://mixutin.github.io/Vibrix/status/) · [Roadmap](ROADMAP.md) · [Security roadmap](SECURITY_ROADMAP.md) · [Architecture](docs/ARCHITECTURE.md) · [Dependencies](docs/DEPENDENCIES.md) · [Contributing](CONTRIBUTING.md)
 
 [![Vibrix CI](https://github.com/mixutin/Vibrix/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mixutin/Vibrix/actions/workflows/ci.yml)
+[![Dependency audit](https://github.com/mixutin/Vibrix/actions/workflows/dependencies.yml/badge.svg?branch=main)](https://github.com/mixutin/Vibrix/actions/workflows/dependencies.yml)
 [![Website](https://github.com/mixutin/Vibrix/actions/workflows/pages.yml/badge.svg?branch=main)](https://mixutin.github.io/Vibrix/)
 [![License: 0BSD](https://img.shields.io/badge/license-0BSD-b8ff5a.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-no__std-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
-[![Architecture](https://img.shields.io/badge/arch-x86__64-5865f2.svg)](docs/ARCHITECTURE.md)
-[![Boot](https://img.shields.io/badge/boot-UEFI-6f42c1.svg)](docs/ARCHITECTURE.md)
-[![Roadmap](https://img.shields.io/badge/roadmap-M4%20%E2%86%92%20M4.5-b8ff5a.svg)](ROADMAP.md)
-
-<table>
-<tr>
-<td align="center"><strong>Kernel</strong><br><code>Rust / no_std</code></td>
-<td align="center"><strong>Architecture</strong><br><code>x86-64 + UEFI</code></td>
-<td align="center"><strong>Dev target</strong><br><code>QEMU + OVMF</code></td>
-<td align="center"><strong>Next milestone</strong><br><code>vibrix&gt; console</code></td>
-<td align="center"><strong>License</strong><br><code>0BSD</code></td>
-</tr>
-</table>
+[![Roadmap](https://img.shields.io/badge/QEMU-kernel%20console%20verified-b8ff5a.svg)](ROADMAP.md)
 
 </div>
 
----
-
 ## What is Vibrix?
 
-Vibrix is an experimental **independent Unix-like operating system** written in Rust. It is not a Linux distribution, does not use the Linux or BSD kernels, and is designed around one unusual constraint:
+Vibrix is an experimental **independent Unix-like operating system** written in Rust, not a Linux distribution or a wrapper around another kernel. Its defining product goal is simple:
 
 > **The removable USB drive is the computer.**
 
-The bootloader, kernel, future userspace, packages, configuration and user data are intended to travel together on one persistent removable drive. Plug the same Vibrix drive into another compatible machine, boot it, and keep your environment.
+The intended bootloader, kernel, future userspace, applications, settings and home directory travel together on one persistent removable drive. Hardware is rediscovered at boot. Internal NVMe/SATA drives may eventually be optional data devices, never Vibrix system/root installation targets.
 
-Vibrix is also an **AI-only engineering experiment**. AI coding agents implement, test, review and document the system while the project owner sets goals and direction. Progress only counts when the behavior is actually demonstrated.
+**That persistent USB operating system is not available yet.** Today's verified result is an x86-64 QEMU/OVMF kernel and its development console. Native USB storage, mounted persistent root, processes and a userspace shell remain future work.
 
-## Current boot path
+## Current verified status — 28 September 2026
+
+Baseline: main [`cfc8bd1`](https://github.com/mixutin/Vibrix/commit/cfc8bd1a6e7cfce8492eecaef7ba746ac8841aaa), successful [CI run 36388253686](https://github.com/mixutin/Vibrix/actions/runs/36388253686). This snapshot describes merged code, not open PR proposals. Consult the [roadmap](ROADMAP.md) for exact evidence and scope of each checkbox.
+
+| Area | Demonstrated scope |
+| --- | --- |
+| UEFI → standalone kernel | QEMU firmware exit, higher-half kernel and BootInfo v3 |
+| CPU/memory foundations | CPUID, GDT/TSS, IDT/fault diagnostics, physical frames, early heap and bounded map/protect/unmap window |
+| Discovery | ACPI tables, native PCI/BAR discovery, bounded read-only MCFG/ECAM and driver candidates |
+| Timer | Native IRQ delivery and a console timer source in QEMU |
+| **Interactive kernel console** | **Real virtual keyboard input, bounded editing, dispatch and diagnostic/control commands** |
+| GPT tooling | Safe regular-file image creation/inspection; ESP plus dedicated Vibrix System partition |
+| VibrixFS tooling | Host wire-format/journal validation, regular-file format/inspect round trips and corruption rejection |
+| Full VM, Ring 3, processes/syscalls | Not complete |
+| VFS/TTY/userspace shell | Not implemented |
+| Native USB persistence / Target 001 | Not demonstrated |
+
+### The console is real; it is not userspace
+
+```text
+help    clear    info    mem    pci    acpi    uptime    reboot
+```
+
+QEMU checks inject real virtual keys, edit `helx` into `help`, inspect diagnostic output and require the development `reboot` path to actually terminate QEMU under `-no-reboot`. The console uses **polled PS/2 input and native COM1 output**; timer IRQ support does not imply an IRQ-driven keyboard. Memory/PCI/ACPI commands expose bounded early snapshots. This is not a framebuffer terminal, USB HID path or hardware-qualified reset implementation.
+
+M4.5's verified development console is a bridge to M5/M6, not a substitute for Ring 3, syscalls, VFS, TTY and the future Rust userspace shell. The host filesystem tools likewise do not prove that the kernel mounts or persists a filesystem.
+
+## Boot path and next steps
 
 ```mermaid
 flowchart LR
     A["UEFI firmware"] --> B["Vibrix Rust loader"]
-    B --> C["kernel.elf"]
-    C --> D["BootInfo v3"]
-    D --> E["ExitBootServices"]
-    E --> F["Vibrix kernel"]
-    F --> G["Memory + exceptions"]
-    F --> H["ACPI + PCI"]
-    F -. next .-> I["Interactive console"]
-    I -. later .-> J["Userspace shell"]
-    J -. goal .-> K["Persistent USB OS"]
+    B --> C["kernel.elf + BootInfo v3"]
+    C --> D["ExitBootServices"]
+    D --> E["Vibrix kernel"]
+    E --> F["Memory, exceptions, ACPI, PCI"]
+    E --> G["Timer + vibrix> console"]
+    G -. future .-> H["Processes, Ring 3, syscalls"]
+    H -. future .-> I["VFS, TTY, Rust shell"]
+    I -. goal .-> J["Persistent USB OS"]
 ```
 
-### Where we are
+The architecture remains Rust-native: a Vibrix-owned UEFI loader and kernel, native subsystem contracts, future Rust drivers/userspace, VibrixFS integration and removable-root provisioning. Device discovery is not driver activation; a full virtual-memory manager, hardware drivers and persistent system integration remain separate milestones.
 
-| Area | State |
-| --- | --- |
-| UEFI → standalone kernel | ✅ QEMU verified |
-| Higher-half kernel + BootInfo | ✅ |
-| Serial + framebuffer output | ✅ |
-| GDT/TSS + IDT + fault diagnostics | ✅ |
-| Physical frames + early heap | ✅ |
-| Early map/protect/unmap window | ✅ |
-| ACPI XSDT/MCFG discovery | ✅ |
-| MCFG-selected read-only PCIe ECAM bus-zero probe | ✅ QEMU |
-| PCI enumeration + BAR parsing | ✅ |
-| Full VM + hardware IRQ routing | 🚧 |
-| **Interactive kernel console** | 🎯 **next visible milestone** |
-| Processes + Ring 3 + syscalls | ⏳ |
-| VFS + userspace shell | ⏳ |
-| Native USB persistence | ⏳ |
-
-The current kernel is real, but Vibrix is **not yet a usable persistent USB OS**. Hardware interrupts, a general virtual-memory manager, processes, userspace, native USB mass storage and the persistent filesystem remain under construction.
-
-<details>
-<summary><strong>▶ Open a preview of the future Vibrix console</strong></summary>
-
-> This is an interactive-style README mockup of the M4.5 target, **not current functionality**.
-
-```text
-┌──────────────────────────────────────────────────────────────┐
-│                         V I B R I X                          │
-│                portable · rust-native · yours               │
-└──────────────────────────────────────────────────────────────┘
-
-Vibrix kernel console
-Type 'help' for available commands.
-
-vibrix> help
-  help       show commands
-  clear      clear the console
-  info       show kernel/build information
-  mem        inspect memory state
-  pci        list discovered PCI devices
-  acpi       show discovered ACPI information
-  uptime     show monotonic uptime
-  reboot     reboot the machine
-
-vibrix> pci
-00:00.0  host bridge
-00:01.0  display controller
-00:02.0  xHCI controller
-
-vibrix> _
-```
-
-</details>
-
-## M4.5 — give the kernel a voice
-
-Before the full Ring-3 userspace shell, Vibrix is targeting a deliberately small **interactive kernel console**. It gives us something useful to boot and operate while the process/syscall/VFS stack is built underneath it.
-
-The milestone is complete only when QEMU boots to a `vibrix>` prompt, accepts real keyboard input and executes real diagnostic commands. See the exact checklist in [ROADMAP.md](ROADMAP.md).
+See [architecture](docs/ARCHITECTURE.md), [roadmap](ROADMAP.md), [security roadmap](SECURITY_ROADMAP.md) and the [public status page](https://mixutin.github.io/Vibrix/status/). Unmerged block-device, NIC or CPU-enumeration work is not advertised here as shipped functionality.
 
 ## Rust-native, not reinvent-everything-native
 
-Vibrix owns its architecture. **It does not require every building block to be written from scratch.**
+**Community crates and external development tools are welcome.** Agents may use crates.io packages, reviewed Git dependencies and properly licensed vendored Rust libraries when they make Vibrix safer, simpler or more maintainable. Dependencies need not use 0BSD themselves; their own licenses and notices remain applicable.
 
-Community Rust crates are welcome when they make Vibrix safer, faster to develop or easier to maintain. Agents may use:
+Admission includes research into provenance, maintenance, advisories, transitive features, unsafe code, build scripts/procedural macros, native linkage and actual-target compatibility. Git crates use a full commit revision and an explicitly reviewed repository entry. An unfamiliar source/license needs a scoped policy decision, not a blanket library ban or a global scanner bypass.
 
-- crates.io dependencies
-- Git-based Rust crates
-- appropriately licensed vendored Rust crates
-- normal development infrastructure such as QEMU, OVMF, GDB and Git
+The loader must work on `x86_64-unknown-uefi`; the kernel on `x86_64-unknown-none`. Do not silently introduce a host OS, unavailable allocator, `std` or a C runtime into those components. Using a published crate API under its license is permitted; copying another OS's implementation into Vibrix-owned code is not.
 
-Dependencies are reviewed for license, provenance, maintenance, security, unsafe code, transitive dependencies, feature flags and target compatibility. Bare-metal components must still work under their actual `no_std` / UEFI environment.
+Read [dependency policy](docs/DEPENDENCIES.md) and [independence policy](docs/INDEPENDENCE.md).
 
-What we **do not** do is quietly turn Vibrix into another OS: no Linux/BSD kernel underneath it, no copied Linux/BSD/GNU implementation code, no hidden host runtime, and no pretending a crate proves a roadmap feature works.
+## CI that checks the inputs as well as the kernel
 
-Read the full [dependency policy](docs/DEPENDENCIES.md) and [independence policy](docs/INDEPENDENCE.md).
+The workflow now uses a committed Cargo.lock and locked builds, a dated Rust nightly, full RustSec/cargo-deny audits with daily rescans, PR dependency review and minimal-feature checks on both targets. Reports expose licenses, sources, dependency/feature graphs and build-time code indicators. Workflow linting and immutable Action references complement the existing production host tests and real QEMU probes.
 
-## Architecture
+Website checks cover local links/fragments, structured data, key metadata and browser-data helpers; PRs do not deploy. Dependency reports are retained for 14 days and the most recent QEMU diagnostics for seven. A passing scanner is not a security guarantee or a whole-system SBOM.
 
-```text
-                         ┌───────────────────────────┐
-                         │       Rust userspace      │
-                         │ init · shell · utilities  │
-                         └─────────────┬─────────────┘
-                                      │ Vibrix ABI
-                         ┌─────────────▼─────────────┐
-                         │       Vibrix kernel       │
-                         │ proc · VFS · net · memory│
-                         └──────┬─────────────┬──────┘
-                                │             │
-                    ┌───────────▼───┐     ┌───▼────────────┐
-                    │ Rust drivers  │     │ Vibrix FS      │
-                    │ USB · NIC ... │     │ persistent root│
-                    └───────────┬───┘     └───┬────────────┘
-                                └──────┬──────┘
-                                       │
-                         ┌─────────────▼─────────────┐
-                         │   removable USB system    │
-                         └───────────────────────────┘
-```
-
-### Planned tree
-
-```text
-boot/       Rust UEFI loader
-kernel/     Rust kernel
-sys/        native userspace/system interfaces
-user/       init, shell and core utilities
-drivers/    device drivers
-fs/         filesystem + tooling
-image/      USB image/provisioning tooling
-tools/      development utilities
-docs/       architecture, ADRs and specifications
-```
-
-## USB-only by design
-
-Vibrix is not an internal-disk installer or disposable live image.
-
-- system and root filesystem live on removable storage
-- applications, accounts and configuration persist there
-- `/home` persists there
-- updates modify the removable Vibrix installation
-- hardware is rediscovered each boot
-- internal NVMe/SATA may later be exposed as **optional data devices**, never Vibrix system/root targets
-- provisioning must fail safe rather than accidentally selecting an internal disk
-
-## Engineering rules
-
-**Evidence over vibes.** Generated code is not a completed feature. A checkbox requires the behavior to be demonstrated on its stated target.
-
-**Rust all the way down.** Bootloader, kernel, drivers, system libraries, userspace, filesystem, networking and tooling are Rust-first. Tiny architecture-specific assembly is allowed where the hardware genuinely requires it.
-
-**Unsafe has a boundary.** MMIO, DMA, page tables, raw pointers, interrupts and context switching inevitably need unsafe operations; their invariants are documented and kept narrow.
-
-**QEMU first, hardware second.** QEMU evidence is valuable but never presented as physical-hardware evidence.
-
-## AI-only engineering
-
-AI agents author implementation, technical documentation, pull requests, architecture proposals and test reports. Additional AI review is welcome when another agent is active, but a single agent may integrate a scoped change after exact-head validation under the project's maintainer policy.
-
-Concurrent work is coordinated through [AGENT_COORDINATION.md](AGENT_COORDINATION.md) and the [AI Agent Coordination Board](https://github.com/mixutin/Vibrix/issues/46).
-
-## Road to a usable Vibrix
-
-```mermaid
-flowchart LR
-    M0["M0–M2<br/>Boot"] --> M3["M3<br/>Kernel foundations"]
-    M3 --> M4["M4<br/>Device discovery"]
-    M4 --> M45["M4.5<br/>Interactive console"]
-    M45 --> M5["M5<br/>Processes + syscalls"]
-    M5 --> M6["M6<br/>VFS + shell"]
-    M6 --> M7["M7<br/>USB platform"]
-    M7 --> M8["M8<br/>Vibrix FS"]
-    M8 --> M9["M9<br/>Persistent USB OS"]
-```
-
-The console milestone is intentionally **not** a substitute for userspace. M5/M6 remain the point where PID 1, Ring 3, syscalls, VFS, TTY and the real Rust shell arrive.
+The aggregate `CI gate` and separate `Website checks` are intended as required checks. **Repository branch-protection settings must enforce them; adding workflow YAML alone does not prevent a failing PR from being merged.** See [CI.md](docs/CI.md) for coverage, artifacts and limits.
 
 ## Try the development build
 
-The project currently targets x86-64 UEFI with QEMU/OVMF. With the required Rust toolchain, QEMU and OVMF installed:
+Install Git, the Rust toolchain manager, QEMU and OVMF, then:
 
 ```bash
+git clone https://github.com/mixutin/Vibrix.git
+cd Vibrix
 ./tools/run-qemu.sh
 ```
 
@@ -235,11 +112,19 @@ For automated smoke testing:
 ./tools/test-qemu.sh
 ```
 
-See [QEMU.md](docs/QEMU.md) and [CI.md](docs/CI.md) for the exact environment and validation model.
+The build uses the repository-pinned toolchain and Cargo.lock. Follow [QEMU.md](docs/QEMU.md) for exact prerequisites, display/input controls and serial logs. Do not treat this workflow as permission to flash an internal disk or as proof of physical-machine support.
+
+## AI-only engineering, evidence first
+
+AI agents implement, test and document the system while the owner sets direction. Substantive changes require primary-source research, comparison of reasonable approaches, actual test evidence and honest limits. PR titles and descriptions credit the known authoring model; independent review is named only when it happened.
+
+Coordinate through current PRs and repository state, not archived boards. Read [AGENTS.md](AGENTS.md), [coordination](AGENT_COORDINATION.md) and the [AI contribution guide](docs/AI_CONTRIBUTING.md). Synchronize with current main and repair failing checks before integration. A single active agent can integrate a bounded passing change under the standing maintainer policy; that never waives safety or evidence.
+
+**Compiled is not boot-tested. QEMU-tested is not bare-metal tested. Generated code is not a completed feature.**
 
 ## License
 
-Vibrix is released under the **BSD Zero Clause License (0BSD)** — use, copy, modify and distribute it for any purpose subject to [LICENSE](LICENSE).
+First-party Vibrix code is available under the **BSD Zero Clause License (0BSD)**; see [LICENSE](LICENSE). External dependencies retain their own licenses and attribution requirements.
 
 <div align="center">
 
