@@ -3,7 +3,7 @@ use core::alloc::Layout;
 
 const GRANULE: usize = 16;
 const UNITS: usize = 4096;
-const CAPACITY: usize = GRANULE * UNITS;
+pub const CAPACITY: usize = GRANULE * UNITS;
 const CONTINUATION: u16 = u16::MAX;
 
 /// Zero means free, a run head stores its length, remaining units are tagged.
