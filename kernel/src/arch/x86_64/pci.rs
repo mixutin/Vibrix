@@ -241,7 +241,7 @@ fn inspect_bars(read: &mut impl FnMut(Bdf, u8) -> u32, device: Device, sum: &mut
 /// caller must serialize CF8/CFC access globally across CPUs/interrupts;
 /// current early kernel satisfies this with one boot CPU and IF cleared.
 #[cfg(not(test))]
-unsafe fn read_legacy_dword(bdf: Bdf, offset: u8) -> u32 {
+pub(super) unsafe fn read_legacy_dword(bdf: Bdf, offset: u8) -> u32 {
     let Some(address) = configuration_address(bdf, offset) else {
         return u32::MAX;
     };
@@ -268,17 +268,28 @@ unsafe fn read_legacy_dword(bdf: Bdf, offset: u8) -> u32 {
     word
 }
 
-/// Run the real post-ExitBootServices segment-zero scan.
+/// Run the real post-ExitBootServices segment-zero scan, including bounded
+/// read-only MSI/MSI-X capability inventory for each present function.
 ///
 /// # Safety
 /// Sole boot CPU, IF=0, ring zero and no concurrent CF8/CFC user. Do not
 /// use this mechanism for ACPI MCFG segments other than zero.
 #[cfg(not(test))]
-pub unsafe fn discover_legacy_segment_zero(visit: impl FnMut(Device)) -> Summary {
-    scan_segment_zero(
+pub unsafe fn discover_legacy_segment_zero(mut visit: impl FnMut(Device)) -> Summary {
+    let mut interrupts = super::pci_caps::Inventory::default();
+    let summary = scan_segment_zero(
         |bdf, offset| unsafe { read_legacy_dword(bdf, offset) },
-        visit,
-    )
+        |device| {
+            visit(device);
+            // SAFETY: same sole-BSP, IF=0 configuration transaction owner.
+            let found = super::pci_interrupts::discover(&mut |offset| {
+                Some(unsafe { read_legacy_dword(device.bdf, offset) })
+            });
+            interrupts.observe(device, found);
+        },
+    );
+    interrupts.finish();
+    summary
 }
 
 #[cfg(test)]
