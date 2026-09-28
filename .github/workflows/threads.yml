@@ -44,3 +44,70 @@ jobs:
           path: build/qemu/*.log
           if-no-files-found: warn
           retention-days: 7
+
+  preemptive:
+    name: Preemptive timer scheduling
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf
+      - name: Execute timer-driven kernel preemption
+        env:
+          VIBRIX_KERNEL_FEATURES: qemu-debugcon,preempt-thread-probe
+        run: bash tools/test-qemu.sh
+      - name: Validate guest-origin preemption order and counters
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          import re
+
+          debug = pathlib.Path("build/qemu/debugcon.log").read_text(encoding="utf-8", errors="replace")
+          serial = pathlib.Path("build/qemu/serial.log").read_text(encoding="utf-8", errors="replace")
+          markers = [
+              "VIBRIX: kernel timer IRQ delivered",
+              "VIBRIX: preempt thread A phase 1",
+              "VIBRIX: preempt thread B phase 1",
+              "VIBRIX: preempt thread A phase 2",
+              "VIBRIX: preempt thread B phase 2",
+              "VIBRIX: kernel preemptive scheduler verified",
+              "VIBRIX: kernel console prompt ready",
+          ]
+          positions = []
+          for marker in markers:
+              if debug.count(marker) != 1:
+                  raise SystemExit(f"missing or duplicate preemption marker: {marker}")
+              positions.append(debug.index(marker))
+          if positions != sorted(positions):
+              raise SystemExit("preemption markers are out of execution order")
+          match = re.search(
+              r"kernel scheduler: preemptive switches=(\d+) preemptions=(\d+) completed=(\d+)",
+              serial,
+          )
+          if not match:
+              raise SystemExit("missing preemptive scheduler COM1 counters")
+          switches, preemptions, completed = map(int, match.groups())
+          if switches < 6 or preemptions < 3 or completed != 2:
+              raise SystemExit(
+                  f"insufficient preemption evidence: switches={switches} "
+                  f"preemptions={preemptions} completed={completed}"
+              )
+          print(
+              f"verified timer preemption: switches={switches} "
+              f"preemptions={preemptions} completed={completed}"
+          )
+          PY
+      - name: Preserve preemptive guest evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: preemptive-thread-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/qemu/*.log
+          if-no-files-found: warn
+          retention-days: 7
