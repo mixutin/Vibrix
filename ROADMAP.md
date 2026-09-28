@@ -259,7 +259,19 @@ the first real userspace CLI.
 - [x] Superblock/allocation metadata
 - [ ] files/directories
 - [ ] permissions/timestamps
-- [ ] crash-consistency design
+- [x] crash-consistency design
+**Adopted M8 crash-consistency design (ADR 0011):** VibrixFS writable
+metadata will use a bounded full-block redo journal with one transaction owner,
+ordered new-data writes, explicit durability barriers, a checksummed commit
+record, idempotent home-block replay, and secondary-then-primary generation
+checkpoints. Torn or incomplete committed journal state fails closed instead of
+partially replaying. Freed blocks are not reusable until checkpoint retirement,
+and a kernel writable mount is forbidden until the native block/USB path can
+provide real cache-flush ordering. This checkbox records the **accepted design
+contract only**. Journal record implementation, interrupted-write tests,
+formatter/recovery tooling, VFS integration and USB persistence remain
+unchecked.
+
 - [ ] formatter + recovery tool
 - [ ] VFS driver
 - [ ] persistent root mounted from USB
