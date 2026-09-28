@@ -49,7 +49,7 @@ impl From<Error> for InitError {
 }
 
 pub fn init() -> core::result::Result<(), InitError> {
-    if READY.swap(true, Ordering::SeqCst) {
+    if READY.load(Ordering::SeqCst) {
         return Err(InitError::AlreadyInitialized);
     }
 
@@ -87,32 +87,32 @@ pub fn init() -> core::result::Result<(), InitError> {
         Ok(())
     })();
 
-    if result.is_err() {
-        // No userspace execution starts after failed initialization.
-        READY.store(false, Ordering::SeqCst);
+    if result.is_ok() {
+        READY.store(true, Ordering::SeqCst);
     }
     result
 }
 
-fn files() -> Result<&'static mut BootstrapFiles<'static>> {
+fn with_files<T>(operation: impl FnOnce(&mut BootstrapFiles<'static>) -> Result<T>) -> Result<T> {
     if !READY.load(Ordering::SeqCst) {
         return Err(Error::BadDescriptor);
     }
     // SAFETY: single BSP, syscall entry has IF masked, and no reentrant VFS
-    // caller exists in this bounded proof.
-    unsafe { (*FILES.0.get()).as_mut().ok_or(Error::BadDescriptor) }
+    // caller exists in this bounded proof. The mutable borrow never escapes.
+    let files = unsafe { (*FILES.0.get()).as_mut().ok_or(Error::BadDescriptor)? };
+    operation(files)
 }
 
 pub fn read(fd: usize, buffer: &mut [u8]) -> Result<usize> {
     loop {
-        match files()?.read(fd, buffer) {
+        match with_files(|files| files.read(fd, buffer)) {
             Ok(count) => return Ok(count),
             Err(Error::WouldBlock) if fd == 0 => {
                 // SAFETY: this proof owns the sole post-UEFI i8042 consumer.
                 if let Some(scan) = unsafe { ps2::poll_scancode() } {
                     // SAFETY: same single-BSP ownership as FILES.
                     if let Some(ascii) = unsafe { &mut *KEYS.0.get() }.feed(scan) {
-                        files()?.device_input("/dev/tty", ascii)?;
+                        with_files(|files| files.device_input("/dev/tty", ascii))?;
                     }
                 } else {
                     core::hint::spin_loop();
@@ -124,18 +124,16 @@ pub fn read(fd: usize, buffer: &mut [u8]) -> Result<usize> {
 }
 
 pub fn write(fd: usize, buffer: &[u8]) -> Result<usize> {
-    let count = files()?.write(fd, buffer)?;
+    let count = with_files(|files| files.write(fd, buffer))?;
     let mut drained = [0u8; 128];
     loop {
-        let n = files()?.device_output("/dev/tty", &mut drained)?;
+        let n = with_files(|files| files.device_output("/dev/tty", &mut drained))?;
         if n == 0 {
             break;
         }
         // Userspace output is bytes, not trusted UTF-8. COM1 already exposes
         // a byte-oriented bounded writer.
-        serial::COM1
-            .write_bytes(&drained[..n])
-            .map_err(|_| Error::BackendContract)?;
+        serial::write_bytes(&drained[..n]).map_err(|_| Error::BackendContract)?;
     }
     Ok(count)
 }
