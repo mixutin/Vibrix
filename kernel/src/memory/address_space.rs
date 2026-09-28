@@ -8,9 +8,7 @@ use crate::BootInfo;
 use core::arch::{asm, x86_64::__cpuid_count};
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicU64, Ordering};
-use vibrix_vmm::address::{
-    PAGE_BYTES, USER_SLOT, Page, Permissions, PhysicalFrame, Privilege,
-};
+use vibrix_vmm::address::{PAGE_BYTES, Page, Permissions, PhysicalFrame, Privilege, USER_SLOT};
 use vibrix_vmm::frames::Frames;
 use vibrix_vmm::walk::{ADDRESS_MASK, Memory, USER};
 use vibrix_vmm::{Error, GuardedLayout, GuardedVm, Vm};
