@@ -541,7 +541,7 @@ and PID 1 execution remain separate work.
 - [x] In-memory bootstrap filesystem
 - [x] /dev
 - [x] pipes
-- [ ] TTY
+- [x] TTY
 - [ ] Rust init
 - [ ] Rust shell
 - [ ] Core utilities: cat, echo, ls, pwd, cd, mkdir, cp, mv, rm, ps, kill
@@ -565,6 +565,21 @@ pipes** only. The implementation is volatile and kernel-owned; it is not a
 userspace TTY or shell, has no file-syscall dispatcher/process ownership, and
 does not mount VibrixFS or write the boot USB. TTY, Rust init/shell, core
 userspace utilities and persistent storage remain separate work.
+
+**Verified M6 bounded /dev/tty line discipline (PR #147):**
+[Actions run 36480159539](https://github.com/mixutin/Vibrix/actions/runs/36480159539)
+passed the full repository CI on implementation head
+`ea24f4b780fedc92ca1da16216db777b82210393`. The bootstrap devfs now exposes
+a stateful `/dev/tty` with canonical line buffering, Backspace/Delete and
+Ctrl-U editing, bounded input/output queues, fail-before-partial-write capacity
+handling, normal descriptor-facing reads/writes, and kernel-only device hooks.
+The real post-ExitBootServices PS/2 path injects QEMU keyboard bytes into the
+same TTY, and the QEMU keyboard proof requires both the hardware-input and
+line-discipline markers.
+
+This checks the **bounded TTY foundation** only. It does not yet provide
+termios, job control, sessions/process groups, signals, scheduler-blocking
+wakeups, UTF-8 editing, a userspace shell, or PID 1 terminal ownership.
 
 **Exit:** boot to an interactive Vibrix userspace shell.
 
