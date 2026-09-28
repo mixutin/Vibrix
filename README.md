@@ -34,13 +34,13 @@ The intended bootloader, kernel, future userspace, applications, settings and ho
 
 ## Current verified status — 28 September 2026
 
-Source refreshed onto main [`d72dd47`](https://github.com/mixutin/Vibrix/commit/d72dd478a716f31c7b3f7a90c2f2df19502a7c08), preserving the merged managed-VM, block/NIC/CPU, update-policy, ESP and PCI-interrupt work. This snapshot describes merged code, not open PR proposals. Consult the [roadmap](ROADMAP.md) for the exact scope of each checkbox.
+Source refreshed against main [`5bbcb63`](https://github.com/mixutin/Vibrix/commit/5bbcb635d7a2e67eb626085c84a4ff7072e12ba0), preserving the merged managed-VM, block/NIC/CPU, update-policy, ESP and native PCI-interrupt work. This snapshot describes merged code, not open PR proposals. Consult the [roadmap](ROADMAP.md) for the exact scope of each checkbox.
 
 | Area | Demonstrated scope |
 | --- | --- |
 | UEFI → standalone kernel | QEMU firmware exit, higher-half kernel and BootInfo v3 |
 | CPU/memory foundations | CPUID, GDT/TSS, IDT/fault diagnostics, physical frames, early heap, bounded managed map/protect/reclaim, guarded regions and real CPU fault evidence |
-| Discovery | ACPI, native PCI/BAR + MCFG/ECAM, driver candidates/binding, CPU inventory and checked MSI/MSI-X capability inventory/programming contracts |
+| Discovery / PCI interrupts | ACPI, native PCI/BAR + MCFG/ECAM, driver candidates/binding, CPU inventory, checked MSI/MSI-X programming contracts, and **actual QEMU EDU MSI delivery + disable evidence** |
 | Driver binding | Fixed-capacity device-to-driver ownership registry; duplicate, unknown-device and capacity rejection; **not hardware activation** |
 | Timer | Native IRQ delivery and a console timer source in QEMU |
 | **Interactive kernel console** | **Real virtual keyboard input, bounded editing, dispatch and diagnostic/control commands** |
@@ -77,7 +77,7 @@ flowchart LR
 
 The architecture remains Rust-native: a Vibrix-owned UEFI loader and kernel, native subsystem contracts, future Rust drivers/userspace, VibrixFS integration and removable-root provisioning. The bounded single-BSP managed VM now has dynamic mapping, protection, reclaim, guard and CPU-fault evidence; userspace address spaces, SMP shootdowns, operational hardware drivers and persistent system integration remain separate milestones.
 
-See [architecture](docs/ARCHITECTURE.md), [roadmap](ROADMAP.md), [security roadmap](SECURITY_ROADMAP.md) and the [public status page](https://mixutin.github.io/Vibrix/status/). Merged block-device, NIC abstraction, CPU enumeration and managed-VM evidence are reflected here; native USB storage, a real network stack and userspace remain unfinished.
+See [architecture](docs/ARCHITECTURE.md), [roadmap](ROADMAP.md), [security roadmap](SECURITY_ROADMAP.md) and the [public status page](https://mixutin.github.io/Vibrix/status/). Merged block-device, NIC abstraction, CPU enumeration, managed-VM and isolated QEMU MSI delivery evidence are reflected here; MSI-X delivery, native USB storage, a real network stack and userspace remain unfinished.
 
 ## Rust-native, not reinvent-everything-native
 
