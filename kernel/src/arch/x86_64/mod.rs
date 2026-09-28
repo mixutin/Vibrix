@@ -32,3 +32,5 @@ pub mod ring3;
 pub mod serial;
 #[cfg(any(feature = "syscall-probe", feature = "process-syscall-probe"))]
 pub mod syscall;
+#[cfg(feature = "xhci-init-probe")]
+pub mod xhci;
