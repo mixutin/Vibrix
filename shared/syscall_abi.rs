@@ -152,21 +152,30 @@ mod tests {
         }
         assert_eq!(decode_result(0), Ok(0));
         assert_eq!(decode_result(MAX_ERRNO as u64), Ok(MAX_ERRNO as u64));
-        assert_eq!(decode_result(0u64.wrapping_sub((MAX_ERRNO as u64) + 1)), Ok(0u64.wrapping_sub((MAX_ERRNO as u64) + 1)));
+        assert_eq!(
+            decode_result(0u64.wrapping_sub((MAX_ERRNO as u64) + 1)),
+            Ok(0u64.wrapping_sub((MAX_ERRNO as u64) + 1))
+        );
     }
 
     #[test]
     fn user_ranges_reject_overflow_and_upper_half() {
         assert_eq!(checked_user_range(0x1000, 0), Some((0x1000, 0x1000)));
         assert_eq!(checked_user_range(0x1000, 0x20), Some((0x1000, 0x101f)));
-        assert_eq!(checked_user_range(0x0000_7fff_ffff_ffff, 1), Some((0x0000_7fff_ffff_ffff, 0x0000_7fff_ffff_ffff)));
+        assert_eq!(
+            checked_user_range(0x0000_7fff_ffff_ffff, 1),
+            Some((0x0000_7fff_ffff_ffff, 0x0000_7fff_ffff_ffff))
+        );
         assert_eq!(checked_user_range(0x0000_8000_0000_0000, 1), None);
         assert_eq!(checked_user_range(u64::MAX - 3, 8), None);
     }
 
     #[test]
     fn register_contract_never_uses_transport_clobbers() {
-        assert_eq!(ARGUMENT_REGISTERS, ["rdi", "rsi", "rdx", "r10", "r8", "r9"]);
+        assert_eq!(
+            ARGUMENT_REGISTERS,
+            ["rdi", "rsi", "rdx", "r10", "r8", "r9"]
+        );
         assert!(!ARGUMENT_REGISTERS.contains(&"rcx"));
         assert!(!ARGUMENT_REGISTERS.contains(&"r11"));
     }
