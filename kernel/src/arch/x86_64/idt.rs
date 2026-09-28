@@ -72,7 +72,7 @@ pub unsafe fn init() {
         spurious_handler as *const () as usize as u64,
         Gdt::KERNEL_CODE_SELECTOR,
     );
-    #[cfg(feature = "ring3-probe")]
+    #[cfg(any(feature = "ring3-probe", feature = "address-space-probe"))]
     {
         table.0[super::ring3::PROBE_VECTOR] = IdtGate::user_interrupt(
             ring3_probe_handler as *const () as usize as u64,
@@ -127,7 +127,7 @@ extern "x86-interrupt" fn spurious_handler(_frame: InterruptStackFrame) {
     // Architectural spurious-vector interrupts do not require an EOI.
 }
 
-#[cfg(feature = "ring3-probe")]
+#[cfg(any(feature = "ring3-probe", feature = "address-space-probe"))]
 extern "x86-interrupt" fn ring3_probe_handler(frame: InterruptStackFrame) -> ! {
     let kernel_rsp: u64;
     // SAFETY: read-only inspection of the handler's current CPL0 stack pointer.
@@ -135,7 +135,12 @@ extern "x86-interrupt" fn ring3_probe_handler(frame: InterruptStackFrame) -> ! {
     let selectors_ok =
         super::ring3::user_frame_selectors_valid(frame.code_segment, frame.stack_segment);
     let rsp0_ok = super::gdt::ring0_stack_contains(kernel_rsp);
-    if selectors_ok && rsp0_ok {
+    #[cfg(feature = "address-space-probe")]
+    let (expected_root, current_root, address_space_ok) =
+        crate::memory::address_space::active_root_status();
+    #[cfg(not(feature = "address-space-probe"))]
+    let address_space_ok = true;
+    if selectors_ok && rsp0_ok && address_space_ok {
         crate::debugcon::write("VIBRIX: kernel CPL3 trap reached via TSS RSP0\r\n");
         crate::println!(
             "kernel ring3 probe: cs={:#x} ss={:#x} user_rsp={:#x} kernel_rsp={:#x}",
@@ -144,6 +149,15 @@ extern "x86-interrupt" fn ring3_probe_handler(frame: InterruptStackFrame) -> ! {
             frame.stack_pointer,
             kernel_rsp
         );
+        #[cfg(feature = "address-space-probe")]
+        {
+            crate::debugcon::write("VIBRIX: kernel userspace CR3 preserved across CPL3 trap\r\n");
+            crate::println!(
+                "kernel address space trap: expected_cr3={:#x} current_cr3={:#x}",
+                expected_root,
+                current_root
+            );
+        }
     } else {
         crate::debugcon::write("VIBRIX: kernel CPL3 trap validation failed\r\n");
         crate::println!(
@@ -152,6 +166,12 @@ extern "x86-interrupt" fn ring3_probe_handler(frame: InterruptStackFrame) -> ! {
             frame.stack_segment,
             frame.stack_pointer,
             kernel_rsp
+        );
+        #[cfg(feature = "address-space-probe")]
+        crate::println!(
+            "kernel address space trap rejected: expected_cr3={:#x} current_cr3={:#x}",
+            expected_root,
+            current_root
         );
     }
     loop {

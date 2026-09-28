@@ -3,6 +3,8 @@
 //! The loader maps and retains the entire EfiLoaderData memory-map buffer
 //! before switching CR3. Its UEFI descriptors stay immutable after EBS.
 //! This intentionally does not claim a general SMP-safe allocator.
+#[cfg(all(target_os = "none", feature = "address-space-probe"))]
+pub mod address_space;
 pub mod frame_allocator;
 pub mod heap;
 #[cfg(target_os = "none")]

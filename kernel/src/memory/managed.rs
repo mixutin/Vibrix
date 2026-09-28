@@ -5,7 +5,7 @@ use crate::BootInfo;
 use core::arch::{asm, x86_64::__cpuid_count};
 use core::cell::UnsafeCell;
 use vibrix_vmm::address::{ARENA_BASE, ARENA_SLOT, Page, PageRange, Permissions, PhysicalFrame};
-#[cfg(feature = "ring3-probe")]
+#[cfg(all(feature = "ring3-probe", not(feature = "address-space-probe")))]
 use vibrix_vmm::address::{PAGE_BYTES, Privilege};
 use vibrix_vmm::frames::Frames;
 use vibrix_vmm::walk::ADDRESS_MASK;
@@ -363,7 +363,7 @@ pub fn runtime_query(address: u64) -> Result<Option<Translation>, RuntimeError> 
     with_runtime(|vm| vm.query(page))
 }
 
-#[cfg(feature = "ring3-probe")]
+#[cfg(all(feature = "ring3-probe", not(feature = "address-space-probe")))]
 pub fn prepare_ring3_probe() -> Result<(u64, u64), RuntimeError> {
     const CODE_GUARD: u64 = ARENA_BASE + 8 * PAGE_BYTES;
     const STACK_GUARD: u64 = ARENA_BASE + 12 * PAGE_BYTES;

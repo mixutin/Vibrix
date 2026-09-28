@@ -425,6 +425,13 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             panic!("runtime managed VM initialization failed: {:?}", error)
         });
         debugcon::write("VIBRIX: kernel managed VM runtime initialized\r\n");
+        #[cfg(feature = "address-space-probe")]
+        unsafe {
+            memory::address_space::init(&info).unwrap_or_else(|error| {
+                panic!("userspace address-space initialization failed: {:?}", error)
+            });
+            debugcon::write("VIBRIX: kernel userspace CR3 prepared\r\n");
+        }
         let before = arch::x86_64::irq::timer_ticks();
         // SAFETY: the only unmasked external source is the validated PIT
         // route into a permanent timer gate; handler state is atomic.
@@ -456,7 +463,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             debugcon::write("VIBRIX: kernel preemptive scheduler verified\r\n");
         }
 
-        #[cfg(feature = "ring3-probe")]
+        #[cfg(all(feature = "ring3-probe", not(feature = "address-space-probe")))]
         {
             let (user_rip, user_rsp) = memory::managed::prepare_ring3_probe()
                 .unwrap_or_else(|error| panic!("ring3 probe mapping failed: {:?}", error));
@@ -469,6 +476,29 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             // SAFETY: prepare_ring3_probe leaves guarded user RX/RW mappings
             // live; GDT/TSS/IDT are permanent and the DPL3 probe gate exists.
             unsafe { arch::x86_64::ring3::enter(user_rip, user_rsp) };
+        }
+
+        #[cfg(feature = "address-space-probe")]
+        {
+            // SAFETY: the feature-gated owner was initialized pre-STI. This
+            // masks local interrupts, switches to its private CR3 and leaves
+            // IF=0 for the immediate privilege transition below.
+            let probe =
+                unsafe { memory::address_space::activate_probe() }.unwrap_or_else(|error| {
+                    panic!("address-space probe activation failed: {:?}", error)
+                });
+            debugcon::write("VIBRIX: kernel userspace CR3 activated\r\n");
+            crate::println!(
+                "kernel address space probe: kernel_cr3={:#x} user_cr3={:#x} rip={:#x} rsp={:#x}",
+                probe.kernel_root,
+                probe.user_root,
+                probe.user_rip,
+                probe.user_rsp
+            );
+            // SAFETY: activate_probe verified RX/RW user mappings under the
+            // independently owned active CR3; GDT/TSS/IDT remain shared,
+            // supervisor-only kernel mappings.
+            unsafe { arch::x86_64::ring3::enter(probe.user_rip, probe.user_rsp) };
         }
     }
 

@@ -342,7 +342,7 @@ fn ring0_stack_top(stack: *mut Ring0Stack) -> u64 {
 
 /// True only for a live stack pointer strictly inside the permanent BSP
 /// privilege-transition stack. The exclusive top is a pre-push RSP value.
-#[cfg(any(feature = "ring3-probe", test))]
+#[cfg(any(feature = "ring3-probe", feature = "address-space-probe", test))]
 pub(crate) fn ring0_stack_contains(rsp: u64) -> bool {
     let base = RING0_STACK.0.get() as u64;
     let top = ring0_stack_top(RING0_STACK.0.get());
