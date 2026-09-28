@@ -118,7 +118,23 @@ and SMP handling are separate unchecked work. Target 001 is untested.
 - [x] BAR parsing
 - [ ] MSI/MSI-X
 - [x] Device/driver model
-- [ ] Driver binding
+- [x] Driver binding
+
+**Verified M4 driver binding registry (PR #90):**
+[Actions run 36388347347](https://github.com/mixutin/Vibrix/actions/runs/36388347347)
+passed both required jobs on the synchronized post-M4.5 head. Host tests exercised
+exclusive device ownership, duplicate-binding rejection, unknown-device
+rejection, and fixed-capacity overflow. The native post-firmware PCI scan then
+committed every matched device identity to the bounded driver registry. Normal
+QEMU required the independent binding-registry-ready marker, while the explicit
+virtual-xHCI boot required at least one live xHCI binding and **zero binding
+failures** through the same discovered PCI identities.
+
+This checkbox means **device-to-driver ownership association** is implemented;
+it does not activate any device. Binding performs no PCI configuration writes,
+BAR MMIO, bus mastering, DMA, MSI/MSI-X programming, USB transactions,
+Ethernet I/O, interrupt setup, or Target 001 hardware access. Native xHCI and
+RTL8168 initialization remain later driver milestones.
 
 **Verified M4 device/driver candidate model (PR #87):**
 [Actions run 36384062012](https://github.com/mixutin/Vibrix/actions/runs/36384062012)

@@ -34,13 +34,14 @@ The intended bootloader, kernel, future userspace, applications, settings and ho
 
 ## Current verified status — 28 September 2026
 
-Baseline: main [`cfc8bd1`](https://github.com/mixutin/Vibrix/commit/cfc8bd1a6e7cfce8492eecaef7ba746ac8841aaa), successful [CI run 36388253686](https://github.com/mixutin/Vibrix/actions/runs/36388253686). This snapshot describes merged code, not open PR proposals. Consult the [roadmap](ROADMAP.md) for exact evidence and scope of each checkbox.
+Source synchronized through main [`c1ba882`](https://github.com/mixutin/Vibrix/commit/c1ba882862c7e28f167bf4a2c35192e502904ca1), including merged driver-binding PR #90. Console baseline [`cfc8bd1`](https://github.com/mixutin/Vibrix/commit/cfc8bd1a6e7cfce8492eecaef7ba746ac8841aaa) passed [run 36388253686](https://github.com/mixutin/Vibrix/actions/runs/36388253686); driver ownership has separate [run 36388347347](https://github.com/mixutin/Vibrix/actions/runs/36388347347) evidence. This snapshot describes merged code, not open PR proposals. Consult the [roadmap](ROADMAP.md) for the exact scope of each checkbox.
 
 | Area | Demonstrated scope |
 | --- | --- |
 | UEFI → standalone kernel | QEMU firmware exit, higher-half kernel and BootInfo v3 |
 | CPU/memory foundations | CPUID, GDT/TSS, IDT/fault diagnostics, physical frames, early heap and bounded map/protect/unmap window |
 | Discovery | ACPI tables, native PCI/BAR discovery, bounded read-only MCFG/ECAM and driver candidates |
+| Driver binding | Fixed-capacity device-to-driver ownership registry; duplicate, unknown-device and capacity rejection; **not hardware activation** |
 | Timer | Native IRQ delivery and a console timer source in QEMU |
 | **Interactive kernel console** | **Real virtual keyboard input, bounded editing, dispatch and diagnostic/control commands** |
 | GPT tooling | Safe regular-file image creation/inspection; ESP plus dedicated Vibrix System partition |
@@ -74,7 +75,7 @@ flowchart LR
     I -. goal .-> J["Persistent USB OS"]
 ```
 
-The architecture remains Rust-native: a Vibrix-owned UEFI loader and kernel, native subsystem contracts, future Rust drivers/userspace, VibrixFS integration and removable-root provisioning. Device discovery is not driver activation; a full virtual-memory manager, hardware drivers and persistent system integration remain separate milestones.
+The architecture remains Rust-native: a Vibrix-owned UEFI loader and kernel, native subsystem contracts, future Rust drivers/userspace, VibrixFS integration and removable-root provisioning. Device discovery and ownership binding are not hardware activation; a full virtual-memory manager, operational drivers and persistent system integration remain separate milestones.
 
 See [architecture](docs/ARCHITECTURE.md), [roadmap](ROADMAP.md), [security roadmap](SECURITY_ROADMAP.md) and the [public status page](https://mixutin.github.io/Vibrix/status/). Unmerged block-device, NIC or CPU-enumeration work is not advertised here as shipped functionality.
 
