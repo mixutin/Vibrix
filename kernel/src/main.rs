@@ -179,6 +179,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     // Actual retained firmware SDTs are not identity mapped. Read only
     // ACPI-type WB pages via the now-empty temporary v3 mapping window,
     // unmapping all leaves before later kernel facilities use that window.
+    let mut timer_setup = None;
     let acpi_mcfg = unsafe { parse_boot_rsdp(&info) }.and_then(|rsdp| {
         // SAFETY: sole boot CPU, IF=0, physical allocator initialized and
         // mapping-window smoke test has unmapped every temporary leaf.
@@ -226,6 +227,15 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                         apic.ioapic_max_redirection_entry
                     );
                     debugcon::write("VIBRIX: kernel LAPIC and IOAPIC registers read\r\n");
+                    timer_setup = Some((
+                        discovery.lapic_physical,
+                        discovery.ioapic_physical,
+                        discovery.ioapic_gsi_base,
+                        discovery.timer_gsi,
+                        discovery.timer_active_low,
+                        discovery.timer_level_triggered,
+                        apic,
+                    ));
                 }
                 Err(error) => {
                     crate::println!("kernel APIC validation failed: {:?}", error);
@@ -287,6 +297,62 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         );
     }
 
+    // Compile the IRQ path in every feature combination so all-feature
+    // Clippy validates it. Feature-probe binaries take the false branch and
+    // preserve IF=0; only the ordinary development kernel activates the PIT.
+    // The default interactive QEMU kernel activates the validated timer
+    // route only after all temporary mapping-window users and fault probes.
+    // Feature-probe kernels preserve the historical IF=0 environment.
+    if !cfg!(any(
+        feature = "panic-probe",
+        feature = "breakpoint-probe",
+        feature = "page-fault-probe",
+        feature = "vm-write-probe",
+        feature = "vm-unmap-probe"
+    )) {
+        let (
+            lapic_physical,
+            ioapic_physical,
+            ioapic_gsi_base,
+            timer_gsi,
+            timer_active_low,
+            timer_level_triggered,
+            apic,
+        ) = timer_setup.unwrap_or_else(|| panic!("validated APIC timer topology unavailable"));
+        let route = arch::x86_64::irq::Route::new(
+            timer_gsi,
+            arch::x86_64::irq::TIMER_VECTOR,
+            apic.lapic_id,
+        )
+        .unwrap_or_else(|_| panic!("timer route policy rejected"))
+        .with_signal(timer_active_low, timer_level_triggered);
+        // SAFETY: sole BSP, IF=0, all transient v3-window consumers are
+        // complete; APIC addresses and GSI policy came from validated
+        // MADT plus the immediately preceding architectural APIC probe.
+        unsafe {
+            arch::x86_64::apic::activate_pit_timer(
+                &info,
+                lapic_physical,
+                ioapic_physical,
+                ioapic_gsi_base,
+                apic.ioapic_max_redirection_entry,
+                route,
+            )
+        }
+        .unwrap_or_else(|error| panic!("timer routing activation failed: {:?}", error));
+        let before = arch::x86_64::irq::timer_ticks();
+        // SAFETY: the only unmasked external source is the validated PIT
+        // route into a permanent timer gate; handler state is atomic.
+        unsafe { arch::x86_64::apic::enable_interrupts() };
+        while arch::x86_64::irq::timer_ticks() == before {
+            // SAFETY: IF=1 and the PIT route should wake this BSP. Failure
+            // to deliver is intentionally observable as a QEMU timeout.
+            unsafe { core::arch::asm!("hlt", options(nomem, nostack)) };
+        }
+        crate::println!("kernel timer: tick {}", arch::x86_64::irq::timer_ticks());
+        debugcon::write("VIBRIX: kernel timer IRQ delivered\r\n");
+    }
+
     // Separate QEMU-only smoke configuration exercises the *real* kernel
     // panic handler after the ordinary post-firmware boot path succeeded.
     #[cfg(feature = "panic-probe")]
@@ -295,14 +361,14 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     #[cfg(not(feature = "panic-probe"))]
     {
         // Development QEMU keyboard: read only legacy i8042 ports after
-        // ExitBootServices; IRQs remain disabled and no USB HID is implied.
+        // ExitBootServices; input remains polled after timer IRQ enablement.
         let mut ps2 = arch::x86_64::ps2::SetOne::new();
         let mut line = console::LineEditor::new();
         debugcon::write("VIBRIX: kernel PS2 polling ready\r\n");
         crate::print!("vibrix> ");
         debugcon::write("VIBRIX: kernel console prompt ready\r\n");
         loop {
-            // SAFETY: sole boot CPU, IF=0, i8042 data has no other consumer.
+            // SAFETY: sole boot CPU; no interrupt handler consumes i8042 data.
             if let Some(scan) = unsafe { arch::x86_64::ps2::poll_scancode() }
                 && let Some(ascii) = ps2.feed(scan)
             {
@@ -319,7 +385,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                         match console::command(bytes) {
                             console::Command::Empty => {}
                             console::Command::Help => {
-                                crate::println!("commands: help info");
+                                crate::println!("commands: help info uptime");
                                 debugcon::write("VIBRIX: kernel console command help\r\n");
                             }
                             console::Command::Info => {
@@ -328,6 +394,16 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                                     env!("CARGO_PKG_VERSION")
                                 );
                                 debugcon::write("VIBRIX: kernel console command info\r\n");
+                            }
+                            console::Command::Uptime => {
+                                let ticks = arch::x86_64::irq::timer_ticks();
+                                crate::println!(
+                                    "uptime: {} ticks (~{}.{:02}s)",
+                                    ticks,
+                                    ticks / 100,
+                                    ticks % 100
+                                );
+                                debugcon::write("VIBRIX: kernel console command uptime\r\n");
                             }
                             console::Command::Unknown => {
                                 crate::println!("unknown command");

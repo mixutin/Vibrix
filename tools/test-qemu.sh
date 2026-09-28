@@ -76,8 +76,11 @@ while time.monotonic() < deadline:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
                 client.connect(monitor)
                 if sys.argv[3] == "1":
-                    # Real virtual keyboard: "helx", Backspace, "p", Return.
-                    keys = ("h", "e", "l", "x", "backspace", "p", "ret")
+                    # Real virtual keyboard: edited "help", then "uptime".
+                    keys = (
+                        "h", "e", "l", "x", "backspace", "p", "ret",
+                        "u", "p", "t", "i", "m", "e", "ret",
+                    )
                 else:
                     keys = ("h", "ret")
                 for key in keys:
@@ -180,11 +183,17 @@ if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" ]]; then
 fi
 cat "$SERIAL_LOG"
 
+if [[ "${VIBRIX_EXPECT_TIMER_IRQ:-0}" == "1" ]]; then
+  grep -Fq "VIBRIX: kernel timer IRQ delivered" "$LOG"
+  tr -d "\\r" < "$SERIAL_LOG" | grep -Eq "^kernel timer: tick [1-9][0-9]*$"
+fi
 if [[ "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" ]]; then
   grep -Fq "VIBRIX: kernel console prompt ready" "$LOG"
   grep -Fq "VIBRIX: kernel console backspace accepted" "$LOG"
   grep -Fq "VIBRIX: kernel console command help" "$LOG"
-  grep -Fq "commands: help info" "$SERIAL_LOG"
+  grep -Fq "VIBRIX: kernel console command uptime" "$LOG"
+  grep -Fq "commands: help info uptime" "$SERIAL_LOG"
+  tr -d '\r' < "$SERIAL_LOG" | grep -Eq 'uptime: [1-9][0-9]* ticks \(~[0-9]+\.[0-9][0-9]s\)'
 fi
 
 echo "[vibrix] QEMU post-firmware kernel handoff smoke test passed"
