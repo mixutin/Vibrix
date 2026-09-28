@@ -5,7 +5,9 @@ Status: accepted as the M5 executable-loader foundation; 2026-09-28.
 ## Decision
 
 Use one ELF64 parser source, `shared/elf.rs`, for both the UEFI bootloader and
-kernel userspace loader. The parser remains the existing fail-closed x86-64
+kernel userspace loader. Both consumers compile that repository source directly,
+so parser fixes cannot silently diverge between kernel-image and userspace-image
+validation. The parser remains the existing fail-closed x86-64
 ET_EXEC validator: ELF64 little-endian only, fixed program-header size,
 representable non-overlapping PT_LOAD ranges, file-size <= memory-size,
 congruent power-of-two alignment, in-file payloads and a file-backed executable
