@@ -309,6 +309,52 @@ mod native {
         abi::encode_error(errno)
     }
 
+    #[cfg(feature = "userspace-io-probe")]
+    fn copy_path<'a>(
+        address: u64,
+        length: u64,
+        buffer: &'a mut [u8; vibrix_kernel::vfs::PATH_MAX],
+    ) -> Result<&'a str, abi::Errno> {
+        let length = usize::try_from(length).map_err(|_| abi::Errno::InvalidArgument)?;
+        if length == 0 || length > buffer.len() {
+            return Err(abi::Errno::InvalidArgument);
+        }
+        crate::memory::address_space::copy_from_user(address, &mut buffer[..length])
+            .map_err(|_| abi::Errno::BadAddress)?;
+        core::str::from_utf8(&buffer[..length]).map_err(|_| abi::Errno::InvalidArgument)
+    }
+
+    #[cfg(feature = "userspace-io-probe")]
+    fn directory_entry_bytes(
+        entry: vibrix_kernel::vfs::Entry,
+    ) -> [u8; core::mem::size_of::<abi::DirectoryEntry>()] {
+        let mut bytes = [0u8; core::mem::size_of::<abi::DirectoryEntry>()];
+        bytes[0] = match entry.kind {
+            vibrix_kernel::vfs::Kind::File => abi::DIRECTORY_KIND_FILE,
+            vibrix_kernel::vfs::Kind::Directory => abi::DIRECTORY_KIND_DIRECTORY,
+            vibrix_kernel::vfs::Kind::Device => abi::DIRECTORY_KIND_DEVICE,
+        };
+        let name = entry.name.as_str().as_bytes();
+        bytes[1] = name.len() as u8;
+        bytes[4..4 + name.len()].copy_from_slice(name);
+        bytes
+    }
+
+    #[cfg(feature = "userspace-io-probe")]
+    fn process_info_bytes(
+        pid: u32,
+        parent: u32,
+        state: u8,
+        status: i32,
+    ) -> [u8; core::mem::size_of::<abi::ProcessInfo>()] {
+        let mut bytes = [0u8; core::mem::size_of::<abi::ProcessInfo>()];
+        bytes[0..4].copy_from_slice(&pid.to_ne_bytes());
+        bytes[4..8].copy_from_slice(&parent.to_ne_bytes());
+        bytes[8] = state;
+        bytes[12..16].copy_from_slice(&status.to_ne_bytes());
+        bytes
+    }
+
     fn process_probe_dispatch(number: u64, args: [u64; abi::MAX_ARGS]) -> u64 {
         if !PROCESS_READY.load(Ordering::SeqCst) {
             return abi::encode_error(abi::Errno::NotSupported);
@@ -388,6 +434,248 @@ mod native {
                 #[cfg(not(feature = "userspace-io-probe"))]
                 {
                     let _ = (fd, address, length);
+                    abi::encode_error(abi::Errno::NotSupported)
+                }
+            }
+            Ok(Action::Open {
+                path_address,
+                path_length,
+                flags,
+            }) => {
+                #[cfg(feature = "userspace-io-probe")]
+                {
+                    let mut path_buffer = [0u8; vibrix_kernel::vfs::PATH_MAX];
+                    let path = match copy_path(path_address, path_length, &mut path_buffer) {
+                        Ok(path) => path,
+                        Err(error) => return abi::encode_error(error),
+                    };
+                    match crate::userspace_io::open(path, flags) {
+                        Ok(fd) => fd as u64,
+                        Err(error) => encode_vfs_error(error),
+                    }
+                }
+                #[cfg(not(feature = "userspace-io-probe"))]
+                {
+                    let _ = (path_address, path_length, flags);
+                    abi::encode_error(abi::Errno::NotSupported)
+                }
+            }
+            Ok(Action::Close { fd }) => {
+                #[cfg(feature = "userspace-io-probe")]
+                {
+                    let Ok(fd) = usize::try_from(fd) else {
+                        return abi::encode_error(abi::Errno::BadFileDescriptor);
+                    };
+                    match crate::userspace_io::close(fd) {
+                        Ok(()) => 0,
+                        Err(error) => encode_vfs_error(error),
+                    }
+                }
+                #[cfg(not(feature = "userspace-io-probe"))]
+                {
+                    let _ = fd;
+                    abi::encode_error(abi::Errno::NotSupported)
+                }
+            }
+            Ok(Action::Create {
+                path_address,
+                path_length,
+            }) => {
+                #[cfg(feature = "userspace-io-probe")]
+                {
+                    let mut path_buffer = [0u8; vibrix_kernel::vfs::PATH_MAX];
+                    let path = match copy_path(path_address, path_length, &mut path_buffer) {
+                        Ok(path) => path,
+                        Err(error) => return abi::encode_error(error),
+                    };
+                    match crate::userspace_io::create(path) {
+                        Ok(()) => 0,
+                        Err(error) => encode_vfs_error(error),
+                    }
+                }
+                #[cfg(not(feature = "userspace-io-probe"))]
+                {
+                    let _ = (path_address, path_length);
+                    abi::encode_error(abi::Errno::NotSupported)
+                }
+            }
+            Ok(Action::Mkdir {
+                path_address,
+                path_length,
+            }) => {
+                #[cfg(feature = "userspace-io-probe")]
+                {
+                    let mut path_buffer = [0u8; vibrix_kernel::vfs::PATH_MAX];
+                    let path = match copy_path(path_address, path_length, &mut path_buffer) {
+                        Ok(path) => path,
+                        Err(error) => return abi::encode_error(error),
+                    };
+                    match crate::userspace_io::mkdir(path) {
+                        Ok(()) => 0,
+                        Err(error) => encode_vfs_error(error),
+                    }
+                }
+                #[cfg(not(feature = "userspace-io-probe"))]
+                {
+                    let _ = (path_address, path_length);
+                    abi::encode_error(abi::Errno::NotSupported)
+                }
+            }
+            Ok(Action::Remove {
+                path_address,
+                path_length,
+            }) => {
+                #[cfg(feature = "userspace-io-probe")]
+                {
+                    let mut path_buffer = [0u8; vibrix_kernel::vfs::PATH_MAX];
+                    let path = match copy_path(path_address, path_length, &mut path_buffer) {
+                        Ok(path) => path,
+                        Err(error) => return abi::encode_error(error),
+                    };
+                    match crate::userspace_io::remove(path) {
+                        Ok(()) => 0,
+                        Err(error) => encode_vfs_error(error),
+                    }
+                }
+                #[cfg(not(feature = "userspace-io-probe"))]
+                {
+                    let _ = (path_address, path_length);
+                    abi::encode_error(abi::Errno::NotSupported)
+                }
+            }
+            Ok(Action::Rename {
+                old_address,
+                old_length,
+                new_address,
+                new_length,
+            }) => {
+                #[cfg(feature = "userspace-io-probe")]
+                {
+                    let mut old_buffer = [0u8; vibrix_kernel::vfs::PATH_MAX];
+                    let mut new_buffer = [0u8; vibrix_kernel::vfs::PATH_MAX];
+                    let old = match copy_path(old_address, old_length, &mut old_buffer) {
+                        Ok(path) => path,
+                        Err(error) => return abi::encode_error(error),
+                    };
+                    let new = match copy_path(new_address, new_length, &mut new_buffer) {
+                        Ok(path) => path,
+                        Err(error) => return abi::encode_error(error),
+                    };
+                    match crate::userspace_io::rename(old, new) {
+                        Ok(()) => 0,
+                        Err(error) => encode_vfs_error(error),
+                    }
+                }
+                #[cfg(not(feature = "userspace-io-probe"))]
+                {
+                    let _ = (old_address, old_length, new_address, new_length);
+                    abi::encode_error(abi::Errno::NotSupported)
+                }
+            }
+            Ok(Action::GetCwd { address, length }) => {
+                #[cfg(feature = "userspace-io-probe")]
+                {
+                    let mut buffer = [0u8; vibrix_kernel::vfs::PATH_MAX];
+                    match crate::userspace_io::cwd(&mut buffer) {
+                        Ok(count) if count <= length as usize => {
+                            if crate::memory::address_space::copy_to_user(
+                                address,
+                                &buffer[..count],
+                            )
+                            .is_err()
+                            {
+                                abi::encode_error(abi::Errno::BadAddress)
+                            } else {
+                                count as u64
+                            }
+                        }
+                        Ok(_) => abi::encode_error(abi::Errno::InvalidArgument),
+                        Err(error) => encode_vfs_error(error),
+                    }
+                }
+                #[cfg(not(feature = "userspace-io-probe"))]
+                {
+                    let _ = (address, length);
+                    abi::encode_error(abi::Errno::NotSupported)
+                }
+            }
+            Ok(Action::Chdir {
+                path_address,
+                path_length,
+            }) => {
+                #[cfg(feature = "userspace-io-probe")]
+                {
+                    let mut path_buffer = [0u8; vibrix_kernel::vfs::PATH_MAX];
+                    let path = match copy_path(path_address, path_length, &mut path_buffer) {
+                        Ok(path) => path,
+                        Err(error) => return abi::encode_error(error),
+                    };
+                    match crate::userspace_io::chdir(path) {
+                        Ok(()) => 0,
+                        Err(error) => encode_vfs_error(error),
+                    }
+                }
+                #[cfg(not(feature = "userspace-io-probe"))]
+                {
+                    let _ = (path_address, path_length);
+                    abi::encode_error(abi::Errno::NotSupported)
+                }
+            }
+            Ok(Action::ReadDir {
+                path_address,
+                path_length,
+                index,
+                entry_address,
+            }) => {
+                #[cfg(feature = "userspace-io-probe")]
+                {
+                    let Ok(index) = usize::try_from(index) else {
+                        return abi::encode_error(abi::Errno::InvalidArgument);
+                    };
+                    let mut path_buffer = [0u8; vibrix_kernel::vfs::PATH_MAX];
+                    let path = match copy_path(path_address, path_length, &mut path_buffer) {
+                        Ok(path) => path,
+                        Err(error) => return abi::encode_error(error),
+                    };
+                    match crate::userspace_io::entry(path, index) {
+                        Ok(Some(entry)) => {
+                            let bytes = directory_entry_bytes(entry);
+                            if crate::memory::address_space::copy_to_user(entry_address, &bytes)
+                                .is_err()
+                            {
+                                abi::encode_error(abi::Errno::BadAddress)
+                            } else {
+                                1
+                            }
+                        }
+                        Ok(None) => 0,
+                        Err(error) => encode_vfs_error(error),
+                    }
+                }
+                #[cfg(not(feature = "userspace-io-probe"))]
+                {
+                    let _ = (path_address, path_length, index, entry_address);
+                    abi::encode_error(abi::Errno::NotSupported)
+                }
+            }
+            Ok(Action::ProcessInfo { info, address }) => {
+                #[cfg(feature = "userspace-io-probe")]
+                {
+                    let bytes = process_info_bytes(
+                        info.pid,
+                        info.parent,
+                        info.state,
+                        info.status,
+                    );
+                    if crate::memory::address_space::copy_to_user(address, &bytes).is_err() {
+                        abi::encode_error(abi::Errno::BadAddress)
+                    } else {
+                        1
+                    }
+                }
+                #[cfg(not(feature = "userspace-io-probe"))]
+                {
+                    let _ = (info, address);
                     abi::encode_error(abi::Errno::NotSupported)
                 }
             }
