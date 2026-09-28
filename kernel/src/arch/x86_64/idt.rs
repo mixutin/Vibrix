@@ -1,7 +1,7 @@
 //! Minimal single-CPU x86-64 exception table for Vibrix.
 //!
 //! Installs synchronous exception gates plus timer/spurious IRQ vectors.
-//! The explicit pci-irq-probe build also reserves its permanent EDU vector.
+//! Explicit PCI interrupt probe builds also reserve permanent diagnostic vectors.
 //! Hardware delivery stays disabled until native controller setup completes.
 //! No privilege-transition IST policy or SMP IDT synchronization exists yet.
 
@@ -79,6 +79,13 @@ pub unsafe fn init() {
             Gdt::KERNEL_CODE_SELECTOR,
         );
     }
+    #[cfg(all(feature = "pci-msix-probe", not(feature = "panic-probe")))]
+    {
+        table.0[usize::from(super::pci_msix_probe::VECTOR)] = IdtGate::interrupt(
+            ivshmem_msix_handler as *const () as usize as u64,
+            Gdt::KERNEL_CODE_SELECTOR,
+        );
+    }
 
     let pointer = IdtPointer {
         limit: (core::mem::size_of::<IdtTable>() - 1) as u16,
@@ -99,6 +106,11 @@ extern "x86-interrupt" fn timer_handler(_frame: InterruptStackFrame) {
 #[cfg(all(feature = "pci-irq-probe", not(feature = "panic-probe")))]
 extern "x86-interrupt" fn edu_msi_handler(_frame: InterruptStackFrame) {
     super::pci_irq_probe::interrupt();
+}
+
+#[cfg(all(feature = "pci-msix-probe", not(feature = "panic-probe")))]
+extern "x86-interrupt" fn ivshmem_msix_handler(_frame: InterruptStackFrame) {
+    super::pci_msix_probe::interrupt();
 }
 
 extern "x86-interrupt" fn spurious_handler(_frame: InterruptStackFrame) {

@@ -64,3 +64,30 @@ jobs:
               cat "$log"
             fi
           done
+
+  native-msix:
+    name: Native PCI MSI-X delivery
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install QEMU firmware and emulator
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf
+      - name: Validate test harness syntax
+        run: |
+          bash -n tools/test-pci-msix.sh
+          python3 -m py_compile tools/ivshmem_test_server.py
+      - name: Boot real eventfd-driven MSI-X evidence
+        run: bash tools/test-pci-msix.sh
+      - name: Preserve guest and server evidence in job log
+        if: always()
+        run: |
+          for log in build/qemu/msix-*.log; do
+            if [[ -f "$log" ]]; then
+              printf '\n=== %s ===\n' "$log"
+              cat "$log"
+            fi
+          done

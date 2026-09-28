@@ -57,6 +57,9 @@ impl Inventory {
                 msix.pending().bir(),
                 msix.pending().offset()
             );
+            if device.vendor == 0x1af4 && device.id == 0x1110 {
+                crate::debugcon::write("VIBRIX: IVSHMEM MSI-X capability found\r\n");
+            }
         }
     }
 

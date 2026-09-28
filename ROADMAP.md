@@ -138,9 +138,40 @@ and SMP handling are separate unchecked work. Target 001 is untested.
 - [x] MCFG/ECAM
 - [x] PCI enumeration
 - [x] BAR parsing
-- [ ] MSI/MSI-X
+- [x] MSI/MSI-X
 - [x] Device/driver model
 - [x] Driver binding
+
+**Verified M4 MSI/MSI-X programming and QEMU delivery (PRs #107–#112, #117):**
+The production conventional-capability walker validates bounded MSI/MSI-X
+layouts before any activation. The MSI path programs one physical xAPIC
+message with width-correct PCI configuration writes, checked readback and
+enable-last ordering; the MSI-X path validates independently supplied memory
+BAR extents, masks the function and every table entry before programming,
+readback-verifies the selected entry and unmasks only after publication.
+
+[PR #112](https://github.com/mixutin/Vibrix/pull/112) provided actual QEMU EDU
+MSI evidence: [run 36416398619](https://github.com/mixutin/Vibrix/actions/runs/36416398619)
+raised two real device interrupts, acknowledged the device and LAPIC, disabled
+MSI with readback, proved a new pending event stayed silent across real PIT
+ticks, cleared the source and bus-master permission, then continued to the
+kernel console.
+
+[PR #117](https://github.com/mixutin/Vibrix/pull/117) adds the matching MSI-X
+proof with QEMU `ivshmem-doorbell`. A separate host process supplies one real
+eventfd through QEMU's ivshmem protocol and triggers it only after guest-origin
+state markers. [Run 36421244213](https://github.com/mixutin/Vibrix/actions/runs/36421244213)
+passed production contracts, ordinary inventory/MSI regressions and the native
+MSI-X job: exactly two eventfd-driven interrupts were observed on vector
+`0x51`; MSI-X was then disabled with checked readback, bus mastering was
+cleared, a third host eventfd trigger produced no guest interrupt across five
+PIT ticks, and normal console boot continued.
+
+This checkbox means **bounded MSI and MSI-X discovery, safe programming
+contracts and real single-BSP QEMU delivery/disable evidence**. It does not
+claim a generic vector allocator, hotplug teardown, SMP/x2APIC interrupt
+remapping, IOMMU isolation, production device drivers, physical Target 001
+interrupt delivery or arbitrary hardware MSI-X support.
 
 **Verified M4 driver binding registry (PR #90):**
 [Actions run 36388347347](https://github.com/mixutin/Vibrix/actions/runs/36388347347)
