@@ -240,7 +240,7 @@ mutable file creation API, crash-safe update protocol, USB persistence or
 recovery tool. The M8 files/directories checkbox remains pending exact-head CI
 for this branch.
 
-## 11. Permissions and timestamp conformance checkpoint (candidate)
+## 11. Permissions and timestamp conformance checkpoint (QEMU-regression CI verified)
 
 The host formatter now emits deterministic nontrivial inode metadata for the
 named regular-file fixture: mode `0640`, uid/gid `1000:1000`, and distinct
@@ -257,6 +257,8 @@ bits outside the low 12 bits and nanoseconds at or above 1,000,000,000.
 
 This is **on-disk metadata conformance**, not credentials enforcement, access
 control, wall-clock acquisition, mutation syscalls, VFS semantics or a
-multi-user security boundary. The M8 permissions/timestamps checkbox should be
-claimed only after exact-head CI proves both 512- and 4096-byte logical-sector
-image round trips with these values.
+multi-user security boundary. [Actions run 36379311357](https://github.com/mixutin/Vibrix/actions/runs/36379311357)
+proved both 512- and 4096-byte logical-sector formatter/inspector round trips
+with these values, along with the full repository regression suite. The M8
+permissions/timestamps checkbox therefore records the bounded on-disk metadata
+contract only.
