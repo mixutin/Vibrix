@@ -1,0 +1,59 @@
+name: Managed VM CPU fault evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main", "astra/vmm-*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vmm-faults-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evidence-parser:
+    name: Reject false-positive VM evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate runner syntax and executable mode
+        run: |
+          bash -n tools/test-managed-vm.sh
+          test "$(git ls-files --stage tools/test-managed-vm.sh | cut -d' ' -f1)" = 100755
+      - name: Test exact CPU evidence parser and rejection fixtures
+        run: python3 -m unittest discover -s tools/tests -p 'test_managed_vm_evidence.py' -v
+  cpu-fault:
+    name: Native managed VM fault (${{ matrix.probe }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        probe: [write, unmap, guard, nx]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf
+      - name: Check integrated source formatting
+        run: cargo fmt --all -- --check
+      - name: Execute actual CPU fault and validate both guest channels
+        if: ${{ !cancelled() }}
+        env:
+          VM_PROBE: ${{ matrix.probe }}
+        run: bash tools/test-managed-vm.sh "$VM_PROBE"
+      - name: Preserve guest evidence in job logs on every outcome
+        if: ${{ !cancelled() }}
+        run: |
+          for log in build/qemu/managed-debugcon.log build/qemu/managed-serial.log; do
+            if [ -f "$log" ]; then cat "$log"; fi
+          done

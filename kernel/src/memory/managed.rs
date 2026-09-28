@@ -8,6 +8,15 @@ use vibrix_vmm::frames::Frames;
 use vibrix_vmm::walk::ADDRESS_MASK;
 use vibrix_vmm::{Error, GuardedLayout, GuardedVm, Memory, Vm};
 
+#[cfg(any(
+    feature = "managed-write-probe",
+    feature = "managed-unmap-probe",
+    feature = "managed-guard-probe",
+    feature = "managed-nx-probe"
+))]
+#[path = "managed_faults.rs"]
+mod faults;
+
 const POOL_FRAMES: usize = 24;
 
 /// Private: cannot escape the early validation routine or outlive IF=0.
@@ -263,5 +272,16 @@ pub unsafe fn smoke_test(info: &BootInfo) -> Result<(), Error> {
         "managed VM: dynamic map/protect/reclaim, zeroed regions and reserved guards verified"
     );
     crate::println!("managed VM: 24 retained pool frames free; active arena and scratch empty");
+    // SAFETY: normal validation retired the arena and scratch owner; the BSP
+    // remains IRQ-off. This explicitly enabled terminal test uses a new pool.
+    #[cfg(any(
+        feature = "managed-write-probe",
+        feature = "managed-unmap-probe",
+        feature = "managed-guard-probe",
+        feature = "managed-nx-probe"
+    ))]
+    unsafe {
+        faults::run(info)?;
+    }
     Ok(())
 }
