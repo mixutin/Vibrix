@@ -436,7 +436,9 @@ jobs:
           VIBRIX_QEMU_CONSOLE_PROBE: "1"
         run: bash tools/test-qemu.sh
       - name: QEMU retained RAM files, devfs and pipe console commands
-        run: VIBRIX_SKIP_BUILD=1 VIBRIX_QEMU_FILES_PROBE=1 ./tools/test-qemu.sh
+        run: |
+          VIBRIX_SKIP_BUILD=1 VIBRIX_QEMU_FILES_PROBE=1 ./tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel RAM tmp and runtime state verified" build/qemu/debugcon.log
       - name: QEMU post-firmware kernel panic test
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,panic-probe bash tools/build-qemu.sh
