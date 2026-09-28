@@ -882,10 +882,16 @@ pub unsafe fn load_elf_probe() -> Result<ActivatedProbe, ElfProbeError> {
         .allocate_user(stack_layout)
         .map_err(|e| ElfProbeError::AddressSpace(e.into()))?;
 
-    let image = elf_probe_image();
+    #[cfg(all(feature = "rust-init-probe", not(clippy)))]
+    let image: &[u8] = include_bytes!("../../../target/x86_64-unknown-none/debug/vibrix-init");
+    #[cfg(any(not(feature = "rust-init-probe"), clippy))]
+    let probe_image = elf_probe_image();
+    #[cfg(any(not(feature = "rust-init-probe"), clippy))]
+    let image: &[u8] = &probe_image;
+
     let loaded_result = {
         let mut sink = ImageSink::new(space);
-        user_image::load(&image, &mut sink)
+        user_image::load(image, &mut sink)
     };
     let loaded = match loaded_result {
         Ok(loaded) => loaded,

@@ -355,6 +355,13 @@ jobs:
           rustfmt --edition 2024 --check shared/idt_layout.rs kernel/src/arch/x86_64/idt.rs
           rustc --edition=2024 --test shared/idt_layout.rs -o "$RUNNER_TEMP/vibrix-idt-layout-tests"
           "$RUNNER_TEMP/vibrix-idt-layout-tests"
+      - name: Build fixed-layout Rust init ELF for kernel probe compilation
+        run: |
+          cargo rustc --locked -p vibrix-init --bin vibrix-init --target x86_64-unknown-none -- \
+            -C relocation-model=static \
+            -C link-arg=-no-pie \
+            -C link-arg=-Tuserspace/linker.ld
+          test -s target/x86_64-unknown-none/debug/vibrix-init
       - name: Lint kernel
         run: cargo clippy --locked -p vibrix-kernel --all-features --target x86_64-unknown-none -- -D warnings
       - name: Build Vibrix
@@ -506,6 +513,17 @@ jobs:
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: getpid=1"
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: wait pid=2 status=23 copied=true"
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: exit pid=1 status=42"
+
+      - name: QEMU compiled Rust init executes as PID 1
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,rust-init-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel Rust init ELF loaded" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: Rust init userspace syscall reached" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: Rust init PID 1 exited through syscall" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel Rust init: kernel_cr3="
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: getpid=1"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: exit pid=1 status=0"
 
       - name: QEMU supervisor write-protection fault
         run: |

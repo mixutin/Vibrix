@@ -306,6 +306,8 @@ mod native {
             Ok(Action::Return(value)) => {
                 if number == abi::Syscall::GetPid.number() && value == 1 {
                     crate::debugcon::write("VIBRIX: kernel process getpid syscall verified\r\n");
+                    #[cfg(feature = "rust-init-probe")]
+                    crate::debugcon::write("VIBRIX: Rust init userspace syscall reached\r\n");
                     crate::println!("kernel process syscall: getpid={}", value);
                 }
                 value
@@ -339,7 +341,12 @@ mod native {
             }
             Ok(Action::Terminated) => {
                 crate::debugcon::write("VIBRIX: kernel process exit syscall verified\r\n");
-                crate::println!("kernel process syscall: exit pid=1 status=42");
+                #[cfg(feature = "rust-init-probe")]
+                crate::debugcon::write("VIBRIX: Rust init PID 1 exited through syscall\r\n");
+                crate::println!(
+                    "kernel process syscall: exit pid=1 status={}",
+                    args[0] as i32
+                );
                 loop {
                     core::hint::spin_loop();
                 }
