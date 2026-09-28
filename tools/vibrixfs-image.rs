@@ -200,8 +200,12 @@ fn validate_root_directory(block: &[u8; BLOCK], size: u64) -> Result<(), String>
         if record < 16
             || !record.is_multiple_of(8)
             || offset.checked_add(record).is_none_or(|end| end > size)
-            || 16usize.checked_add(name_len).is_none_or(|used| used > record)
-            || block[offset + 12..offset + 16].iter().any(|&byte| byte != 0)
+            || 16usize
+                .checked_add(name_len)
+                .is_none_or(|used| used > record)
+            || block[offset + 12..offset + 16]
+                .iter()
+                .any(|&byte| byte != 0)
         {
             return Err("invalid directory record framing".into());
         }
@@ -228,7 +232,11 @@ fn validate_root_directory(block: &[u8; BLOCK], size: u64) -> Result<(), String>
     Ok(())
 }
 
-fn layout(total_blocks: u64, filesystem_uuid: [u8; 16], root_guid: [u8; 16]) -> Result<(Superblock, u64), String> {
+fn layout(
+    total_blocks: u64,
+    filesystem_uuid: [u8; 16],
+    root_guid: [u8; 16],
+) -> Result<(Superblock, u64), String> {
     if !(4096..=MAX_FORMAT_BLOCKS).contains(&total_blocks) {
         return Err(format!(
             "early formatter supports 4096..={MAX_FORMAT_BLOCKS} filesystem blocks"
@@ -365,8 +373,7 @@ fn format_image(
         device: 0,
         flags: 0,
     };
-    let encoded_root =
-        encode_inode(&root, &sb).map_err(|e| format!("encode root inode: {e:?}"))?;
+    let encoded_root = encode_inode(&root, &sb).map_err(|e| format!("encode root inode: {e:?}"))?;
     let inode_table_len = usize::try_from(
         sb.inode_table
             .blocks
@@ -446,7 +453,13 @@ fn inspect_image(path: &Path, logical_sector: u64, root_guid: [u8; 16]) -> Resul
     }
 
     let block_bitmap = read_region(&mut file, sb.block_bitmap.start, sb.block_bitmap.blocks)?;
-    require_allocated_range(&block_bitmap, Range { start: 0, blocks: 1 })?;
+    require_allocated_range(
+        &block_bitmap,
+        Range {
+            start: 0,
+            blocks: 1,
+        },
+    )?;
     require_allocated_range(&block_bitmap, sb.block_bitmap)?;
     require_allocated_range(&block_bitmap, sb.inode_bitmap)?;
     require_allocated_range(&block_bitmap, sb.inode_table)?;
@@ -485,7 +498,12 @@ fn inspect_image(path: &Path, logical_sector: u64, root_guid: [u8; 16]) -> Resul
 
     println!(
         "VibrixFS v1 valid: blocks={} logical_sector={} inodes={} root_block={} generation={} clean={}",
-        sb.total_blocks, logical_sector, sb.total_inodes, root_extent.start, sb.generation, sb.clean
+        sb.total_blocks,
+        logical_sector,
+        sb.total_inodes,
+        root_extent.start,
+        sb.generation,
+        sb.clean
     );
     Ok(())
 }
@@ -511,9 +529,11 @@ fn run() -> Result<(), String> {
             )?;
             inspect_image(Path::new(&args[2]), sector, hex16(&args[6])?)
         }
-        Some("inspect") if args.len() == 5 => {
-            inspect_image(Path::new(&args[2]), sector_size(&args[3])?, hex16(&args[4])?)
-        }
+        Some("inspect") if args.len() == 5 => inspect_image(
+            Path::new(&args[2]),
+            sector_size(&args[3])?,
+            hex16(&args[4])?,
+        ),
         _ => Err(usage()),
     }
 }
@@ -532,7 +552,10 @@ mod tests {
     #[test]
     fn identities_accept_hex_and_reject_zero_or_garbage() {
         assert_eq!(hex16("00112233445566778899aabbccddeeff").unwrap()[0], 0);
-        assert_eq!(hex16("00112233-4455-6677-8899-aabbccddeeff").unwrap()[15], 0xff);
+        assert_eq!(
+            hex16("00112233-4455-6677-8899-aabbccddeeff").unwrap()[15],
+            0xff
+        );
         assert!(hex16("00").is_err());
         assert!(hex16("zz112233445566778899aabbccddeeff").is_err());
         assert!(hex16("00000000000000000000000000000000").is_err());
