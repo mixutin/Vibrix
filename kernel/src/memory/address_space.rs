@@ -849,24 +849,25 @@ pub unsafe fn load_elf_probe() -> Result<ActivatedProbe, ElfProbeError> {
         .map_err(|e| ElfProbeError::AddressSpace(e.into()))?;
 
     let image = elf_probe_image();
-    let loaded = {
+    let loaded_result = {
         let mut sink = ImageSink::new(space);
-        match user_image::load(&image, &mut sink) {
-            Ok(loaded) => loaded,
-            Err(user_image::LoadError::Image(error)) => {
-                let _ = space.vm.release(stack_id);
-                if restore_interrupts {
-                    unsafe { asm!("sti", options(nomem, nostack)) };
-                }
-                return Err(ElfProbeError::Image(error));
+        user_image::load(&image, &mut sink)
+    };
+    let loaded = match loaded_result {
+        Ok(loaded) => loaded,
+        Err(user_image::LoadError::Image(error)) => {
+            let _ = space.vm.release(stack_id);
+            if restore_interrupts {
+                unsafe { asm!("sti", options(nomem, nostack)) };
             }
-            Err(user_image::LoadError::Sink(error)) => {
-                let _ = space.vm.release(stack_id);
-                if restore_interrupts {
-                    unsafe { asm!("sti", options(nomem, nostack)) };
-                }
-                return Err(ElfProbeError::Sink(error));
+            return Err(ElfProbeError::Image(error));
+        }
+        Err(user_image::LoadError::Sink(error)) => {
+            let _ = space.vm.release(stack_id);
+            if restore_interrupts {
+                unsafe { asm!("sti", options(nomem, nostack)) };
             }
+            return Err(ElfProbeError::Sink(error));
         }
     };
 
