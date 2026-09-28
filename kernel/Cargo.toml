@@ -14,5 +14,6 @@ breakpoint-probe = []
 page-fault-probe = []
 vm-write-probe = []
 vm-unmap-probe = []
+pci-irq-probe = ["qemu-debugcon"]
 
 [dependencies]
