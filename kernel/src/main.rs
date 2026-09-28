@@ -94,7 +94,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     let _cpu = arch::x86_64::cpuid::discover();
 
     // Initialize GDT + TSS before any privilege-level transitions. IRQs
-    // remain disabled; RSP0/IST must be provisioned before enabling them.
+    // remain disabled; init provisions the permanent BSP RSP0 stack. IST
+    // remains intentionally unconfigured.
     unsafe { arch::x86_64::gdt::init() };
     debugcon::write("VIBRIX: kernel GDT/TSS loaded\r\n");
 
@@ -110,8 +111,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         debugcon::write("\r\n");
     });
 
-    // Install only synchronous exception vectors; IF stays cleared until
-    // the IRQ routing model and TSS privilege/IST stacks are ready.
+    // Install synchronous exception/IRQ gates while IF stays clear. The TSS
+    // has a valid BSP RSP0 stack; no gate selects an IST stack yet.
     unsafe { arch::x86_64::idt::init() };
     debugcon::write("VIBRIX: kernel IDT installed\r\n");
 

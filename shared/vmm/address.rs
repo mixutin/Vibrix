@@ -50,8 +50,9 @@ impl PhysicalFrame {
     }
 }
 
-/// Writable/executable is deliberately unrepresentable. All mappings are
-/// supervisor-only and write-back; MMIO and userspace need separate contracts.
+/// Writable/executable is deliberately unrepresentable. Cache policy remains
+/// write-back; privilege is represented separately so adding a user mapping
+/// never weakens the address-range/ownership contract.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Permissions {
     ReadOnly,
@@ -66,6 +67,21 @@ impl Permissions {
 
     pub const fn executable(self) -> bool {
         matches!(self, Self::ReadExecute)
+    }
+}
+
+/// CPU privilege permitted to traverse a mapping. This does not change the
+/// owned virtual arena: user pages remain inside the same explicitly owned
+/// PML4 slot until M5 introduces independent address spaces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Privilege {
+    Supervisor,
+    User,
+}
+
+impl Privilege {
+    pub const fn user(self) -> bool {
+        matches!(self, Self::User)
     }
 }
 
@@ -152,6 +168,14 @@ mod tests {
         let last = Page::new(ARENA_BASE + ARENA_BYTES - PAGE_BYTES).unwrap();
         assert!(PageRange::new(last, 1).is_ok());
         assert_eq!(PageRange::new(last, 2), Err(Error::InvalidRange));
+    }
+
+    #[test]
+    fn privilege_is_explicit_and_does_not_change_arena_validation() {
+        assert!(!Privilege::Supervisor.user());
+        assert!(Privilege::User.user());
+        assert!(Page::new(ARENA_BASE).is_ok());
+        assert_eq!(Page::new(0x4000_0000), Err(Error::InvalidAddress));
     }
 
     #[test]

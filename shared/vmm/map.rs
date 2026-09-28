@@ -1,12 +1,13 @@
 //! Allocate zeroed data and missing hierarchy pages before publishing a leaf.
 use super::Error;
-use super::address::{Page, Permissions};
+use super::address::{Page, Permissions, Privilege};
 use super::frames::FrameUse;
-use super::walk::{Memory, NX, PRESENT, Vm, WRITE};
+use super::walk::{Memory, NX, PRESENT, USER, Vm, WRITE};
 
-pub(super) fn permission_flags(permissions: Permissions) -> u64 {
+pub(super) fn permission_flags(permissions: Permissions, privilege: Privilege) -> u64 {
     PRESENT
         | if permissions.writable() { WRITE } else { 0 }
+        | if privilege.user() { USER } else { 0 }
         | if permissions.executable() { 0 } else { NX }
 }
 
@@ -16,6 +17,23 @@ impl<M: Memory, const N: usize> Vm<M, N> {
     /// Backend faults fail-stop; recoverable validation/exhaustion errors leave
     /// existing mappings and inventory unchanged.
     pub fn map_zeroed(&mut self, page: Page, permissions: Permissions) -> Result<u64, Error> {
+        self.map_zeroed_with_privilege(page, permissions, Privilege::Supervisor)
+    }
+
+    /// Allocate a user-accessible page inside this VM's already-owned arena.
+    /// Every paging-structure link on the path receives U/S=1, while sibling
+    /// supervisor leaves remain supervisor-only because their own U/S bit stays
+    /// clear. This is mapping infrastructure, not a separate user address space.
+    pub fn map_user_zeroed(&mut self, page: Page, permissions: Permissions) -> Result<u64, Error> {
+        self.map_zeroed_with_privilege(page, permissions, Privilege::User)
+    }
+
+    fn map_zeroed_with_privilege(
+        &mut self,
+        page: Page,
+        permissions: Permissions,
+        privilege: Privilege,
+    ) -> Result<u64, Error> {
         if self.query(page)?.is_some() {
             return Err(Error::AlreadyMapped);
         }
@@ -66,15 +84,32 @@ impl<M: Memory, const N: usize> Vm<M, N> {
         }
         tables[missing + 1..4].copy_from_slice(&acquired[1..needed]);
         let data = acquired[0];
-        self.memory
-            .write_entry(tables[3], indices[3], data | permission_flags(permissions));
+        // For an existing path, raising U/S on an ancestor cannot expose any
+        // supervisor leaf because leaf U/S still gates CPL3 access. Do this
+        // before publishing a user leaf so there is never a reachable user leaf
+        // behind a supervisor ancestor. Newly allocated children receive the
+        // same path privilege when linked.
+        if privilege.user() {
+            for level in 0..missing {
+                let entry = self.memory.read_entry(tables[level], indices[level]);
+                if entry & USER == 0 {
+                    self.memory
+                        .write_entry(tables[level], indices[level], entry | USER);
+                }
+            }
+        }
+        self.memory.write_entry(
+            tables[3],
+            indices[3],
+            data | permission_flags(permissions, privilege),
+        );
         // Children are complete before their parent link becomes reachable.
         // The final store publishes the new subtree into the existing hierarchy.
         for level in (missing..3).rev() {
             self.memory.write_entry(
                 tables[level],
                 indices[level],
-                tables[level + 1] | PRESENT | WRITE,
+                tables[level + 1] | PRESENT | WRITE | if privilege.user() { USER } else { 0 },
             );
         }
         self.memory.invalidate(page.address());
@@ -131,6 +166,47 @@ mod tests {
         assert_eq!(vm.table_frames(), 6);
         assert_eq!(vm.data_frames(), 4);
         assert_eq!(vm.free_frames(), 6);
+    }
+
+    #[test]
+    fn user_mapping_sets_user_on_leaf_and_every_parent() {
+        let mut vm = vm::<8>(8);
+        let page = Page::new(ARENA_BASE).unwrap();
+        vm.map_user_zeroed(page, Permissions::ReadExecute).unwrap();
+        let tables = vm.path(page).unwrap().unwrap();
+        let indices = page.indices();
+        for level in 0..3 {
+            assert_ne!(
+                vm.memory.read_entry(tables[level], indices[level]) & USER,
+                0
+            );
+        }
+        let leaf = vm.memory.read_entry(tables[3], indices[3]);
+        assert_ne!(leaf & USER, 0);
+        let translation = vm.query(page).unwrap().unwrap();
+        assert_eq!(translation.privilege, Privilege::User);
+        assert_eq!(translation.permissions, Permissions::ReadExecute);
+    }
+
+    #[test]
+    fn adding_user_sibling_upgrades_ancestors_but_not_supervisor_leaf() {
+        let mut vm = vm::<8>(8);
+        let supervisor = Page::new(ARENA_BASE).unwrap();
+        let user = Page::new(ARENA_BASE + PAGE_BYTES).unwrap();
+        vm.map_zeroed(supervisor, Permissions::ReadOnly).unwrap();
+        assert_eq!(
+            vm.query(supervisor).unwrap().unwrap().privilege,
+            Privilege::Supervisor
+        );
+        vm.map_user_zeroed(user, Permissions::ReadWrite).unwrap();
+        assert_eq!(vm.query(user).unwrap().unwrap().privilege, Privilege::User);
+        assert_eq!(
+            vm.query(supervisor).unwrap().unwrap().privilege,
+            Privilege::Supervisor
+        );
+        let tables = vm.path(user).unwrap().unwrap();
+        let supervisor_leaf = vm.memory.read_entry(tables[3], supervisor.indices()[3]);
+        assert_eq!(supervisor_leaf & USER, 0);
     }
 
     #[test]

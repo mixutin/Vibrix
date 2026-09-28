@@ -17,7 +17,8 @@ impl<M: Memory, const N: usize> Vm<M, N> {
             return Err(Error::NotMapped);
         }
         let previous = self.decode_leaf(current)?;
-        let updated = (current & !(WRITE | NX)) | (permission_flags(permissions) & (WRITE | NX));
+        let updated = (current & !(WRITE | NX))
+            | (permission_flags(permissions, previous.privilege) & (WRITE | NX));
         if updated != current {
             self.memory.write_entry(tables[3], index, updated);
             self.memory.invalidate(page.address());
@@ -91,6 +92,18 @@ mod tests {
         );
         assert_eq!(vm.memory.events.len(), events);
         assert_eq!(vm.memory.read_entry(table, 0), physical | 3);
+    }
+
+    #[test]
+    fn protection_changes_preserve_user_access() {
+        let mut vm = vm::<8>(8);
+        let page = Page::new(ARENA_BASE).unwrap();
+        vm.map_user_zeroed(page, Permissions::ReadWrite).unwrap();
+        let before = vm.protect(page, Permissions::ReadExecute).unwrap();
+        assert_eq!(before.privilege, crate::vmm::address::Privilege::User);
+        let after = vm.query(page).unwrap().unwrap();
+        assert_eq!(after.privilege, crate::vmm::address::Privilege::User);
+        assert_eq!(after.permissions, Permissions::ReadExecute);
     }
 
     #[test]

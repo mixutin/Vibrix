@@ -1,11 +1,12 @@
 //! Ownership-checked traversal of one initially empty supervisor PML4 slot.
 use super::Error;
-use super::address::{ARENA_SLOT, Page, Permissions, PhysicalFrame};
+use super::address::{ARENA_SLOT, Page, Permissions, PhysicalFrame, Privilege};
 use super::frames::{FrameUse, Frames};
 
 pub const ADDRESS_MASK: u64 = 0x000f_ffff_ffff_f000;
 pub const PRESENT: u64 = 1;
 pub const WRITE: u64 = 2;
+pub const USER: u64 = 1 << 2;
 pub const ACCESSED: u64 = 1 << 5;
 pub const DIRTY: u64 = 1 << 6;
 pub const NX: u64 = 1 << 63;
@@ -27,6 +28,7 @@ pub trait Memory {
 pub struct Translation {
     pub physical: u64,
     pub permissions: Permissions,
+    pub privilege: Privilege,
     pub accessed: bool,
     pub dirty: bool,
 }
@@ -73,7 +75,7 @@ impl<M: Memory, const N: usize> Vm<M, N> {
     }
 
     pub(super) fn table_frame(&self, entry: u64) -> Result<u64, Error> {
-        let allowed = ADDRESS_MASK | PRESENT | WRITE | ACCESSED;
+        let allowed = ADDRESS_MASK | PRESENT | WRITE | USER | ACCESSED;
         if entry & !allowed != 0 || entry & (PRESENT | WRITE) != PRESENT | WRITE {
             return Err(Error::CorruptEntry);
         }
@@ -104,7 +106,7 @@ impl<M: Memory, const N: usize> Vm<M, N> {
     }
 
     pub(super) fn decode_leaf(&self, entry: u64) -> Result<Translation, Error> {
-        let allowed = ADDRESS_MASK | PRESENT | WRITE | ACCESSED | DIRTY | NX;
+        let allowed = ADDRESS_MASK | PRESENT | WRITE | USER | ACCESSED | DIRTY | NX;
         if entry & !allowed != 0 || entry & PRESENT == 0 || (entry & WRITE != 0 && entry & NX == 0)
         {
             return Err(Error::CorruptEntry);
@@ -124,6 +126,11 @@ impl<M: Memory, const N: usize> Vm<M, N> {
         Ok(Translation {
             physical,
             permissions,
+            privilege: if entry & USER != 0 {
+                Privilege::User
+            } else {
+                Privilege::Supervisor
+            },
             accessed: entry & ACCESSED != 0,
             dirty: entry & DIRTY != 0,
         })
@@ -195,6 +202,7 @@ mod tests {
             Ok(Some(Translation {
                 physical,
                 permissions: Permissions::ReadWrite,
+                privilege: Privilege::Supervisor,
                 accessed: true,
                 dirty: true,
             }))
@@ -202,8 +210,8 @@ mod tests {
     }
 
     #[test]
-    fn rejects_foreign_tables_cycles_and_huge_or_user_entries() {
-        for extra in [1 << 2, 1 << 7, NX, 1 << 62] {
+    fn rejects_foreign_tables_cycles_and_huge_or_invalid_entries() {
+        for extra in [1 << 7, NX, 1 << 62] {
             let (mut vm, page, tables, _) = populate();
             vm.memory
                 .write_entry(ROOT, ARENA_SLOT, tables[0] | 3 | extra);
@@ -214,6 +222,20 @@ mod tests {
         assert_eq!(vm.query(page), Err(Error::CorruptEntry));
         vm.memory.write_entry(ROOT, ARENA_SLOT, 0x9000 | 3);
         assert_eq!(vm.query(page), Err(Error::ForeignTable));
+    }
+
+    #[test]
+    fn decodes_user_leaf_without_relaxing_owned_table_checks() {
+        let (mut vm, page, tables, physical) = populate();
+        vm.memory
+            .write_entry(tables[2], 0, physical | PRESENT | WRITE | USER | NX);
+        let translation = vm.query(page).unwrap().unwrap();
+        assert_eq!(translation.privilege, Privilege::User);
+        assert_eq!(translation.permissions, Permissions::ReadWrite);
+
+        vm.memory
+            .write_entry(ROOT, ARENA_SLOT, tables[0] | PRESENT | WRITE | USER);
+        assert_eq!(vm.query(page).unwrap().unwrap().privilege, Privilege::User);
     }
 
     #[test]
