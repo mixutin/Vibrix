@@ -1,6 +1,6 @@
 # ADR 0013: Removable-media EFI System Partition layout
 
-- Status: Proposed; implementation under QEMU verification
+- Status: Accepted
 - Scope: M9 EFI System Partition layout
 
 ## Context
