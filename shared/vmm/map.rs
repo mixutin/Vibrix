@@ -24,11 +24,7 @@ impl<M: Memory, const N: usize> Vm<M, N> {
     /// Every paging-structure link on the path receives U/S=1, while sibling
     /// supervisor leaves remain supervisor-only because their own U/S bit stays
     /// clear. This is mapping infrastructure, not a separate user address space.
-    pub fn map_user_zeroed(
-        &mut self,
-        page: Page,
-        permissions: Permissions,
-    ) -> Result<u64, Error> {
+    pub fn map_user_zeroed(&mut self, page: Page, permissions: Permissions) -> Result<u64, Error> {
         self.map_zeroed_with_privilege(page, permissions, Privilege::User)
     }
 
@@ -102,18 +98,18 @@ impl<M: Memory, const N: usize> Vm<M, N> {
                 }
             }
         }
-        self.memory
-            .write_entry(tables[3], indices[3], data | permission_flags(permissions, privilege));
+        self.memory.write_entry(
+            tables[3],
+            indices[3],
+            data | permission_flags(permissions, privilege),
+        );
         // Children are complete before their parent link becomes reachable.
         // The final store publishes the new subtree into the existing hierarchy.
         for level in (missing..3).rev() {
             self.memory.write_entry(
                 tables[level],
                 indices[level],
-                tables[level + 1]
-                    | PRESENT
-                    | WRITE
-                    | if privilege.user() { USER } else { 0 },
+                tables[level + 1] | PRESENT | WRITE | if privilege.user() { USER } else { 0 },
             );
         }
         self.memory.invalidate(page.address());
@@ -180,7 +176,10 @@ mod tests {
         let tables = vm.path(page).unwrap().unwrap();
         let indices = page.indices();
         for level in 0..3 {
-            assert_ne!(vm.memory.read_entry(tables[level], indices[level]) & USER, 0);
+            assert_ne!(
+                vm.memory.read_entry(tables[level], indices[level]) & USER,
+                0
+            );
         }
         let leaf = vm.memory.read_entry(tables[3], indices[3]);
         assert_ne!(leaf & USER, 0);
@@ -200,10 +199,7 @@ mod tests {
             Privilege::Supervisor
         );
         vm.map_user_zeroed(user, Permissions::ReadWrite).unwrap();
-        assert_eq!(
-            vm.query(user).unwrap().unwrap().privilege,
-            Privilege::User
-        );
+        assert_eq!(vm.query(user).unwrap().unwrap().privilege, Privilege::User);
         assert_eq!(
             vm.query(supervisor).unwrap().unwrap().privilege,
             Privilege::Supervisor
