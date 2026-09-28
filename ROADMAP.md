@@ -368,7 +368,7 @@ the first real userspace CLI.
 - [x] Userspace address spaces
 - [x] Vibrix syscall ABI v1
 - [x] syscall/sysret
-- [ ] Native Rust syscall library
+- [x] Native Rust syscall library
 - [ ] PID/process lifecycle
 - [ ] Executable loading
 - [ ] argv/environment
@@ -469,21 +469,59 @@ SYSRET-compatible user selectors CS=`0x23`, SS=`0x1b`.
 
 This completes the bounded **syscall/sysret transport** item only. It remains a
 single-BSP proof with no general dispatcher, copy-in/copy-out, per-process
-kernel stacks, scheduler-integrated process address spaces, native Rust
-userspace syscall library, PID lifecycle, executable loading, or PID 1.
+kernel stacks, scheduler-integrated process address spaces, PID lifecycle,
+executable loading, or PID 1.
+
+**Verified M5 native Rust syscall library (PR #133):**
+[Actions run 36472077028](https://github.com/mixutin/Vibrix/actions/runs/36472077028)
+passed the full repository CI on implementation head
+`bf2e6c082d35e73bb5ef63ad42074ccbb9504868`. The `no_std`
+`vibrix-syscall` crate consumes the shared ABI v1 source of truth, emits the
+x86-64 `syscall` instruction with the exact RAX/RDI/RSI/RDX/R10/R8/R9
+register contract, declares RCX/R11 clobbers, and provides named wrappers for
+exit, yield, getpid, read, write, open, close, wait and exec. Safe wrappers use
+Rust slices/references where pointer lifetime can be represented; nested
+argv/envp pointers remain explicitly unsafe. CI host-tests wrapper policy
+without invoking the host OS ABI and checks the crate for
+`x86_64-unknown-none`.
+
+This checks the **native Rust syscall library** item only. General syscall
+semantics, copy-in/copy-out, PID/process lifecycle, executable loading,
+argv/environment handling, wait/exit process behavior and PID 1 remain
+separate work.
 
 **Exit:** PID 1 executes in userspace and makes Vibrix syscalls.
 
 ## M6 — VFS and early userspace
-- [ ] File descriptors
-- [ ] VFS
-- [ ] In-memory bootstrap filesystem
-- [ ] /dev
-- [ ] pipes
+- [x] File descriptors
+- [x] VFS
+- [x] In-memory bootstrap filesystem
+- [x] /dev
+- [x] pipes
 - [ ] TTY
 - [ ] Rust init
 - [ ] Rust shell
 - [ ] Core utilities: cat, echo, ls, pwd, cd, mkdir, cp, mv, rm, ps, kill
+
+**Verified M6 bounded bootstrap filesystem and streams (PR #135):**
+[Actions run 36474454756](https://github.com/mixutin/Vibrix/actions/runs/36474454756)
+passed the full repository CI on implementation head
+`3c590d2797f9542f2a284b788acd5f6f6893e5e9`, plus the independent nightly
+torture workflow. Production safe Rust now supplies a bounded VFS/mount
+namespace, volatile RAM files/directories, shared open descriptions and file
+descriptors, mounted `/dev/null` and `/dev/zero`, and nonblocking bounded
+pipes. Host tests cover stale handles, path traversal, capacity rollback,
+shared/independent offsets, descriptor reuse, device semantics and pipe
+wrap/full/EOF/broken-reader behavior. The exact-head QEMU proof uses real PS/2
+keyboard input to create and read retained RAM data, enumerate `/dev`, perform
+a pipe round trip, remove the file, observe NotFound, and reboot. The slash
+scan-code path required by absolute filesystem paths is production-tested too.
+
+These check **File descriptors, VFS, In-memory bootstrap filesystem, /dev and
+pipes** only. The implementation is volatile and kernel-owned; it is not a
+userspace TTY or shell, has no file-syscall dispatcher/process ownership, and
+does not mount VibrixFS or write the boot USB. TTY, Rust init/shell, core
+userspace utilities and persistent storage remain separate work.
 
 **Exit:** boot to an interactive Vibrix userspace shell.
 
