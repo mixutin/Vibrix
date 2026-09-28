@@ -533,7 +533,6 @@ struct ImageAllocation {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImageSinkError {
     State,
-    Capacity,
     Layout,
     Range,
     Scratch,
