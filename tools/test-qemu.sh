@@ -182,15 +182,7 @@ cat "$SERIAL_LOG"
 
 if [[ "${VIBRIX_EXPECT_TIMER_IRQ:-0}" == "1" ]]; then
   grep -Fq "VIBRIX: kernel timer IRQ delivered" "$LOG"
-  tr -d '\\r' < "$SERIAL_LOG" | grep -Eq '^kernel timer: tick [1-9][0-9]*
-  grep -Fq "VIBRIX: kernel console prompt ready" "$LOG"
-  grep -Fq "VIBRIX: kernel console backspace accepted" "$LOG"
-  grep -Fq "VIBRIX: kernel console command help" "$LOG"
-  grep -Fq "commands: help info" "$SERIAL_LOG"
-fi
-
-echo "[vibrix] QEMU post-firmware kernel handoff smoke test passed"
-
+  tr -d "\\r" < "$SERIAL_LOG" | grep -Eq "^kernel timer: tick [1-9][0-9]*$"
 fi
 if [[ "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" ]]; then
   grep -Fq "VIBRIX: kernel console prompt ready" "$LOG"
