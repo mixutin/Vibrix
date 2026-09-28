@@ -147,6 +147,10 @@ unsafe fn read_bar0(device: Device) -> Result<u64, InitError> {
     if !device.is_xhci() || device.bar_slots() == 0 {
         return Err(InitError::NotFound);
     }
+    let command_status = unsafe { pci::read_legacy_dword(device.bdf, 0x04) };
+    if command_status & (1 << 1) == 0 {
+        return Err(InitError::InvalidBar);
+    }
     let low = unsafe { pci::read_legacy_dword(device.bdf, 0x10) };
     let high = if low & 1 == 0 && (low >> 1) & 3 == 2 {
         Some(unsafe { pci::read_legacy_dword(device.bdf, 0x14) })
