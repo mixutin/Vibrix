@@ -140,6 +140,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     // memory, enable bus mastering or identify the persistent boot USB.
     let mut shown = 0usize;
     let mut device_model = device::DiscoverySummary::default();
+    let mut driver_binder = device::Binder::new();
+    let mut bind_failures = 0u32;
     let pci = unsafe {
         arch::x86_64::pci::discover_legacy_segment_zero(|device| {
             let identity = device::DeviceIdentity::Pci(device::PciIdentity {
@@ -155,7 +157,11 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                 subclass: device.subclass,
                 programming_interface: device.programming_interface,
             });
-            let _candidate = device_model.observe(identity);
+            if let Some(candidate) = device_model.observe(identity)
+                && driver_binder.bind(candidate).is_err()
+            {
+                bind_failures = bind_failures.saturating_add(1);
+            }
             if shown < 8 {
                 crate::println!(
                     "PCI {:02x}:{:02x}.{} {:04x}:{:04x} class {:02x}:{:02x}:{:02x}",
@@ -185,10 +191,22 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         device_model.xhci_candidates,
         device_model.rtl8168_candidates
     );
+    crate::println!(
+        "Vibrix driver bindings: {} total, {} xHCI, {} RTL8168, {} failures",
+        driver_binder.len(),
+        driver_binder.count_driver(device::DriverKind::Xhci),
+        driver_binder.count_driver(device::DriverKind::Rtl8168),
+        bind_failures
+    );
     if device_model.devices == pci.devices {
         debugcon::write("VIBRIX: kernel device model populated\r\n");
     } else {
         debugcon::write("VIBRIX: kernel device model count mismatch\r\n");
+    }
+    if bind_failures == 0 {
+        debugcon::write("VIBRIX: kernel driver binding registry ready\r\n");
+    } else {
+        debugcon::write("VIBRIX: kernel driver binding rejected candidate\r\n");
     }
     if pci.devices == 0 || pci.assigned_bars == 0 || pci.malformed_bars != 0 {
         debugcon::write("VIBRIX: kernel PCI segment0 discovery rejected\r\n");
