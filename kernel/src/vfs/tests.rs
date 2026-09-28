@@ -7,7 +7,7 @@ use memfs::MemFs;
 fn guest_behavior_proof_runs_on_production_code() {
     let mut markers = std::vec::Vec::new();
     self_test(|marker| markers.push(std::string::String::from(marker))).unwrap();
-    assert_eq!(markers.len(), 4);
+    assert_eq!(markers.len(), 5);
 }
 
 #[test]
@@ -324,6 +324,17 @@ fn devfs_has_only_fixed_devices_and_no_seek_or_mutation() {
     assert_eq!(dev.write(null, 0, b"ignored"), Ok(7));
     assert_eq!(dev.lookup(dev.root(), "disk"), Err(Error::NotFound));
     assert_eq!(dev.remove(dev.root(), "null"), Err(Error::ReadOnly));
-    assert_eq!(dev.entry(dev.root(), 2), Ok(None));
+    let tty = dev.lookup(dev.root(), "tty").unwrap();
+    assert_eq!(dev.entry(dev.root(), 3), Ok(None));
+    assert_eq!(dev.read(tty, 0, &mut buffer), Err(Error::WouldBlock));
+    for byte in [b'a', b'b', 0x08, b'c', b'\n'] {
+        dev.device_input(tty, byte).unwrap();
+    }
+    assert_eq!(dev.read(tty, 0, &mut buffer), Ok(3));
+    assert_eq!(&buffer[..3], b"ac\n");
+    assert_eq!(dev.write(tty, 0, b"out"), Ok(3));
+    buffer.fill(0);
+    assert_eq!(dev.device_output(tty, &mut buffer), Ok(3));
+    assert_eq!(&buffer[..3], b"out");
     assert_eq!(dev.read(NodeId(999), 0, &mut buffer), Err(Error::StaleNode));
 }
