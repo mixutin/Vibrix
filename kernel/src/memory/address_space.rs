@@ -240,9 +240,7 @@ unsafe fn copy_kernel_root(
             for (offset, word) in chunk.iter_mut().enumerate() {
                 *word = (source as *const u64).add(base + offset).read_volatile();
             }
-            window
-                .unmap()
-                .map_err(|_| AddressSpaceError::Scratch)?;
+            window.unmap().map_err(|_| AddressSpaceError::Scratch)?;
         }
 
         for (offset, entry) in chunk.iter().copied().enumerate() {
@@ -263,9 +261,7 @@ unsafe fn copy_kernel_root(
                 let value = if index == ARENA_SLOT { 0 } else { entry };
                 (target as *mut u64).add(index).write_volatile(value);
             }
-            window
-                .unmap()
-                .map_err(|_| AddressSpaceError::Scratch)?;
+            window.unmap().map_err(|_| AddressSpaceError::Scratch)?;
         }
     }
     Ok(())
