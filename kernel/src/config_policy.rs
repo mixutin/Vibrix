@@ -171,7 +171,10 @@ mod tests {
     #[test]
     fn production_policy_and_defaults() {
         assert_eq!(self_test(), Ok(()));
-        assert_eq!(PortableConfig::from_text("version=1"), Ok(PortableConfig::default()));
+        assert_eq!(
+            PortableConfig::from_text("version=1"),
+            Ok(PortableConfig::default())
+        );
     }
 
     #[test]
@@ -191,7 +194,14 @@ mod tests {
 
     #[test]
     fn forbidden_hardware_keys_and_unknown_extensions() {
-        for key in ["root", "root_device", "pci_address", "usb_address", "cpu_count", "driver_binding"] {
+        for key in [
+            "root",
+            "root_device",
+            "pci_address",
+            "usb_address",
+            "cpu_count",
+            "driver_binding",
+        ] {
             let text = std::format!("version=1\n{key}=something");
             assert_eq!(PortableConfig::from_text(&text), Err(Error::HardwareKey));
         }
@@ -203,15 +213,36 @@ mod tests {
 
     #[test]
     fn document_bounds_and_encoding() {
-        assert_eq!(PortableConfig::from_text(&" ".repeat(1025)), Err(Error::TooLarge));
-        assert_eq!(PortableConfig::from_text(&"\n".repeat(33)), Err(Error::TooLarge));
-        assert_eq!(PortableConfig::from_text("version=1\0"), Err(Error::Encoding));
-        assert_eq!(PortableConfig::from_text("version=1\nhostname=ä"), Err(Error::Encoding));
+        assert_eq!(
+            PortableConfig::from_text(&" ".repeat(1025)),
+            Err(Error::TooLarge)
+        );
+        assert_eq!(
+            PortableConfig::from_text(&"\n".repeat(33)),
+            Err(Error::TooLarge)
+        );
+        assert_eq!(
+            PortableConfig::from_text("version=1\0"),
+            Err(Error::Encoding)
+        );
+        assert_eq!(
+            PortableConfig::from_text("version=1\nhostname=ä"),
+            Err(Error::Encoding)
+        );
     }
 
     #[test]
     fn no_shell_paths_or_hostname_injection() {
-        for name in ["", "-host", "host-", "../host", "$(id)", "host.local", "HOST", "a=b"] {
+        for name in [
+            "",
+            "-host",
+            "host-",
+            "../host",
+            "$(id)",
+            "host.local",
+            "HOST",
+            "a=b",
+        ] {
             let text = std::format!("version=1\nhostname={name}");
             assert_eq!(PortableConfig::from_text(&text), Err(Error::Value));
         }
