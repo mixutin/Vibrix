@@ -183,7 +183,10 @@ extern "x86-interrupt" fn ring3_probe_handler(frame: InterruptStackFrame) -> ! {
             current_root
         );
         #[cfg(feature = "syscall-probe")]
-        crate::println!("kernel syscall round trip rejected: observed={}", syscall_ok);
+        crate::println!(
+            "kernel syscall round trip rejected: observed={}",
+            syscall_ok
+        );
     }
     loop {
         core::hint::spin_loop();
