@@ -390,9 +390,38 @@ pub unsafe fn init(info: &BootInfo) -> Result<(), AddressSpaceError> {
 pub unsafe fn activate_probe() -> Result<ActivatedProbe, AddressSpaceError> {
     const CODE_GUARD: u64 = 0x003f_f000;
     const STACK_GUARD: u64 = 0x007f_e000;
-    #[cfg(not(feature = "syscall-probe"))]
+    #[cfg(feature = "process-syscall-probe")]
+    const USER_CODE: &[u8] = &[
+        0xb8, 0x02, 0x00, 0x00, 0x00, // mov eax, 2 (getpid)
+        0x0f, 0x05, // syscall
+        0x48, 0x83, 0xf8, 0x01, // cmp rax, 1
+        0x74, 0x02, // je next
+        0x0f, 0x0b, // ud2
+        0xbf, 0x02, 0x00, 0x00, 0x00, // mov edi, 2 (child pid)
+        0x48, 0x8d, 0x74, 0x24, 0xf8, // lea rsi, [rsp - 8] (status)
+        0x31, 0xd2, // xor edx, edx (options)
+        0xb8, 0x07, 0x00, 0x00, 0x00, // mov eax, 7 (wait)
+        0x0f, 0x05, // syscall
+        0x48, 0x83, 0xf8, 0x02, // cmp rax, 2
+        0x74, 0x02, // je next
+        0x0f, 0x0b, // ud2
+        0x83, 0x7c, 0x24, 0xf8, 0x17, // cmp dword ptr [rsp - 8], 23
+        0x74, 0x02, // je next
+        0x0f, 0x0b, // ud2
+        0xbf, 0x2a, 0x00, 0x00, 0x00, // mov edi, 42 (exit status)
+        0xb8, 0x00, 0x00, 0x00, 0x00, // mov eax, 0 (exit)
+        0x0f, 0x05, // syscall; must not return
+        0x0f, 0x0b, // ud2
+    ];
+    #[cfg(all(
+        not(feature = "process-syscall-probe"),
+        not(feature = "syscall-probe")
+    ))]
     const USER_CODE: &[u8] = &[0xcd, 0x80, 0x0f, 0x0b];
-    #[cfg(feature = "syscall-probe")]
+    #[cfg(all(
+        not(feature = "process-syscall-probe"),
+        feature = "syscall-probe"
+    ))]
     const USER_CODE: &[u8] = &[
         0x48, 0xc7, 0xc0, 0xff, 0xff, 0xff, 0xff, // mov rax, -1
         0x0f, 0x05, // syscall
