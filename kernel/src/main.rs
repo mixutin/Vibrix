@@ -485,10 +485,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             unsafe { arch::x86_64::ring3::enter(user_rip, user_rsp) };
         }
 
-        #[cfg(all(
-            feature = "address-space-probe",
-            not(feature = "elf-load-probe")
-        ))]
+        #[cfg(all(feature = "address-space-probe", not(feature = "elf-load-probe")))]
         {
             // SAFETY: the feature-gated owner was initialized pre-STI.
             let probe =
