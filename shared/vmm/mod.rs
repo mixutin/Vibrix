@@ -1,6 +1,7 @@
 //! Bounded single-CPU supervisor VM, independent of firmware and transport.
 //! Numeric addresses do not grant physical ownership or Rust references.
 pub mod address;
+pub mod frames;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -12,6 +13,7 @@ pub enum Error {
     DuplicateFrame,
     UnknownFrame,
     DoubleFree,
+    WrongFrameUse,
     AlreadyMapped,
     NotMapped,
     CorruptEntry,
