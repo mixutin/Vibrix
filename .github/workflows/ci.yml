@@ -150,6 +150,8 @@ jobs:
       - name: Test production bootstrap VFS and stream lifetimes
         run: |
           cargo test --locked --package vibrix-kernel --lib vfs::
+      - name: Test argv and environment initial stack builder
+        run: cargo test --locked --package vibrix-kernel --lib user_stack::
       - name: Test safe GPT image creation and inspect both copies
         run: |
           rustfmt --edition 2024 --check tools/create-usb-image.rs
