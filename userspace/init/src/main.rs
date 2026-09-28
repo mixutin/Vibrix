@@ -7,6 +7,7 @@ use vibrix_syscall as syscall;
 const STDOUT: u64 = 1;
 
 #[unsafe(no_mangle)]
+/// PID 1 entry used by the real ELF/runtime proof.
 pub extern "C" fn _start() -> ! {
     let status = match syscall::getpid() {
         Ok(1) => 0,
