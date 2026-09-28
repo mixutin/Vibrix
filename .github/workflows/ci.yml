@@ -130,6 +130,7 @@ jobs:
             image="$RUNNER_TEMP/vibrixfs-$sector.img"
             "$RUNNER_TEMP/vibrixfs-image" format "$image" 4096 "$sector" "$FS_UUID" "$ROOT_GUID" | tee "$image.report"
             grep -Fq "VibrixFS v1 valid: blocks=4096 logical_sector=$sector" "$image.report"
+            grep -Fq "mode=0640 uid=1000 gid=1000 mtime=1700000202.234567890" "$image.report"
             "$RUNNER_TEMP/vibrixfs-image" inspect "$image" "$sector" "$ROOT_GUID" >/dev/null
             if "$RUNNER_TEMP/vibrixfs-image" format "$image" 4096 "$sector" "$FS_UUID" "$ROOT_GUID"; then
               echo "unsafe VibrixFS overwrite was accepted" >&2
