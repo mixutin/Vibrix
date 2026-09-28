@@ -1,6 +1,6 @@
 # ADR 0010: VibrixFS v1 on-disk format
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-27
 - **Roadmap:** M8 — Vibrix filesystem, on-disk specification
 - **Supersedes:** None
