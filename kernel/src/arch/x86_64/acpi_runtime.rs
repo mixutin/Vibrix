@@ -111,7 +111,11 @@ pub struct Discovery {
     pub ecam: EcamSummary,
     pub lapic_physical: u64,
     pub ioapic_physical: u64,
+    pub ioapic_gsi_base: u32,
     pub ioapics: usize,
+    pub timer_gsi: u32,
+    pub timer_active_low: bool,
+    pub timer_level_triggered: bool,
 }
 
 /// Only create UC mappings when x86 PAT index 3 (PCD=1, PWT=1) is UC.
@@ -229,10 +233,29 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
                 if &table.signature == b"APIC" {
                     let madt = table.madt_entries()?;
                     let first = madt.ioapics().next().ok_or(ReadError::MissingApic)??;
+                    let timer = madt.interrupt_override(0)?;
+                    let (timer_gsi, timer_active_low, timer_level_triggered) =
+                        if let Some(override_) = timer {
+                            (
+                                override_.gsi,
+                                override_.active_low,
+                                override_.level_triggered,
+                            )
+                        } else {
+                            (0, false, false)
+                        };
                     return Ok((
                         0usize,
                         None,
-                        Some((madt.lapic_address, first.address, madt.ioapic_count())),
+                        Some((
+                            madt.lapic_address,
+                            first.address,
+                            first.gsi_base,
+                            madt.ioapic_count(),
+                            timer_gsi,
+                            timer_active_low,
+                            timer_level_triggered,
+                        )),
                     ));
                 }
                 Ok((0usize, None, None))
@@ -256,7 +279,15 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
         return Err(ReadError::MissingMcfg);
     }
     let entry: McfgEntry = selected_ecam.ok_or(ReadError::MissingEcam)?;
-    let (lapic_physical, ioapic_physical, ioapics) = selected_apic.ok_or(ReadError::MissingApic)?;
+    let (
+        lapic_physical,
+        ioapic_physical,
+        ioapic_gsi_base,
+        ioapics,
+        timer_gsi,
+        timer_active_low,
+        timer_level_triggered,
+    ) = selected_apic.ok_or(ReadError::MissingApic)?;
     // SAFETY: one CPL0 boot CPU, no other PAT owner at this stage.
     if !unsafe { pat_index_three_is_uc() } {
         return Err(ReadError::PatNotUncached);
@@ -290,6 +321,10 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
         ecam,
         lapic_physical,
         ioapic_physical,
+        ioapic_gsi_base,
         ioapics,
+        timer_gsi,
+        timer_active_low,
+        timer_level_triggered,
     })
 }
