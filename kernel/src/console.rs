@@ -143,13 +143,17 @@ mod tests {
     fn dispatch_registry_has_unique_exact_names() {
         for (index, command) in COMMANDS.iter().enumerate() {
             assert!(!command.name.is_empty());
-            assert!(command
-                .name
-                .iter()
-                .all(|byte| byte.is_ascii_graphic() && *byte != b' '));
-            assert!(!COMMANDS[..index]
-                .iter()
-                .any(|earlier| earlier.name == command.name));
+            assert!(
+                command
+                    .name
+                    .iter()
+                    .all(|byte| byte.is_ascii_graphic() && *byte != b' ')
+            );
+            assert!(
+                !COMMANDS[..index]
+                    .iter()
+                    .any(|earlier| earlier.name == command.name)
+            );
             assert_eq!(super::command(command.name), command.command);
         }
     }
