@@ -227,21 +227,15 @@ mod tests {
     #[test]
     fn decodes_user_leaf_without_relaxing_owned_table_checks() {
         let (mut vm, page, tables, physical) = populate();
-        vm.memory.write_entry(
-            tables[2],
-            0,
-            physical | PRESENT | WRITE | USER | NX,
-        );
+        vm.memory
+            .write_entry(tables[2], 0, physical | PRESENT | WRITE | USER | NX);
         let translation = vm.query(page).unwrap().unwrap();
         assert_eq!(translation.privilege, Privilege::User);
         assert_eq!(translation.permissions, Permissions::ReadWrite);
 
         vm.memory
             .write_entry(ROOT, ARENA_SLOT, tables[0] | PRESENT | WRITE | USER);
-        assert_eq!(
-            vm.query(page).unwrap().unwrap().privilege,
-            Privilege::User
-        );
+        assert_eq!(vm.query(page).unwrap().unwrap().privilege, Privilege::User);
     }
 
     #[test]
