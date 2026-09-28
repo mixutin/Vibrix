@@ -303,8 +303,3 @@ pub unsafe fn enable_interrupts() {
     unsafe { asm!("sti", options(nomem, nostack, preserves_flags)) };
 }
 
-/// # Safety
-/// CPL0 sole BSP; used to restore the bootstrap invariant before fatal errors.
-pub unsafe fn disable_interrupts() {
-    unsafe { asm!("cli", options(nomem, nostack, preserves_flags)) };
-}
