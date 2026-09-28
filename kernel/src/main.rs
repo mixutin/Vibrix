@@ -116,6 +116,13 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     unsafe { arch::x86_64::idt::init() };
     debugcon::write("VIBRIX: kernel IDT installed\r\n");
 
+    #[cfg(feature = "syscall-probe")]
+    unsafe {
+        arch::x86_64::syscall::init()
+            .unwrap_or_else(|error| panic!("SYSCALL/SYSRETQ initialization failed: {:?}", error));
+        debugcon::write("VIBRIX: kernel SYSCALL MSRs configured\r\n");
+    }
+
     // A kernel-side ACPI read after ExitBootServices, not a loader marker.
     // The XSDT/MCFG table pages are NOT mapped yet: consume RSDP metadata
     // only and leave all subsequent physical addresses as integers.
