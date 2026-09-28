@@ -200,10 +200,7 @@ fn cluster_offset(layout: FatLayout, cluster: u16) -> Result<usize, String> {
     if cluster < 2 || usize::from(cluster) >= layout.cluster_count + 2 {
         return Err("cluster outside FAT data area".into());
     }
-    Ok(
-        (layout.first_data_sector + (usize::from(cluster) - 2))
-            * layout.bytes_per_sector,
-    )
+    Ok((layout.first_data_sector + (usize::from(cluster) - 2)) * layout.bytes_per_sector)
 }
 
 fn allocate_chain(
@@ -312,8 +309,7 @@ fn build_fat16(esp: Esp, boot: &[u8], kernel: &[u8]) -> Result<Vec<u8>, String> 
     fat[3] = EOC; // EFI/BOOT
     fat[4] = EOC; // VIBRIX
     let mut next = 5u16;
-    let boot_cluster =
-        allocate_chain(&mut next, boot.len(), layout.bytes_per_sector, &mut fat)?;
+    let boot_cluster = allocate_chain(&mut next, boot.len(), layout.bytes_per_sector, &mut fat)?;
     let kernel_cluster =
         allocate_chain(&mut next, kernel.len(), layout.bytes_per_sector, &mut fat)?;
 
@@ -327,8 +323,8 @@ fn build_fat16(esp: Esp, boot: &[u8], kernel: &[u8]) -> Result<Vec<u8>, String> 
         encoded[at..at + 2].copy_from_slice(&value.to_le_bytes());
     }
     for copy in 0..usize::from(FAT_COPIES) {
-        let off = (usize::from(RESERVED_SECTORS) + copy * layout.fat_sectors)
-            * layout.bytes_per_sector;
+        let off =
+            (usize::from(RESERVED_SECTORS) + copy * layout.fat_sectors) * layout.bytes_per_sector;
         fs[off..off + fat_bytes].copy_from_slice(&encoded);
     }
 
@@ -453,9 +449,7 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     if !(4..=5).contains(&args.len()) {
         eprintln!("usage: populate-esp <image.img> <BOOTX64.EFI> <kernel.elf> [512|4096]");
-        eprintln!(
-            "Writes only a blank 32 MiB ESP in an existing regular-file Vibrix GPT image."
-        );
+        eprintln!("Writes only a blank 32 MiB ESP in an existing regular-file Vibrix GPT image.");
         std::process::exit(2);
     }
     let sector_size = args
