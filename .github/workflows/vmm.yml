@@ -75,6 +75,10 @@ jobs:
           grep -Fq 'VIBRIX: kernel managed VM native verified' build/qemu/debugcon.log
           grep -Fq 'managed VM: dynamic map/protect/reclaim, zeroed regions and reserved guards verified' build/qemu/serial.log
           grep -Fq 'managed VM: 24 retained pool frames free; active arena and scratch empty' build/qemu/serial.log
+          grep -Fq 'VIBRIX: kernel managed VM runtime initialized' build/qemu/debugcon.log
+          grep -Fq 'VIBRIX: kernel timer IRQ delivered' build/qemu/debugcon.log
+          grep -Fq 'VIBRIX: kernel managed VM runtime verified' build/qemu/debugcon.log
+          grep -Fq 'managed VM runtime: guarded mapping survived timer IRQ; 96 retained pool frames free' build/qemu/serial.log
       - name: Show actual guest evidence even on failure
         if: ${{ !cancelled() }}
         run: |

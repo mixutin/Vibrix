@@ -25,6 +25,16 @@ pub struct Window {
     invalidate: unsafe fn(u64),
 }
 
+/// Exclusive owner of one leaf-table slot. Other slots may contain permanent
+/// mappings owned by unrelated subsystems. This is the runtime scratch
+/// primitive used after the APIC has retained its own window entries.
+pub struct SlotWindow {
+    table: *mut u64,
+    index: usize,
+    physical_bits: u8,
+    invalidate: unsafe fn(u64),
+}
+
 fn page_address(index: usize) -> Result<u64, MapError> {
     if index >= window::PAGES {
         return Err(MapError::InvalidAddress);
@@ -41,6 +51,82 @@ fn leaf(physical: u64, bits: u8, writable: bool) -> Result<u64, MapError> {
         return Err(MapError::InvalidAddress);
     }
     Ok(physical | PRESENT | NX | if writable { WRITE } else { 0 })
+}
+
+impl SlotWindow {
+    /// # Safety
+    /// The table is a live 512-entry page table and index is exclusively owned
+    /// by this object. Other entries may be present or mutated by their owners.
+    /// The caller must serialize mutation of this slot against all CPUs/IRQs.
+    unsafe fn from_table(
+        table: *mut u64,
+        index: usize,
+        physical_bits: u8,
+        invalidate: unsafe fn(u64),
+    ) -> Result<Self, MapError> {
+        let address = page_address(index)?;
+        if table.is_null() || !(36..=52).contains(&physical_bits) {
+            return Err(MapError::InvalidTable);
+        }
+        // SAFETY: caller guarantees a complete live table; index was bounded.
+        if unsafe { table.add(index).read_volatile() } != 0 {
+            return Err(MapError::Occupied);
+        }
+        unsafe { invalidate(address) };
+        Ok(Self {
+            table,
+            index,
+            physical_bits,
+            invalidate,
+        })
+    }
+
+    /// Map one caller-owned WB RAM frame in this object's fixed scratch slot.
+    ///
+    /// # Safety
+    /// The caller owns the frame and this slot, has serialized PTE mutation,
+    /// and retires all raw accesses before unmap.
+    pub unsafe fn map(&mut self, physical: u64, writable: bool) -> Result<u64, MapError> {
+        let address = page_address(self.index)?;
+        let entry = leaf(physical, self.physical_bits, writable)?;
+        // SAFETY: construction grants ownership of exactly this bounded slot.
+        unsafe {
+            let slot = self.table.add(self.index);
+            if slot.read_volatile() != 0 {
+                return Err(MapError::Occupied);
+            }
+            slot.write_volatile(entry);
+            (self.invalidate)(address);
+        }
+        Ok(address)
+    }
+
+    /// Remove this object's scratch mapping and return its physical frame.
+    ///
+    /// # Safety
+    /// All accesses through the scratch virtual address have ended.
+    pub unsafe fn unmap(&mut self) -> Result<u64, MapError> {
+        let address = page_address(self.index)?;
+        // SAFETY: the selected slot remains exclusively owned.
+        unsafe {
+            let slot = self.table.add(self.index);
+            let current = slot.read_volatile();
+            if current & PRESENT == 0 {
+                return Err(MapError::Unmapped);
+            }
+            slot.write_volatile(0);
+            (self.invalidate)(address);
+            Ok(current & ADDRESS)
+        }
+    }
+
+    #[cfg(test)]
+    pub fn translation(&self) -> Result<Option<(u64, bool)>, MapError> {
+        page_address(self.index)?;
+        // SAFETY: selected slot is bounded and exclusively owned.
+        let entry = unsafe { self.table.add(self.index).read_volatile() };
+        Ok((entry & PRESENT != 0).then_some((entry & ADDRESS, entry & WRITE != 0)))
+    }
 }
 
 impl Window {
@@ -228,6 +314,37 @@ pub mod runtime {
         }
     }
 
+    /// Build an owner for one selected scratch leaf while allowing unrelated
+    /// permanent mappings in the same page table.
+    ///
+    /// # Safety
+    /// Matched v3 loader retained kernel_window_table RW/NX. The selected index
+    /// must be exclusively reserved for this object's lifetime, and all
+    /// mutation of that slot must be serialized against IRQ/SMP users.
+    pub unsafe fn slot_from_boot_info(
+        info: &BootInfo,
+        index: usize,
+    ) -> Result<SlotWindow, MapError> {
+        info.validate().map_err(|_| MapError::InvalidTable)?;
+        let extended = __cpuid_count(0x8000_0000, 0).eax;
+        let bits = if extended >= 0x8000_0008 {
+            (__cpuid_count(0x8000_0008, 0).eax & 0xff) as u8
+        } else {
+            36
+        };
+        leaf(info.kernel_window_table, bits, true)?;
+        // SAFETY: caller owns exactly index; other leaf entries are not read
+        // or modified by SlotWindow.
+        unsafe {
+            SlotWindow::from_table(
+                info.kernel_window_table as *mut u64,
+                index,
+                bits,
+                invalidate,
+            )
+        }
+    }
+
     /// # Safety
     /// Same v3 table/CPU contract as from_boot_info; frame allocator initialized.
     pub unsafe fn smoke_test(info: &BootInfo) -> Result<(), MapError> {
@@ -365,6 +482,31 @@ mod tests {
         assert_eq!(table[2], 0xfec0_0000 | PRESENT | WRITE | NX | PWT | PCD);
         assert_eq!(vm.translation(2), Ok(Some((0xfec0_0000, true))));
         assert_eq!(unsafe { vm.unmap(2) }, Ok(0xfec0_0000));
+    }
+
+    #[test]
+    fn slot_window_coexists_with_foreign_permanent_entries() {
+        let mut table = [0u64; 512];
+        table[0] = 0xfee0_0000 | PRESENT | WRITE | NX | PWT | PCD;
+        table[1] = 0xfec0_0000 | PRESENT | WRITE | NX | PWT | PCD;
+        let mut slot =
+            unsafe { SlotWindow::from_table(table.as_mut_ptr(), 511, 48, no_flush) }.unwrap();
+        assert_eq!(slot.translation(), Ok(None));
+        assert_eq!(
+            unsafe { slot.map(0x4000, true) },
+            Ok(window::BASE + 511 * 4096)
+        );
+        assert_eq!(slot.translation(), Ok(Some((0x4000, true))));
+        assert_eq!(table[0], 0xfee0_0000 | PRESENT | WRITE | NX | PWT | PCD);
+        assert_eq!(table[1], 0xfec0_0000 | PRESENT | WRITE | NX | PWT | PCD);
+        assert!(matches!(
+            unsafe { SlotWindow::from_table(table.as_mut_ptr(), 511, 48, no_flush) },
+            Err(MapError::Occupied)
+        ));
+        assert_eq!(unsafe { slot.unmap() }, Ok(0x4000));
+        assert_eq!(slot.translation(), Ok(None));
+        assert_ne!(table[0], 0);
+        assert_ne!(table[1], 0);
     }
 
     #[test]
