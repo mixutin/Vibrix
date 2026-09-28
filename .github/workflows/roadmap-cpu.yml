@@ -1,0 +1,29 @@
+name: CPU enumeration evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-enumeration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Test production MADT processor parser
+        run: |
+          rustfmt --edition 2024 --check kernel/src/cpu_topology.rs
+          rustc --edition=2024 -D warnings --test kernel/src/cpu_topology.rs -o "$RUNNER_TEMP/cpu-tests"
+          "$RUNNER_TEMP/cpu-tests"
+          cargo clippy -p vibrix-kernel --all-features --target x86_64-unknown-none -- -D warnings
+          bash -n tools/test-cpu-enumeration.sh
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+      - name: Enumerate real firmware records for 1, 4 and 16 QEMU CPUs
+        run: bash tools/test-cpu-enumeration.sh

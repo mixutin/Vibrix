@@ -1,0 +1,83 @@
+name: Managed VM evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main", "astra/vmm-*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vmm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  production-core:
+    name: Managed VM production core
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Show toolchain and tested revision
+        run: |
+          git rev-parse HEAD
+          rustup show active-toolchain
+          rustc --version
+      - name: Check production VM formatting
+        run: rustfmt --edition 2024 --check host-tests/vmm/lib.rs
+      - name: Run production VM host tests
+        if: ${{ !cancelled() }}
+        run: |
+          rustc --edition=2024 -D warnings --test host-tests/vmm/lib.rs -o "$RUNNER_TEMP/vmm-tests"
+          "$RUNNER_TEMP/vmm-tests"
+      - name: Compile production VM without a host runtime
+        if: ${{ !cancelled() }}
+        run: |
+          rustc --edition=2024 -D warnings --crate-type=rlib --target x86_64-unknown-none host-tests/vmm/lib.rs -o "$RUNNER_TEMP/libvmm.rlib"
+      - name: Lint production VM on bare metal
+        if: ${{ !cancelled() }}
+        run: |
+          clippy-driver --edition=2024 --crate-type=rlib --target x86_64-unknown-none host-tests/vmm/lib.rs -o "$RUNNER_TEMP/libvmm-clippy.rlib" -D warnings
+  native:
+    name: Native managed VM and IRQ coexistence
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+      - name: Check integrated formatting
+        run: cargo fmt --all -- --check
+      - name: Test first-party VM crate and lockfile
+        if: ${{ !cancelled() }}
+        run: |
+          cargo test --locked -p vibrix-vmm --lib
+          git diff --exit-code -- Cargo.lock
+      - name: Lint integrated kernel on its actual target
+        if: ${{ !cancelled() }}
+        run: cargo clippy --locked -p vibrix-kernel --all-features --target x86_64-unknown-none -- -D warnings
+      - name: Execute native VM then prove timer and console remain alive
+        if: ${{ !cancelled() }}
+        env:
+          VIBRIX_EXPECT_TIMER_IRQ: "1"
+        run: |
+          bash tools/test-qemu.sh
+          grep -Fq 'VIBRIX: kernel managed VM native verified' build/qemu/debugcon.log
+          grep -Fq 'managed VM: dynamic map/protect/reclaim, zeroed regions and reserved guards verified' build/qemu/serial.log
+          grep -Fq 'managed VM: 24 retained pool frames free; active arena and scratch empty' build/qemu/serial.log
+      - name: Show actual guest evidence even on failure
+        if: ${{ !cancelled() }}
+        run: |
+          for log in build/qemu/debugcon.log build/qemu/serial.log; do
+            if [ -f "$log" ]; then cat "$log"; fi
+          done

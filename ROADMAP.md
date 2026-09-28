@@ -6,6 +6,28 @@ Vibrix is an independent Rust-native Unix-like operating system that **lives on 
 
 There is no internal-disk edition. A checkbox is completed only when functionality is implemented and demonstrated on its stated target.
 
+## Verified abstraction and policy batch — PRs #92–#96
+
+Authoring AI: **GPT-6 Astra Pro**. These five checkboxes have deliberately
+bounded meanings; they do not imply USB persistence, real networking, SMP
+execution, persisted configuration, an operational updater or Target 001 support.
+The implementation evidence below precedes this documentation-only roadmap
+update. Exact implementation heads and full regression results are retained in
+the PR descriptions. No independent review is claimed.
+
+| Roadmap item | Observed evidence | Completion boundary |
+| --- | --- | --- |
+| M7 block-device abstraction, [PR #92](https://github.com/mixutin/Vibrix/pull/92) | [Run 36408760964](https://github.com/mixutin/Vibrix/actions/runs/36408760964): five production host tests, bare-metal Clippy and real QEMU kernel write/read comparison, neighboring-sector preservation and invalid-operation rejection. | Checked synchronous block API plus exclusive RAM backend. RAM never claims durable flush. No USB/SCSI or physical block driver. See [contract](docs/BLOCK_DEVICE.md). |
+| M10 NIC abstraction, [PR #93](https://github.com/mixutin/Vibrix/pull/93) | [Run 36409221073](https://github.com/mixutin/Vibrix/actions/runs/36409221073): five production host tests, target Clippy and a real post-firmware kernel trait-based frame round trip with short-buffer retry. | Bounded software loopback and NIC interface, not RTL8168, Ethernet/ARP/IP or external network traffic. See [contract](docs/NIC_ABSTRACTION.md). |
+| M12 CPU enumeration, [PR #94](https://github.com/mixutin/Vibrix/pull/94) | [Run 36409539352](https://github.com/mixutin/Vibrix/actions/runs/36409539352): production MADT tests and QEMU with exactly 1, 4 and 16 distinct enabled firmware CPU records; timer IRQ and console readiness also required. | Up to 64 xAPIC/x2APIC firmware identities and availability states. Only the BSP executes Vibrix; AP startup and SMP remain unchecked. See [contract](docs/CPU_ENUMERATION.md). |
+| M9 portable configuration policy, [PR #95](https://github.com/mixutin/Vibrix/pull/95) | [Run 36409812567](https://github.com/mixutin/Vibrix/actions/runs/36409812567): five host tests and QEMU kernel execution of bounded schema parsing, hardware-key rejection and current-boot network-consent policy. | Accepted [ADR 0014](docs/decisions/0014-portable-configuration.md) and executable policy. No settings are loaded from USB or applied to real devices yet. |
+| M9 system update + rollback strategy, [PR #96](https://github.com/mixutin/Vibrix/pull/96) | [Run 36409989644](https://github.com/mixutin/Vibrix/actions/runs/36409989644): seven host tests, including all 32 prerequisite combinations and stale/re-staged trial tickets; QEMU kernel executes failed-trial fallback and healthy-promotion simulations. | Accepted [ADR 0015](docs/decisions/0015-update-rollback-strategy.md) and executable state model only. No real signature verifier, disk update, persistent boot selector, recovery environment or rollback reboot. |
+
+Every QEMU proof requires independent kernel COM1 and debugcon output. Policy
+model assertions are not authentication or durability evidence. Future native
+storage, networking, userspace and security milestones still require their own
+runtime tests; none of their checkboxes are changed by this batch.
+
 ## M0 — Bootstrap
 - [x] Project identity and independence policy
 - [x] Rust-native system policy
@@ -327,7 +349,7 @@ the first real userspace CLI.
 - [ ] USB HID mouse
 - [ ] USB mass-storage transport
 - [ ] SCSI transparent command subset for mass storage
-- [ ] Block-device abstraction
+- [x] Block-device abstraction
 - [ ] Detect the boot USB device robustly
 - [ ] Read/write blocks on the Vibrix USB device
 
@@ -460,17 +482,17 @@ root unique-GUID identity checks; a partition type alone never selects a disk.
 - [ ] RAM-backed /tmp and runtime state
 - [ ] Flash-write reduction
 - [ ] Hardware rediscovery every boot
-- [ ] Portable configuration policy
+- [x] Portable configuration policy
 - [ ] Safe USB provisioning/imaging tool
 - [ ] Recovery partition/environment
-- [ ] System update + rollback strategy
+- [x] System update + rollback strategy
 - [ ] Target 001 real USB boot
 - [ ] Move the same USB drive between two compatible machines
 
 **Exit:** boot from USB, modify files/configuration/apps, power off, move or reboot the drive, and retain all state without touching an internal system disk.
 
 ## M10 — Networking
-- [ ] NIC abstraction
+- [x] NIC abstraction
 - [ ] RTL8168-family driver
 - [ ] Ethernet + ARP
 - [ ] IPv4 + ICMP
@@ -493,7 +515,7 @@ root unique-GUID identity checks; a partition type alone never selects a disk.
 - [ ] optional USB system encryption design
 
 ## M12 — SMP and performance
-- [ ] CPU enumeration
+- [x] CPU enumeration
 - [ ] AP startup
 - [ ] per-CPU structures
 - [ ] SMP scheduler
@@ -527,6 +549,135 @@ root unique-GUID identity checks; a partition type alone never selects a disk.
 - [ ] Build userspace on Vibrix
 - [ ] Build kernel on Vibrix
 - [ ] Produce a bootable Vibrix USB image from Vibrix
+
+## M16 — Reliability, updates and recovery
+
+Post-operational milestone: Vibrix already boots into persistent userspace before
+this milestone begins.
+
+- [ ] Signed system update manifests and artifacts
+- [ ] Stable / beta / nightly update channels
+- [ ] Transactional update staging
+- [ ] Automatic rollback after failed boot/update
+- [ ] Explicit `vpm update` / system-update workflow
+- [ ] Update history and rollback selection
+- [ ] Known-good recovery environment on the Vibrix USB itself
+- [ ] Recovery can inspect and repair Vibrix FS without another OS
+- [ ] Recovery can restore previous system generation
+- [ ] Recovery never selects internal disks as Vibrix system targets
+- [ ] Offline signed update bundles
+- [ ] USB health and write/endurance diagnostics
+- [ ] Power-loss/update interruption tests
+
+**Exit:** a failed system update can be diagnosed and rolled back from the same
+Vibrix USB without another computer or operating system.
+
+## M17 — Package ecosystem and profiles
+
+- [ ] `vpm` package manager UX
+- [ ] `vpm search/install/remove/update/why/audit`
+- [ ] Package provenance, license and signature display
+- [ ] Package dependency graph inspection
+- [ ] Minimal profile
+- [ ] Developer profile
+- [ ] Server profile
+- [ ] Recovery profile
+- [ ] Optional security-lab profile
+- [ ] Profile installation/removal is transactional
+- [ ] Offline package cache
+- [ ] Package repository mirrors cannot bypass signature verification
+
+### Optional authorized security-lab profile
+
+Security tooling is **not part of the default installation**. The optional
+profile is intended for diagnostics, CTFs, labs and systems the operator is
+authorized to test.
+
+Possible package categories:
+
+- packet capture and protocol inspection
+- network discovery/scanning
+- DNS/HTTP/TLS diagnostics
+- web application testing
+- binary inspection, reversing and debugging
+- forensic image/file inspection
+- cryptographic utilities
+- traffic generation for owned lab environments
+- exploit-development/debugging tooling where legally appropriate
+
+- [ ] Security tools run in a clearly identified profile
+- [ ] Disposable/sandboxed security workspaces
+- [ ] Optional isolated network namespace
+- [ ] Restricted host/persistent filesystem mounts by default
+- [ ] Easy reset to a clean lab state
+- [ ] Security profile never silently enables network-facing services
+
+**Exit:** Vibrix can install signed package profiles without bloating or
+weakening the default system.
+
+## M18 — Observability and troubleshooting
+
+- [ ] Structured kernel logging
+- [ ] Persistent userspace journal
+- [ ] Boot IDs and monotonic/wall-clock timestamps
+- [ ] Log levels and subsystem filtering
+- [ ] `vlog` query/follow interface
+- [ ] Previous-boot log access
+- [ ] Flash-aware log rotation and retention
+- [ ] Panic/crash record persisted across reboot where safe
+- [ ] Symbolized kernel stack traces
+- [ ] Register/fault context in crash diagnostics
+- [ ] `vibrix status` system overview
+- [ ] `vibrix doctor` automated diagnostics
+- [ ] Driver binding/missing-driver diagnostics
+- [ ] Filesystem/network/update health checks
+- [ ] Privacy-reviewed `vibrix doctor --bundle` support bundle
+- [ ] Verbose boot mode while normal boot remains clean
+- [ ] Hardware compatibility/quirk reporting
+- [ ] Optional anonymized compatibility reports only with explicit opt-in
+
+**Exit:** common boot, driver, storage, update and network failures can be
+diagnosed from Vibrix itself with useful logs and an exportable support bundle.
+
+## M19 — Isolation and security workstation
+
+This extends the security roadmap; it does not replace the security gates that
+must already exist before third-party software is trusted.
+
+- [ ] Application sandbox primitives
+- [ ] Package/application capability declarations
+- [ ] Filesystem namespace/mount isolation
+- [ ] Network namespace/isolation
+- [ ] Device-access mediation
+- [ ] Per-application resource limits
+- [ ] Audit log for security-sensitive operations
+- [ ] Security-lab disposable environment integration
+- [ ] Read-only forensic mounting mode
+- [ ] Package permission review before installation
+- [ ] Hardened developer/debug mode separation
+
+**Exit:** optional engineering/security tooling can be used without automatically
+receiving unrestricted access to the persistent Vibrix system.
+
+## M20 — Self-hosted engineering workstation
+
+M15 proves self-hosting fundamentals; M20 turns them into a sustainable
+day-to-day development environment.
+
+- [ ] Native Vibrix SDK
+- [ ] Rust toolchain packaged through `vpm`
+- [ ] Debugger and profiler packages
+- [ ] Local API/manual documentation
+- [ ] Reproducible package build environment
+- [ ] Build recipes usable entirely on Vibrix
+- [ ] Build and test third-party Rust applications on Vibrix
+- [ ] Build signed Vibrix packages on Vibrix
+- [ ] Build/update the Vibrix system from Vibrix
+- [ ] Produce and verify a complete bootable USB release from Vibrix
+
+**Exit:** a developer can boot Vibrix, diagnose it, write software, build
+packages and produce a verifiable Vibrix release without depending on a
+different host operating system.
 
 ## Optional later storage support
 

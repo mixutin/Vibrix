@@ -14,6 +14,11 @@ breakpoint-probe = []
 page-fault-probe = []
 vm-write-probe = []
 vm-unmap-probe = []
+managed-write-probe = []
+managed-unmap-probe = []
+managed-guard-probe = []
+managed-nx-probe = []
 pci-irq-probe = ["qemu-debugcon"]
 
 [dependencies]
+vibrix-vmm = { path = "../shared/vmm", version = "=0.0.1" }

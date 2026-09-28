@@ -102,6 +102,13 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     crate::println!("Vibrix kernel started.");
     debugcon::write("VIBRIX: kernel serial initialized\r\n");
 
+    #[cfg(feature = "qemu-debugcon")]
+    vibrix_kernel::subsystem_self_test(|marker| {
+        crate::println!("{}", marker);
+        debugcon::write(marker);
+        debugcon::write("\r\n");
+    });
+
     // Install only synchronous exception vectors; IF stays cleared until
     // the IRQ routing model and TSS privilege/IST stacks are ready.
     unsafe { arch::x86_64::idt::init() };

@@ -5,6 +5,8 @@
 //! This intentionally does not claim a general SMP-safe allocator.
 pub mod frame_allocator;
 pub mod heap;
+#[cfg(target_os = "none")]
+pub mod managed;
 pub mod virtual_memory;
 
 use core::cell::UnsafeCell;
@@ -38,6 +40,7 @@ pub enum EarlyFrameError {
     InvalidBootMap,
     AlreadyInitialized,
     Descriptor(FrameError),
+    Managed(vibrix_vmm::Error),
 }
 
 /// Protect a potentially unaligned physical byte span using whole 4 KiB
@@ -54,7 +57,8 @@ fn protect_span(start: u64, len: u64) -> Result<ReservedFrames, EarlyFrameError>
 }
 
 /// Initialize the *one* boot-CPU frame allocator from the retained final
-/// firmware map. It does not map, zero or dereference any candidate frame.
+/// firmware map, then exercise the native managed-VM service before IRQs.
+/// The allocator itself returns physical numbers and never dereferences them.
 ///
 /// # Safety
 ///
@@ -62,6 +66,8 @@ fn protect_span(start: u64, len: u64) -> Result<ReservedFrames, EarlyFrameError>
 /// the loader has identity-mapped and retained all `memory_map_len` bytes at
 /// `BootInfo::memory_map`, and after `BootInfo::validate` succeeds. The
 /// EfiLoaderData map backing must remain reserved for kernel lifetime.
+/// The matched v3 loader owns the active four-level root and scratch PT;
+/// no other Window may exist until the managed-VM validation has returned.
 /// Never initialize this twice, enable IRQ allocation or share with APs.
 pub unsafe fn init_from_boot_info(info: &BootInfo) -> Result<(), EarlyFrameError> {
     info.validate()
@@ -90,15 +96,24 @@ pub unsafe fn init_from_boot_info(info: &BootInfo) -> Result<(), EarlyFrameError
         protect_span(info.rsdp, PAGE_SIZE)?,
         protect_span(info.kernel_window_table, PAGE_SIZE)?,
     ];
-    // SAFETY: only the boot CPU may access this cell, with IRQs disabled.
-    let state = unsafe { &mut *EARLY_FRAMES.0.get() };
-    if state.is_some() {
-        return Err(EarlyFrameError::AlreadyInitialized);
+    {
+        // SAFETY: only the boot CPU may access this cell, with IRQs disabled.
+        let state = unsafe { &mut *EARLY_FRAMES.0.get() };
+        if state.is_some() {
+            return Err(EarlyFrameError::AlreadyInitialized);
+        }
+        *state = Some(EarlyAllocator {
+            frames: allocator,
+            protected,
+        });
     }
-    *state = Some(EarlyAllocator {
-        frames: allocator,
-        protected,
-    });
+    // SAFETY: the mutable allocator borrow above has ended. The sole BSP is
+    // still IRQ-off, the v3 scratch window is empty, and all RAM is acquired
+    // through this initialized allocator. Managed VM releases its mappings.
+    #[cfg(target_os = "none")]
+    unsafe {
+        managed::smoke_test(info).map_err(EarlyFrameError::Managed)?;
+    }
     Ok(())
 }
 
