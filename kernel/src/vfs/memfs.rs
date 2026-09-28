@@ -144,6 +144,46 @@ impl<const N: usize, const B: usize> Filesystem for MemFs<N, B> {
         Ok(())
     }
 
+    fn rename(
+        &mut self,
+        old_dir: NodeId,
+        old_name: &str,
+        new_dir: NodeId,
+        new_name: &str,
+    ) -> Result<()> {
+        self.directory(old_dir)?;
+        self.directory(new_dir)?;
+        let validated = Name::new(new_name)?;
+        let id = self.lookup(old_dir, old_name)?;
+        if old_dir == new_dir && self.node(id)?.name == validated {
+            return Ok(());
+        }
+        match self.lookup(new_dir, new_name) {
+            Ok(_) => return Err(Error::Exists),
+            Err(Error::NotFound) => {}
+            Err(error) => return Err(error),
+        }
+
+        if self.node(id)?.kind == Kind::Directory {
+            let mut cursor = new_dir;
+            loop {
+                if cursor == id {
+                    return Err(Error::InvalidPath);
+                }
+                if cursor == self.root() {
+                    break;
+                }
+                cursor = self.node(cursor)?.parent;
+            }
+        }
+
+        let index = self.index(id)?;
+        let node = self.nodes[index].as_mut().expect("live inode");
+        node.parent = new_dir;
+        node.name = validated;
+        Ok(())
+    }
+
     fn read(&mut self, id: NodeId, offset: usize, buffer: &mut [u8]) -> Result<usize> {
         let node = self.node(id)?;
         if node.kind != Kind::File {
