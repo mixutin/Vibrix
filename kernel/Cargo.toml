@@ -16,3 +16,4 @@ vm-write-probe = []
 vm-unmap-probe = []
 
 [dependencies]
+vibrix-vmm = { path = "../shared/vmm", version = "=0.0.1" }
