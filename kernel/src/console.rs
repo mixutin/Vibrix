@@ -57,6 +57,7 @@ impl LineEditor {
 pub enum Command {
     Empty,
     Help,
+    Clear,
     Info,
     Mem,
     Pci,
@@ -75,6 +76,10 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: b"help",
         command: Command::Help,
+    },
+    CommandSpec {
+        name: b"clear",
+        command: Command::Clear,
     },
     CommandSpec {
         name: b"info",
@@ -184,6 +189,7 @@ mod tests {
         assert_eq!(command(b"  "), Command::Empty);
         assert_eq!(command(b"help"), Command::Help);
         assert_eq!(command(b" help  "), Command::Help);
+        assert_eq!(command(b"clear"), Command::Clear);
         assert_eq!(command(b"info"), Command::Info);
         assert_eq!(command(b"mem"), Command::Mem);
         assert_eq!(command(b"pci"), Command::Pci);
