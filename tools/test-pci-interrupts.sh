@@ -33,4 +33,16 @@ grep -Fq 'VIBRIX: EDU MSI capability found' "$OUT/pci-debugcon.log"
 grep -Fq 'VIBRIX: PCI interrupt inventory complete' "$OUT/pci-debugcon.log"
 grep -Fq 'PCI MSI 1234:11e8' "$OUT/pci-serial.log"
 grep -Fq 'Vibrix kernel started.' "$OUT/pci-serial.log"
-echo 'Native read-only PCI interrupt inventory verified against QEMU EDU.'
+if [[ "${VIBRIX_EXPECT_MSI_IRQ:-0}" == "1" ]]; then
+  grep -Fq 'VIBRIX: native EDU MSI armed' "$OUT/pci-debugcon.log"
+  grep -Fq 'VIBRIX: native MSI repeated delivery verified' "$OUT/pci-debugcon.log"
+  grep -Fq 'VIBRIX: kernel console prompt ready' "$OUT/pci-debugcon.log"
+  grep -Fq 'kernel MSI: delivered=2 acknowledged=2 disabled=true bus_master=false' "$OUT/pci-serial.log"
+  echo 'Native EDU MSI: repeated delivery, acknowledgement, disable and continued boot verified.'
+else
+  if grep -Fq 'VIBRIX: native EDU MSI armed' "$OUT/pci-debugcon.log"; then
+    echo 'Default inventory unexpectedly activated the MSI diagnostic.' >&2
+    exit 1
+  fi
+  echo 'Native read-only PCI interrupt inventory verified against QEMU EDU.'
+fi

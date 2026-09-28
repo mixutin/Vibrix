@@ -1,9 +1,9 @@
 //! Minimal single-CPU x86-64 exception table for Vibrix.
 //!
-//! Installs synchronous exception gates plus the first timer/spurious IRQ
-//! vectors. Hardware IRQ delivery remains disabled until APIC/PIT routing is
-//! explicitly activated later in kernel startup. No privilege-transition IST
-//! policy or SMP IDT synchronization exists yet.
+//! Installs synchronous exception gates plus timer/spurious IRQ vectors.
+//! The explicit pci-irq-probe build also reserves its permanent EDU vector.
+//! Hardware delivery stays disabled until native controller setup completes.
+//! No privilege-transition IST policy or SMP IDT synchronization exists yet.
 
 use core::{arch::asm, cell::UnsafeCell};
 
@@ -38,8 +38,7 @@ unsafe impl Sync for PermanentIdt {}
 
 static IDT: PermanentIdt = PermanentIdt(UnsafeCell::new(IdtTable::EMPTY));
 
-/// Install the table for synchronous traps. Do not STI until the IRQ model,
-/// TSS privilege stacks and per-CPU IDT/locking are implemented.
+/// Install synchronous and reserved interrupt gates before any delivery.
 ///
 /// # Safety
 /// The caller is the sole boot CPU with interrupts disabled, has already
@@ -73,6 +72,13 @@ pub unsafe fn init() {
         spurious_handler as *const () as usize as u64,
         Gdt::KERNEL_CODE_SELECTOR,
     );
+    #[cfg(all(feature = "pci-irq-probe", not(feature = "panic-probe")))]
+    {
+        table.0[usize::from(super::pci_irq_probe::VECTOR)] = IdtGate::interrupt(
+            edu_msi_handler as *const () as usize as u64,
+            Gdt::KERNEL_CODE_SELECTOR,
+        );
+    }
 
     let pointer = IdtPointer {
         limit: (core::mem::size_of::<IdtTable>() - 1) as u16,
@@ -88,6 +94,11 @@ extern "x86-interrupt" fn timer_handler(_frame: InterruptStackFrame) {
     // SAFETY: the timer vector is unmasked only after activate_pit_timer()
     // permanently maps the LAPIC page on this sole BSP.
     unsafe { crate::arch::x86_64::apic::eoi() };
+}
+
+#[cfg(all(feature = "pci-irq-probe", not(feature = "panic-probe")))]
+extern "x86-interrupt" fn edu_msi_handler(_frame: InterruptStackFrame) {
+    super::pci_irq_probe::interrupt();
 }
 
 extern "x86-interrupt" fn spurious_handler(_frame: InterruptStackFrame) {

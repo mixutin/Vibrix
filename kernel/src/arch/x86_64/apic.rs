@@ -1,9 +1,8 @@
-//! Early xAPIC/I/O-APIC discovery without enabling interrupt delivery.
+//! Early xAPIC/I/O-APIC discovery and explicit BSP PIT activation.
 //!
-//! The MADT provides physical addresses. This module proves those addresses
-//! are firmware-described UC MMIO, checks the architectural LAPIC base MSR,
-//! and reads ID/version registers through short-lived BootInfo v3 mappings.
-//! It does not program redirection entries, unmask IRQs, or execute STI.
+//! Discovery validates MADT addresses, RAM/runtime exclusions, UC PAT and the
+//! architectural LAPIC base MSR. Activation separately retains the mappings
+//! and enables routes. The opt-in EDU probe borrows that same window owner.
 
 use core::arch::{asm, x86_64::__cpuid_count};
 
@@ -202,12 +201,15 @@ pub unsafe fn probe(
 /// near 100 Hz. Interrupts remain disabled until enable_interrupts().
 ///
 /// On success window slots 0 and 1 are intentionally retained for the entire
-/// early-kernel runtime; no later Window owner may be created.
+/// early-kernel runtime; no later Window owner may be created. The explicit
+/// pci-irq-probe build also retains slot 2 for the isolated QEMU EDU device.
 ///
 /// # Safety
 /// Sole BSP, IF=0, no other mapping-window owner. The supplied APIC summary
 /// and physical addresses must come from the immediately preceding validated
 /// MADT/APIC probe. The selected route must describe this I/O APIC's GSI range.
+/// With pci-irq-probe, use only the dedicated QEMU TCG test environment without
+/// IOMMU/passthrough; its permanent vector-0x50 IDT gate must be installed.
 pub unsafe fn activate_pit_timer(
     info: &BootInfo,
     lapic_physical: u64,
@@ -281,6 +283,17 @@ pub unsafe fn activate_pit_timer(
         outb(PIT_CHANNEL_ZERO, PIT_DIVISOR_100HZ as u8);
         outb(PIT_CHANNEL_ZERO, (PIT_DIVISOR_100HZ >> 8) as u8);
     }
+    #[cfg(all(feature = "pci-irq-probe", not(feature = "panic-probe")))]
+    {
+        // SAFETY: reuse this exclusive live window owner, never construct a
+        // second one after APIC mappings become permanent. IF is still zero.
+        unsafe { super::pci_irq_probe::prepare(&mut vm, route.destination_apic_id) }.map_err(
+            |reason| {
+                crate::println!("EDU MSI probe setup failed: {}", reason);
+                ApicError::Routing
+            },
+        )?;
+    }
     Ok(())
 }
 
@@ -294,11 +307,21 @@ pub unsafe fn eoi() {
     unsafe { core::ptr::write_volatile(eoi, 0) };
 }
 
-/// Enable or disable maskable interrupts on the sole early BSP.
+/// Enable maskable interrupts on the sole early BSP.
 ///
 /// # Safety
-/// Call enable only after every IDT gate and interrupt controller route that
-/// can deliver to this CPU is initialized. No SMP or reentrant shared state.
+/// Call only after every IDT gate and interrupt controller route that can
+/// deliver to this CPU is initialized. No SMP or reentrant shared state.
+/// The pci-irq-probe build additionally runs its one-shot QEMU-only test.
 pub unsafe fn enable_interrupts() {
-    unsafe { asm!("sti", options(nomem, nostack, preserves_flags)) };
+    unsafe { asm!("sti", options(nostack)) };
+    #[cfg(all(feature = "pci-irq-probe", not(feature = "panic-probe")))]
+    {
+        // SAFETY: successful activation prepared permanent EDU/APIC mappings
+        // and installed the handler; IF is now set on this sole BSP.
+        if let Err(reason) = unsafe { super::pci_irq_probe::exercise() } {
+            crate::debugcon::write("VIBRIX: native MSI delivery probe failed\r\n");
+            panic!("EDU MSI delivery probe failed: {}", reason);
+        }
+    }
 }
