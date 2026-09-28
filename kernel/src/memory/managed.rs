@@ -54,7 +54,10 @@ impl Memory for NativeMemory {
     }
 
     fn zero_frame(&mut self, frame: u64) {
-        assert!(self.reserved.contains(&frame), "cannot zero foreign/root RAM");
+        assert!(
+            self.reserved.contains(&frame),
+            "cannot zero foreign/root RAM"
+        );
         // SAFETY: frame is from the reserved conventional pool; the core zeros
         // it before publication/reuse. No live raw accesses or references exist.
         unsafe {
@@ -255,8 +258,10 @@ pub unsafe fn smoke_test(info: &BootInfo) -> Result<(), Error> {
             return Err(Error::CorruptEntry);
         }
     }
-    crate::debugcon("VIBRIX: kernel managed VM native verified\r\n");
-    crate::println!("managed VM: dynamic map/protect/reclaim, zeroed regions and reserved guards verified");
+    crate::debugcon::write("VIBRIX: kernel managed VM native verified\r\n");
+    crate::println!(
+        "managed VM: dynamic map/protect/reclaim, zeroed regions and reserved guards verified"
+    );
     crate::println!("managed VM: 24 retained pool frames free; active arena and scratch empty");
     Ok(())
 }
