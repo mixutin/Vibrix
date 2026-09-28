@@ -153,6 +153,9 @@ jobs:
       - name: Test argv and environment initial stack builder
         run: |
           cargo test --locked --package vibrix-kernel --lib user_stack::
+      - name: Test bounded userspace ELF image loader
+        run: |
+          cargo test --locked --package vibrix-kernel --lib user_image::
       - name: Test production PID/process lifecycle on host
         run: |
           cargo test --locked --package vibrix-kernel --lib process::
