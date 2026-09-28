@@ -11,13 +11,16 @@ use core::{
 };
 
 use vibrix_kernel::vfs::{
-    Error, Result,
+    Entry, Error, Kind, PATH_MAX, Result,
     console::{BootstrapFiles, BootstrapRoot, bootstrap},
     devfs::DevFs,
     files::{Access, Open},
 };
 
 use crate::arch::x86_64::{ps2, serial};
+
+#[path = "../../shared/syscall_abi.rs"]
+mod abi;
 
 struct StaticCell<T>(UnsafeCell<T>);
 
@@ -35,6 +38,16 @@ static FILES: StaticCell<Option<BootstrapFiles<'static>>> =
 static KEYS: StaticCell<ps2::SetOne> = StaticCell(UnsafeCell::new(ps2::SetOne::new()));
 static READY: AtomicBool = AtomicBool::new(false);
 static INPUT_WAIT_REPORTED: AtomicBool = AtomicBool::new(false);
+
+struct Cwd {
+    bytes: [u8; PATH_MAX],
+    len: usize,
+}
+
+static CWD: StaticCell<Cwd> = StaticCell(UnsafeCell::new(Cwd {
+    bytes: [0; PATH_MAX],
+    len: 0,
+}));
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InitError {
@@ -82,9 +95,15 @@ pub fn init() -> core::result::Result<(), InitError> {
             return Err(InitError::DescriptorLayout);
         }
 
-        // SAFETY: no userspace syscall can access FILES before READY remains
-        // published true at function return on this single CPU.
-        unsafe { *FILES.0.get() = Some(files) };
+        // SAFETY: no userspace syscall can access FILES/CWD before READY is
+        // published at function return on this single CPU.
+        unsafe {
+            *FILES.0.get() = Some(files);
+            let cwd = &mut *CWD.0.get();
+            cwd.bytes.fill(0);
+            cwd.bytes[0] = b'/';
+            cwd.len = 1;
+        }
         Ok(())
     })();
 
@@ -140,4 +159,74 @@ pub fn write(fd: usize, buffer: &[u8]) -> Result<usize> {
         serial::write_bytes(&drained[..n]).map_err(|_| Error::BackendContract)?;
     }
     Ok(count)
+}
+
+pub fn open(path: &str, flags: u64) -> Result<usize> {
+    if flags & !abi::OPEN_KNOWN_FLAGS != 0 {
+        return Err(Error::Unsupported);
+    }
+    let access = match flags & abi::OPEN_ACCESS_MASK {
+        abi::OPEN_READ => Access::Read,
+        abi::OPEN_WRITE => Access::Write,
+        abi::OPEN_READ_WRITE => Access::ReadWrite,
+        _ => return Err(Error::Unsupported),
+    };
+    let options = Open {
+        access,
+        truncate: flags & abi::OPEN_TRUNCATE != 0,
+        append: flags & abi::OPEN_APPEND != 0,
+    };
+    with_files(|files| files.open(path, options))
+}
+
+pub fn close(fd: usize) -> Result<()> {
+    with_files(|files| files.close(fd))
+}
+
+pub fn create(path: &str) -> Result<()> {
+    with_files(|files| files.create(path))
+}
+
+pub fn mkdir(path: &str) -> Result<()> {
+    with_files(|files| files.mkdir(path))
+}
+
+pub fn remove(path: &str) -> Result<()> {
+    with_files(|files| files.remove(path))
+}
+
+pub fn rename(old_path: &str, new_path: &str) -> Result<()> {
+    with_files(|files| files.rename(old_path, new_path))
+}
+
+pub fn chdir(path: &str) -> Result<()> {
+    let metadata = with_files(|files| files.metadata(path))?;
+    if metadata.kind != Kind::Directory {
+        return Err(Error::NotDirectory);
+    }
+    if path.is_empty() || path.len() > PATH_MAX || !path.starts_with('/') {
+        return Err(Error::InvalidPath);
+    }
+    // SAFETY: single-BSP syscall ownership; CWD never escapes this module.
+    unsafe {
+        let cwd = &mut *CWD.0.get();
+        cwd.bytes.fill(0);
+        cwd.bytes[..path.len()].copy_from_slice(path.as_bytes());
+        cwd.len = path.len();
+    }
+    Ok(())
+}
+
+pub fn cwd(buffer: &mut [u8]) -> Result<usize> {
+    // SAFETY: same single-BSP syscall ownership as FILES.
+    let cwd = unsafe { &*CWD.0.get() };
+    if buffer.len() < cwd.len {
+        return Err(Error::NoSpace);
+    }
+    buffer[..cwd.len].copy_from_slice(&cwd.bytes[..cwd.len]);
+    Ok(cwd.len)
+}
+
+pub fn entry(path: &str, index: usize) -> Result<Option<Entry>> {
+    with_files(|files| files.entry(path, index))
 }
