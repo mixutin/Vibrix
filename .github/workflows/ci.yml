@@ -415,7 +415,7 @@ jobs:
           VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
           grep -Fq "VIBRIX: kernel CPL3 mappings ready" build/qemu/debugcon.log
           grep -Fq "VIBRIX: kernel CPL3 trap reached via TSS RSP0" build/qemu/debugcon.log
-          tr -d '\r' < build/qemu/serial.log | grep -Eq '^kernel ring3 probe: cs=0x1b ss=0x23 user_rsp=0xffffd[0-9a-f]+ kernel_rsp=0xffff[0-9a-f]+      - name: QEMU supervisor write-protection fault
+          tr -d '\r' < build/qemu/serial.log | grep -Eq '^kernel ring3 probe: cs=0x1b ss=0x23 user_rsp=0xffffd[0-9a-f]+ kernel_rsp=0xffff[0-9a-f]+
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,vm-write-probe bash tools/build-qemu.sh
           VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
@@ -463,6 +463,7 @@ jobs:
               sys.exit(1)
           print("All applicable CI checks passed.")
           PY
+
 
       - name: QEMU supervisor write-protection fault
         run: |
