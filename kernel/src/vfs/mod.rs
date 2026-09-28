@@ -104,6 +104,18 @@ pub trait Filesystem {
     fn read(&mut self, id: NodeId, offset: usize, buffer: &mut [u8]) -> Result<usize>;
     fn write(&mut self, id: NodeId, offset: usize, buffer: &[u8]) -> Result<usize>;
     fn truncate(&mut self, id: NodeId) -> Result<()>;
+
+    /// Inject one byte from a kernel-owned device driver into a device node.
+    /// Regular filesystems reject this by default.
+    fn device_input(&mut self, _id: NodeId, _byte: u8) -> Result<()> {
+        Err(Error::Unsupported)
+    }
+
+    /// Drain device-produced output for a kernel-owned hardware sink.
+    /// Regular filesystems reject this by default.
+    fn device_output(&mut self, _id: NodeId, _buffer: &mut [u8]) -> Result<usize> {
+        Err(Error::Unsupported)
+    }
 }
 
 /// Mount IDs are private and mount slots are never recycled while this VFS
@@ -304,6 +316,19 @@ impl<'a, const M: usize> Vfs<'a, M> {
 
     pub fn truncate(&mut self, node: Node) -> Result<()> {
         self.fs_mut(node)?.truncate(node.id)
+    }
+
+    pub fn device_input(&mut self, node: Node, byte: u8) -> Result<()> {
+        self.fs_mut(node)?.device_input(node.id, byte)
+    }
+
+    pub fn device_output(&mut self, node: Node, buffer: &mut [u8]) -> Result<usize> {
+        let limit = buffer.len();
+        let count = self.fs_mut(node)?.device_output(node.id, buffer)?;
+        if count > limit {
+            return Err(Error::BackendContract);
+        }
+        Ok(count)
     }
 }
 
