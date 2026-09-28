@@ -14,6 +14,14 @@ impl Pid {
     pub const fn get(self) -> u32 {
         self.0
     }
+
+    pub const fn from_raw(raw: u64) -> Option<Self> {
+        if raw == 0 || raw > u32::MAX as u64 {
+            None
+        } else {
+            Some(Self(raw as u32))
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -33,6 +41,12 @@ pub struct Process {
 pub enum WaitTarget {
     Any,
     Pid(Pid),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WaitObservation {
+    Pending,
+    Ready { pid: Pid, status: i32 },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -159,7 +173,16 @@ impl<const N: usize> Table<N> {
         Ok(())
     }
 
-    pub fn wait(&mut self, parent: Pid, target: WaitTarget) -> Result<WaitResult, Error> {
+    /// Observe wait readiness without consuming a zombie.
+    ///
+    /// Syscall code can validate/copy the status value to userspace first and
+    /// only then call reap(). This prevents a bad userspace pointer from
+    /// irreversibly losing a child exit status.
+    pub fn observe_wait(
+        &self,
+        parent: Pid,
+        target: WaitTarget,
+    ) -> Result<WaitObservation, Error> {
         match self.get(parent) {
             Some(Process {
                 state: State::Running,
@@ -170,11 +193,7 @@ impl<const N: usize> Table<N> {
         }
 
         let mut matching_child = false;
-        let mut zombie = None;
-        for (index, process) in self.slots.iter().enumerate() {
-            let Some(process) = process else {
-                continue;
-            };
+        for process in self.slots.iter().flatten() {
             if process.parent != Some(parent) {
                 continue;
             }
@@ -187,19 +206,43 @@ impl<const N: usize> Table<N> {
             }
             matching_child = true;
             if let State::Zombie(status) = process.state {
-                zombie = Some((index, process.pid, status));
-                break;
+                return Ok(WaitObservation::Ready {
+                    pid: process.pid,
+                    status,
+                });
             }
         }
 
-        if let Some((index, pid, status)) = zombie {
-            self.slots[index] = None;
-            return Ok(WaitResult::Reaped { pid, status });
-        }
         if matching_child {
-            Ok(WaitResult::Pending)
+            Ok(WaitObservation::Pending)
         } else {
             Err(Error::NoChild)
+        }
+    }
+
+    /// Consume one exact zombie child after any fallible status copy-out has
+    /// already succeeded.
+    pub fn reap(&mut self, parent: Pid, pid: Pid) -> Result<i32, Error> {
+        let index = self.index_of(pid).ok_or(Error::NoChild)?;
+        let process = self.slots[index].ok_or(Error::NoChild)?;
+        if process.parent != Some(parent) {
+            return Err(Error::NoChild);
+        }
+        let State::Zombie(status) = process.state else {
+            return Err(Error::AlreadyExited);
+        };
+        self.slots[index] = None;
+        Ok(status)
+    }
+
+    pub fn wait(&mut self, parent: Pid, target: WaitTarget) -> Result<WaitResult, Error> {
+        match self.observe_wait(parent, target)? {
+            WaitObservation::Pending => Ok(WaitResult::Pending),
+            WaitObservation::Ready { pid, status } => {
+                let reaped = self.reap(parent, pid)?;
+                debug_assert_eq!(reaped, status);
+                Ok(WaitResult::Reaped { pid, status })
+            }
         }
     }
 }
@@ -360,6 +403,48 @@ mod tests {
             table.wait(a, WaitTarget::Pid(grandchild)),
             Err(Error::ParentNotRunning)
         );
+    }
+
+    #[test]
+    fn wait_observation_does_not_consume_zombie_until_explicit_reap() {
+        let mut table = Table::<3>::new();
+        let init = table.spawn_init().unwrap();
+        let child = table.spawn_child(init).unwrap();
+        table.exit(child, 41).unwrap();
+
+        assert_eq!(
+            table.observe_wait(init, WaitTarget::Pid(child)).unwrap(),
+            WaitObservation::Ready {
+                pid: child,
+                status: 41
+            }
+        );
+        assert_eq!(table.get(child).unwrap().state, State::Zombie(41));
+        assert_eq!(table.reap(init, child), Ok(41));
+        assert_eq!(table.get(child), None);
+    }
+
+    #[test]
+    fn failed_or_premature_reap_preserves_process_state() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+        let running = table.spawn_child(init).unwrap();
+        let other = table.spawn_child(init).unwrap();
+
+        assert_eq!(table.reap(init, running), Err(Error::AlreadyExited));
+        assert_eq!(table.get(running).unwrap().state, State::Running);
+
+        table.exit(running, 7).unwrap();
+        assert_eq!(table.reap(other, running), Err(Error::NoChild));
+        assert_eq!(table.get(running).unwrap().state, State::Zombie(7));
+    }
+
+    #[test]
+    fn raw_pid_conversion_rejects_zero_and_wide_values() {
+        assert_eq!(Pid::from_raw(0), None);
+        assert_eq!(Pid::from_raw(1), Some(Pid::INIT));
+        assert_eq!(Pid::from_raw(u32::MAX as u64).unwrap().get(), u32::MAX);
+        assert_eq!(Pid::from_raw(u32::MAX as u64 + 1), None);
     }
 
     #[test]
