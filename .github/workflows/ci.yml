@@ -496,6 +496,17 @@ jobs:
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel ring3 probe: cs=0x23 ss=0x1b "
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel syscall round trip: observed=true"
 
+      - name: QEMU process getpid wait copyout reap and exit syscalls
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,process-syscall-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel process getpid syscall verified" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel process wait copyout and reap verified" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel process exit syscall verified" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: getpid=1"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: wait pid=2 status=23 copied=true"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: exit pid=1 status=42"
+
       - name: QEMU supervisor write-protection fault
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,vm-write-probe bash tools/build-qemu.sh
