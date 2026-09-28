@@ -5,6 +5,7 @@ pub mod apic;
 pub mod cpuid;
 pub mod gdt;
 pub mod idt;
+pub mod irq;
 pub mod pci;
 #[cfg(not(feature = "panic-probe"))]
 pub mod ps2;

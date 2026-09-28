@@ -207,6 +207,12 @@ jobs:
           rustc --edition=2024 --test host-tests/gdt_tss.rs -o "$RUNNER_TEMP/vibrix-gdt-tss-tests"
           "$RUNNER_TEMP/vibrix-gdt-tss-tests"
 
+      - name: Test APIC IRQ routing policy on host
+        run: |
+          rustfmt --edition 2024 --check kernel/src/arch/x86_64/irq.rs
+          rustc --edition=2024 -D warnings --test kernel/src/arch/x86_64/irq.rs -o "$RUNNER_TEMP/vibrix-irq-tests"
+          "$RUNNER_TEMP/vibrix-irq-tests"
+
       - name: Test bounded kernel console line editor and commands on host
         run: |
           rustfmt --edition 2024 --check kernel/src/console.rs
@@ -254,9 +260,10 @@ jobs:
       - name: Build Vibrix
         run: bash tools/build-qemu.sh
 
-      - name: QEMU smoke test
+      - name: QEMU smoke test with native timer IRQ delivery
         env:
           VIBRIX_SKIP_BUILD: "1"
+          VIBRIX_EXPECT_TIMER_IRQ: "1"
         run: bash tools/test-qemu.sh
 
       - name: QEMU native PCI scan with virtual xHCI controller

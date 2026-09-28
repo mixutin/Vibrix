@@ -67,3 +67,25 @@ and the M4.5 **Hardware interrupt path usable in QEMU** checkbox, remain open.
 Primary references are ACPI 6.5 MADT definitions and Intel 64 and IA-32
 Software Developer's Manual volume 3 APIC architecture. No third-party OS
 implementation source or new dependency is used.
+
+## QEMU timer interrupt activation checkpoint (PR #82)
+
+The kernel now progresses beyond APIC register discovery on the ordinary QEMU
+development boot. After all temporary BootInfo v3 window users complete, it
+programs the validated I/O APIC redirection entry for the MADT-resolved legacy
+timer GSI, targets the discovered BSP local APIC ID, masks both legacy PICs,
+programs the PIT for an approximately 100 Hz source, and enables IF. The IDT's
+dedicated external timer vector increments an atomic monotonic counter and
+issues local-APIC EOI before returning.
+
+Feature-probe kernels (panic, breakpoint, page fault and VM protection probes)
+retain the previous interrupts-disabled environment so those diagnostics remain
+isolated. The ordinary kernel waits for the first real tick with `hlt`; failure
+to deliver is therefore observable as a QEMU timeout rather than a fabricated
+marker.
+
+[Actions run 36380292170](https://github.com/mixutin/Vibrix/actions/runs/36380292170)
+observed the native timer marker and nonzero COM1 tick count, then used the same
+live counter through the interactive console's `uptime` command. This is one
+BSP under QEMU q35. It does not prove Target 001 interrupt routing, SMP-safe
+IRQ ownership, MSI/MSI-X or scheduler preemption.

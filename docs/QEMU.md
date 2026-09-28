@@ -178,3 +178,17 @@ This validates the text path only; the visible framebuffer remains an
 independent boot banner, not a graphical interactive terminal. Target 001
 USB HID, APIC interrupt delivery, full TTY and the userspace shell are
 separate roadmap items. CI evidence is pending on this branch.
+
+## Native timer IRQ and uptime console proof (PR #82)
+
+The default QEMU smoke boot now requires a post-`ExitBootServices` hardware
+timer interrupt delivered through the MADT-selected I/O APIC route to a
+permanent kernel IDT vector. CI rejects a boot unless debugcon records
+`VIBRIX: kernel timer IRQ delivered` and COM1 reports a nonzero timer tick.
+
+The interactive console probe additionally injects the literal keyboard command
+`uptime` after the edited `help` command. The kernel reads its live atomic
+timer counter and prints `uptime: N ticks (~S.ss)`, while debugcon records a
+distinct uptime-dispatch marker. This demonstrates a monotonic development
+timer available to the kernel console; it is not a wall clock or calibrated
+high-resolution time source.

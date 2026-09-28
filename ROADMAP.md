@@ -61,9 +61,24 @@ There is no internal-disk edition. A checkbox is completed only when functionali
 - [x] Physical frame allocator
 - [ ] Virtual memory manager
 - [x] Kernel heap
-- [ ] Local APIC + I/O APIC
-- [ ] Timer + interrupt routing
+- [x] Local APIC + I/O APIC
+- [x] Timer + interrupt routing
 - [x] Explicit unsafe-code boundaries
+
+**Verified M3 APIC/timer IRQ path and M4.5 uptime (PR #82):**
+[Actions run 36380292170](https://github.com/mixutin/Vibrix/actions/runs/36380292170)
+passed production MADT/APIC/IRQ host tests, both target builds/Clippy, the full
+QEMU regression matrix, real keyboard console injection and supply-chain gates.
+The ordinary post-firmware QEMU kernel validated MADT-selected LAPIC and I/O
+APIC addresses, mapped them UC, masked the legacy PIC, programmed a PIT timer,
+installed an external IRQ vector, routed IRQ0 through the I/O APIC, enabled
+interrupts on the BSP, observed a native timer interrupt and issued LAPIC EOI.
+The atomic tick counter then remained live while the bounded console accepted
+real injected `uptime` keystrokes and returned a nonzero monotonic tick count.
+This checks the **single-BSP QEMU APIC/timer foundation** and console timer
+availability only. PS/2 keyboard input remains polled; there is no SMP,
+preemptive scheduling, general IRQ subsystem, MSI/MSI-X, Target 001 hardware
+proof, or calibrated high-resolution clock.
 
 **Verified M3 mapping groundwork (PR #62):** [Actions run 36343397525](https://github.com/mixutin/Vibrix/actions/runs/36343397525) passed seven QEMU configurations, including actual supervisor-write and post-unmap page faults. BootInfo v3 provides one bounded 2 MiB mapping window; the kernel maps newly owned RAM frames, changes write permissions, unmaps and remaps with local TLB invalidation. CR0.WP is enabled. The general virtual-memory manager checkbox stays **unchecked**: dynamic page tables, address-space management, frame reuse and SMP shootdowns remain unfinished. See [ADR 0009](docs/decisions/0009-early-mapping-window.md).
 
@@ -166,8 +181,8 @@ M5/M6 userspace stack. It exists so Vibrix becomes directly operable during
 kernel development; it does **not** replace Ring 3, syscalls, VFS, TTY or the
 future userspace shell.
 
-- [ ] Hardware interrupt path usable in QEMU
-- [ ] Monotonic timer source available to the console
+- [x] Hardware interrupt path usable in QEMU
+- [x] Monotonic timer source available to the console
 - [x] QEMU keyboard input reaches the kernel without UEFI Boot Services
 - [x] Kernel console input buffer and line editing
 - [x] Command parser and dispatch table
@@ -177,7 +192,7 @@ future userspace shell.
 - [ ] `mem` memory diagnostics
 - [ ] `pci` PCI discovery output
 - [ ] `acpi` ACPI discovery output
-- [ ] `uptime`
+- [x] `uptime`
 - [ ] `reboot`
 - [x] Unknown-command and malformed-input handling
 - [x] QEMU smoke test proves prompt → input → command → output
