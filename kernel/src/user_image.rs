@@ -157,7 +157,10 @@ pub fn plan(data: &[u8]) -> Result<Plan, Error> {
 
 pub fn load<S: Sink>(data: &[u8], sink: &mut S) -> Result<Loaded, LoadError<S::Error>> {
     let plan = plan(data).map_err(LoadError::Image)?;
-    sink.begin().map_err(LoadError::Sink)?;
+    if let Err(error) = sink.begin() {
+        sink.abort();
+        return Err(LoadError::Sink(error));
+    }
 
     let result = (|| {
         for segment in plan.segments() {
@@ -406,6 +409,6 @@ mod tests {
     #[test]
     fn rejects_oversized_image_footprint() {
         let data = image(1, 0x40_0000, &[0x90], (MAX_IMAGE_BYTES as u64) + 1);
-        assert_eq!(plan(&data).unwrap_err(), Error::ImageTooLarge);
+        assert!(matches!(plan(&data), Err(Error::ImageTooLarge)));
     }
 }
