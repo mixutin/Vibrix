@@ -111,7 +111,10 @@ pub fn encode_manifest(
     if transaction_id == 0
         || entries.is_empty()
         || entries.len() > MAX_ENTRIES
-        || new_generation != previous_generation.checked_add(1).ok_or(Error::Generation)?
+        || new_generation
+            != previous_generation
+                .checked_add(1)
+                .ok_or(Error::Generation)?
     {
         return Err(Error::Generation);
     }
@@ -339,8 +342,7 @@ mod tests {
     fn transaction() -> ([u8; BLOCK], [[u8; BLOCK]; 2], [u8; BLOCK]) {
         let payloads = [block(0x11), block(0x22)];
         let manifest =
-            encode_manifest(7, 40, 41, 100, 8, &[(10, &payloads[0]), (11, &payloads[1])])
-                .unwrap();
+            encode_manifest(7, 40, 41, 100, 8, &[(10, &payloads[0]), (11, &payloads[1])]).unwrap();
         let commit = encode_commit(&manifest).unwrap();
         (manifest, payloads, commit)
     }
@@ -391,9 +393,15 @@ mod tests {
     fn duplicate_out_of_range_and_journal_targets_are_rejected() {
         let payloads = [block(1), block(2)];
         for homes in [[9u64, 9], [0, 8], [101, 8], [4095, 8]] {
-            let manifest =
-                encode_manifest(1, 0, 1, 100, 8, &[(homes[0], &payloads[0]), (homes[1], &payloads[1])])
-                    .unwrap();
+            let manifest = encode_manifest(
+                1,
+                0,
+                1,
+                100,
+                8,
+                &[(homes[0], &payloads[0]), (homes[1], &payloads[1])],
+            )
+            .unwrap();
             let commit = encode_commit(&manifest).unwrap();
             assert!(validate_transaction(&manifest, &payloads, &commit, 4096).is_err());
         }
