@@ -18,8 +18,12 @@ must be 36 through 52 bits, and zero, misaligned and unrepresentable frames are
 rejected. A validated physical number does not itself grant ownership.
 
 Permission states are read-only, read/write and read/execute. There is no
-write/execute state, user-accessible mapping, global page or MMIO mode. Regions
-are bounded to 64 pages and cannot cross the arena boundary. The exclusive
+write/execute state, global-page or MMIO mode. M5 foundation work adds an
+explicit supervisor/user privilege bit to the same owned arena: user mappings
+set U/S on the leaf and every paging-structure ancestor, while neighboring
+supervisor leaves remain inaccessible at CPL3. The arena bounds and owned PML4
+slot do not widen, and this is not an independent userspace address space.
+Regions are bounded to 64 pages and cannot cross the arena boundary. The exclusive
 `GuardedVm` facade reserves both absent guard pages and up to 62 payload pages.
 It never exposes the raw mapper while guarded allocations are live.
 
@@ -63,10 +67,13 @@ keeps ordinary arena mappings live with IF=1. The integrated proof holds a
 guarded allocation across a real PIT interrupt, verifies the payload afterward,
 then unmaps it and checks complete internal frame reclamation.
 
-This is still one BSP and one kernel CR3. It is not a userspace address-space
-manager, demand pager, dynamically growing heap, global physical-frame recycler,
-or SMP shootdown implementation. Ring-3/user address spaces remain M5 work and
-cross-CPU invalidation remains M12 work. The M3 checkbox should change only
+This is still one BSP and one kernel CR3. The core mapper can now encode
+user-accessible leaves inside its existing owned arena, but the production
+`GuardedVm` runtime does not yet expose them to a process and no CPL3 execution
+is claimed. It is not a userspace address-space manager, demand pager,
+dynamically growing heap, global physical-frame recycler, or SMP shootdown
+implementation. Ring-3 execution and independent user address spaces remain M5
+work and cross-CPU invalidation remains M12 work. The M3 checkbox should change only
 after exact-head runtime evidence passes and the merged roadmap records that
 bounded kernel-service definition.
 
