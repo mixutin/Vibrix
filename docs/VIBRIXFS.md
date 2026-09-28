@@ -1,8 +1,9 @@
 # VibrixFS v1 wire specification
 
 This document is the normative byte-level proposal for the first Vibrix-owned
-persistent filesystem. **No current image is formatted as VibrixFS yet.** A
-reader must validate all bounds and checksums before treating on-media numbers
+persistent filesystem. The host formatter now creates bounded journal-enabled
+regular-file images; the kernel still has no VibrixFS VFS driver or writable mount.
+A reader must validate all bounds and checksums before treating on-media numbers
 as offsets, allocation ownership or Rust references.
 
 ## 1. Common rules
@@ -45,11 +46,11 @@ block is zero. The checksum covers all 4096 bytes with bytes 120–123 zero.
 | 80 | 8 | inode_table_start |
 | 88 | 8 | inode_table_blocks |
 | 96 | 8 | root_inode = 1 |
-| 104 | 8 | journal_start, zero in base v1 |
-| 112 | 8 | journal_blocks, zero in base v1 |
+| 104 | 8 | journal_start; nonzero when journal incompat feature is set |
+| 112 | 8 | journal_blocks; nonzero when journal incompat feature is set |
 | 120 | 4 | IEEE CRC-32 of full superblock block |
 | 124 | 4 | compatible_features |
-| 128 | 4 | incompatible_features |
+| 128 | 4 | incompatible_features; bit 0 = bounded redo journal |
 | 132 | 4 | required_readonly_features |
 | 136 | 16 | filesystem UUID, nonzero |
 | 152 | 16 | root-partition unique GUID copy, GPT mixed-endian bytes |
@@ -62,8 +63,9 @@ geometry to place block 0 and the final block outside every allocatable range.
 ### Geometry invariants
 
 - total_blocks >= 4096
-- bitmap/table starts and lengths are nonzero except the base-v1 journal fields
-- metadata ranges do not overlap one another or either superblock
+- bitmap/table starts and lengths are nonzero
+- journal_start/journal_blocks are both zero when the journal incompat bit is clear; when set, the journal has at least 3 blocks
+- metadata and journal ranges do not overlap one another or either superblock
 - every metadata range lies below total_blocks - 1
 - total_inodes >= 1; inode table capacity is at least total_inodes
 - bitmap capacity covers total_blocks and total_inodes + 1
@@ -78,8 +80,8 @@ Bitmap bit numbering is least-significant bit first within each byte.
 - block bitmap bit n describes filesystem block n
 - inode bitmap bit n describes inode number n
 - bit 0 of the inode bitmap is permanently set/reserved
-- block 0, final block, all bitmap blocks, all inode-table blocks and any
-  future journal region must be marked allocated
+- block 0, final block, all bitmap blocks, all inode-table blocks and the
+  journal region are marked allocated
 - padding bits beyond the declared object count are set to 1 so corrupt
   allocators cannot consume them
 
@@ -189,21 +191,20 @@ CRC success never overrides a bounds, feature, allocation or identity failure.
 
 These remain separate M8/M9 work:
 
-- metadata transaction/journal record layout and crash-recovery ordering
 - allocation policy, free-space search and fragmentation policy
-- formatter/recovery command-line interface
 - VFS cache/writeback behavior
 - authenticated metadata or encryption
 - package-database layout
 - persistent root mount procedure and USB reconnect behavior
 
-Until crash consistency and recovery are implemented, a base-v1 writable
-implementation must fail closed after detecting an unclean shutdown.
+The host recovery tool implements the bounded redo-journal replay contract for
+regular-file images. Writable kernel mounts still fail closed until native block
+I/O provides real durability barriers and the VFS integrates this protocol.
 
 ## 9. Host regular-file conformance images
 
-`tools/vibrixfs-image.rs` is a bounded host-only formatter/inspector for the
-base-v1 metadata contract. It creates a **new regular file only** and refuses
+`tools/vibrixfs-image.rs` is a bounded host-only formatter/inspector/recovery tool for the
+journal-enabled v1 metadata contract. It creates a **new regular file only** and refuses
 paths shaped like raw devices. The initial image contains two identical
 superblocks, block/inode bitmaps, the fixed inode table, root inode 1, and one
 root-directory data block containing exactly `.` and `..`.
@@ -216,9 +217,9 @@ codec, and validates root directory record framing/padding.
 
 This tool is deliberately limited to regular-file development images up to
 1 GiB. It is **not** the M9 USB provisioning utility, does not open block
-devices, does not implement crash recovery, and does not make a filesystem
-persistent under the kernel. Exact CI evidence is required before any M8
-roadmap checkbox changes.
+devices, and does not make a filesystem persistent under the kernel. Its
+recovery path is host-only evidence for journal validation/replay; exact CI
+evidence is required before the M8 formatter + recovery checkbox changes.
 
 ## 10. Named-file conformance checkpoint (candidate)
 
@@ -262,3 +263,33 @@ proved both 512- and 4096-byte logical-sector formatter/inspector round trips
 with these values, along with the full repository regression suite. The M8
 permissions/timestamps checkbox therefore records the bounded on-disk metadata
 contract only.
+
+
+## Journal-enabled host images and recovery
+
+The first host formatter reserves a fixed **66-block** journal immediately
+after the inode table: one manifest block, up to 64 full-block redo
+after-images, and one commit block. The superblock stores that geometry and
+sets incompatible feature bit 0. Readers that do not implement this feature
+must reject the image rather than reinterpret the journal blocks as data.
+
+`vibrixfs-image recover` operates only on regular files and refuses
+raw-device-shaped paths. It validates each superblock independently, requires
+immutable geometry/identity agreement when both copies are valid, selects the
+highest valid checkpoint generation, and validates a committed redo
+transaction as one unit before writing any home block. Payload checksum,
+manifest checksum, commit binding, duplicate targets, superblock targets,
+journal self-targeting and out-of-range targets fail closed.
+
+A valid committed transaction is replayed idempotently, all replayed home
+blocks are synced, then the secondary superblock is checkpointed and synced
+before the primary. Only after both checkpoints reach the recovered generation
+is the journal zeroed and synced. A manifest with an all-zero commit slot is
+treated as an uncommitted transaction and retired without replay. Host tests
+destroy a metadata home block after a durable synthetic commit and prove
+recovery restores it; a corrupt committed payload is rejected before any home
+replay.
+
+This is **host recovery tooling**, not proof of USB power-loss durability. The
+kernel must remain read-only until its native block/USB path can provide real
+flush/error ordering and the VFS integrates the journal protocol.
