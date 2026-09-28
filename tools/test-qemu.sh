@@ -175,30 +175,8 @@ if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" ]]; then
   grep -Fq "VIBRIX: kernel PS2 ASCII accepted" "$LOG"
   # The interactive prompt/echo may prefix the diagnostic line. Anchor the
   # numeric token at EOL so ASCII 104 can never satisfy the ASCII 10 check.
-  tr -d '\r' < "$SERIAL_LOG" | grep -Eq 'kernel PS2 ascii 104
-cat "$SERIAL_LOG"
-
-if [[ "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" ]]; then
-  grep -Fq "VIBRIX: kernel console prompt ready" "$LOG"
-  grep -Fq "VIBRIX: kernel console backspace accepted" "$LOG"
-  grep -Fq "VIBRIX: kernel console command help" "$LOG"
-  grep -Fq "commands: help info" "$SERIAL_LOG"
-fi
-
-echo "[vibrix] QEMU post-firmware kernel handoff smoke test passed"
-
-  tr -d '\r' < "$SERIAL_LOG" | grep -Eq 'kernel PS2 ascii 10
-cat "$SERIAL_LOG"
-
-if [[ "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" ]]; then
-  grep -Fq "VIBRIX: kernel console prompt ready" "$LOG"
-  grep -Fq "VIBRIX: kernel console backspace accepted" "$LOG"
-  grep -Fq "VIBRIX: kernel console command help" "$LOG"
-  grep -Fq "commands: help info" "$SERIAL_LOG"
-fi
-
-echo "[vibrix] QEMU post-firmware kernel handoff smoke test passed"
-
+  tr -d '\r' < "$SERIAL_LOG" | grep -Eq 'kernel PS2 ascii 104$'
+  tr -d '\r' < "$SERIAL_LOG" | grep -Eq 'kernel PS2 ascii 10$'
 fi
 cat "$SERIAL_LOG"
 
