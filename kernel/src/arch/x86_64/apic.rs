@@ -260,7 +260,8 @@ pub unsafe fn activate_pit_timer(
     unsafe {
         core::ptr::write_volatile(
             svr_ptr,
-            (svr & !0xff) | u32::from(crate::arch::x86_64::irq::SPURIOUS_VECTOR)
+            (svr & !0xff)
+                | u32::from(crate::arch::x86_64::irq::SPURIOUS_VECTOR)
                 | LAPIC_SOFTWARE_ENABLE,
         );
     }
