@@ -19,7 +19,16 @@ pub fn self_test(mut report: impl FnMut(&str)) -> Result<()> {
     let mut vfs = Vfs::<2>::new(&mut ram)?;
     vfs.create("/dev", Kind::Directory)?;
     vfs.create("/tmp", Kind::Directory)?;
+    vfs.create("/run", Kind::Directory)?;
     vfs.mount("/dev", &mut dev)?;
+
+    let runtime = vfs.create("/run/boot-state", Kind::File)?;
+    assert_eq!(vfs.write(runtime, 0, b"volatile")?, 8);
+    let mut runtime_data = [0u8; 8];
+    assert_eq!(vfs.read(runtime, 0, &mut runtime_data)?, 8);
+    assert_eq!(&runtime_data, b"volatile");
+    report("VIBRIX: kernel RAM tmp and runtime state verified");
+
     let file = vfs.create("/tmp/note", Kind::File)?;
     assert_eq!(vfs.write(file, 3, b"vibrix")?, 6);
     let mut data = [0xa5; 16];
