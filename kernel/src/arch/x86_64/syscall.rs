@@ -32,24 +32,18 @@ pub const fn fmask_value() -> u64 {
 }
 
 pub const fn derived_syscall_selectors() -> (u16, u16) {
-    (
-        Gdt::KERNEL_CODE_SELECTOR,
-        Gdt::KERNEL_CODE_SELECTOR + 8,
-    )
+    (Gdt::KERNEL_CODE_SELECTOR, Gdt::KERNEL_CODE_SELECTOR + 8)
 }
 
 pub const fn derived_sysret_selectors() -> (u16, u16) {
-    (
-        (USER_STAR_BASE + 16) | 3,
-        (USER_STAR_BASE + 8) | 3,
-    )
+    ((USER_STAR_BASE + 16) | 3, (USER_STAR_BASE + 8) | 3)
 }
 
 #[cfg(target_os = "none")]
 mod native {
     use super::{
-        abi, derived_syscall_selectors, derived_sysret_selectors, fmask_value, star_value, Gdt,
-        EFER_SCE, IA32_EFER, IA32_FMASK, IA32_LSTAR, IA32_STAR,
+        EFER_SCE, Gdt, IA32_EFER, IA32_FMASK, IA32_LSTAR, IA32_STAR, abi,
+        derived_syscall_selectors, derived_sysret_selectors, fmask_value, star_value,
     };
     use core::arch::{asm, global_asm, x86_64::__cpuid_count};
     use core::cell::UnsafeCell;
