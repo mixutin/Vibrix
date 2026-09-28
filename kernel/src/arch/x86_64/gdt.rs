@@ -340,6 +340,14 @@ fn ring0_stack_top(stack: *mut Ring0Stack) -> u64 {
     stack as u64 + RING0_STACK_BYTES as u64
 }
 
+/// True only for a live stack pointer strictly inside the permanent BSP
+/// privilege-transition stack. The exclusive top is a pre-push RSP value.
+pub(crate) fn ring0_stack_contains(rsp: u64) -> bool {
+    let base = RING0_STACK.0.get() as u64;
+    let top = ring0_stack_top(RING0_STACK.0.get());
+    (base..top).contains(&rsp)
+}
+
 /// Initialize the permanent GDT and TSS and load GDTR and TR.
 ///
 /// # Safety
@@ -394,6 +402,16 @@ mod tests {
         assert_eq!(top - base, RING0_STACK_BYTES as u64);
         assert_eq!(top & 0xf, 0);
         assert_ne!(top, 0);
+    }
+
+    #[test]
+    fn permanent_ring0_stack_bounds_are_exclusive_at_top() {
+        let base = RING0_STACK.0.get() as u64;
+        let top = ring0_stack_top(RING0_STACK.0.get());
+        assert!(!ring0_stack_contains(base - 1));
+        assert!(ring0_stack_contains(base));
+        assert!(ring0_stack_contains(top - 8));
+        assert!(!ring0_stack_contains(top));
     }
 
     #[test]
