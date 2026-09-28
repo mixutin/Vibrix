@@ -240,7 +240,10 @@ mod tests {
             assert_eq!(Topology::from_madt(&table(&entry)), Err(Error::Entry));
         }
         for flags in [3, 4, 0xff] {
-            assert_eq!(Topology::from_madt(&table(&lapic(0, 0, flags))), Err(Error::Flags));
+            assert_eq!(
+                Topology::from_madt(&table(&lapic(0, 0, flags))),
+                Err(Error::Flags)
+            );
         }
         let mut entry = x2apic(0, 0, 1);
         entry[2] = 1;
@@ -251,7 +254,10 @@ mod tests {
     fn duplicate_ids_fail_closed_across_record_types() {
         let mut entries = lapic(1, 2, 1).to_vec();
         entries.extend_from_slice(&x2apic(3, 2, 1));
-        assert_eq!(Topology::from_madt(&table(&entries)), Err(Error::DuplicateApic));
+        assert_eq!(
+            Topology::from_madt(&table(&entries)),
+            Err(Error::DuplicateApic)
+        );
         entries.truncate(8);
         entries.extend_from_slice(&x2apic(1, 3, 1));
         assert_eq!(Topology::from_madt(&table(&entries)), Err(Error::DuplicateUid));
@@ -263,7 +269,10 @@ mod tests {
         for id in 0..MAX_PROCESSORS {
             entries.extend_from_slice(&x2apic(id as u32, id as u32, 1));
         }
-        assert_eq!(Topology::from_madt(&table(&entries)).unwrap().enabled_count(), 64);
+        assert_eq!(
+            Topology::from_madt(&table(&entries)).unwrap().enabled_count(),
+            64
+        );
         entries.extend_from_slice(&x2apic(64, 64, 1));
         assert_eq!(Topology::from_madt(&table(&entries)), Err(Error::Capacity));
     }

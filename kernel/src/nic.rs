@@ -183,7 +183,7 @@ pub fn self_test() -> Result<(), Error> {
     let mut output = [0u8; 60];
     if interface.receive(&mut output)? != Some(60)
         || output != frame
-        || interface.receive(&mut output)? != None
+        || interface.receive(&mut output)?.is_some()
     {
         return Err(Error::Io);
     }
