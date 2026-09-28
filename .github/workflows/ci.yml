@@ -473,6 +473,16 @@ jobs:
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel address space probe: kernel_cr3="
           tr -d '\r' < build/qemu/serial.log | grep -Fq " rip=0x400000 rsp=0x800000"
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel address space trap: expected_cr3="
+      - name: QEMU validated ELF load into private userspace CR3
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,elf-load-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel userspace ELF loaded" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel userspace CR3 activated" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel userspace CR3 preserved across CPL3 trap" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel ELF probe: kernel_cr3="
+          tr -d '\r' < build/qemu/serial.log | grep -Fq " entry=0x400000 rsp=0x800000"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel address space trap: expected_cr3="
       - name: QEMU real SYSCALL and SYSRETQ round trip
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,syscall-probe bash tools/build-qemu.sh
