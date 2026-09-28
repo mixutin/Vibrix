@@ -295,19 +295,15 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         );
     }
 
-    // Separate QEMU-only smoke configuration exercises the *real* kernel
-    // panic handler after the ordinary post-firmware boot path succeeded.
-    #[cfg(feature = "panic-probe")]
-    panic!("VIBRIX: kernel panic probe");
-
     // Compile the IRQ path in every feature combination so all-feature
     // Clippy validates it. Feature-probe binaries take the false branch and
     // preserve IF=0; only the ordinary development kernel activates the PIT.
-        // The default interactive QEMU kernel activates the validated timer
-        // route only after all temporary mapping-window users and fault probes.
-        // Feature-probe kernels preserve the historical IF=0 environment.
-        if !cfg!(any(
-            feature = "breakpoint-probe",
+    // The default interactive QEMU kernel activates the validated timer
+    // route only after all temporary mapping-window users and fault probes.
+    // Feature-probe kernels preserve the historical IF=0 environment.
+    if !cfg!(any(
+        feature = "panic-probe",
+        feature = "breakpoint-probe",
             feature = "page-fault-probe",
             feature = "vm-write-probe",
             feature = "vm-unmap-probe"
@@ -353,7 +349,12 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             }
             crate::println!("kernel timer: tick {}", arch::x86_64::irq::timer_ticks());
             debugcon::write("VIBRIX: kernel timer IRQ delivered\r\n");
-        }
+    }
+
+    // Separate QEMU-only smoke configuration exercises the *real* kernel
+    // panic handler after the ordinary post-firmware boot path succeeded.
+    #[cfg(feature = "panic-probe")]
+    panic!("VIBRIX: kernel panic probe");
 
     #[cfg(not(feature = "panic-probe"))]
     {
