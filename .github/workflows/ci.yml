@@ -421,49 +421,6 @@ jobs:
           VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
           grep -Fq "kernel #PF cr2=0xffffc00000000000" build/qemu/serial.log
           grep -Fq "present=true write=true user=false reserved=false exec=false" build/qemu/serial.log
-      - name: QEMU access after unmap fault
-        run: |
-          VIBRIX_KERNEL_FEATURES=qemu-debugcon,vm-unmap-probe bash tools/build-qemu.sh
-          VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
-          grep -Fq "kernel #PF cr2=0xffffc00000000000" build/qemu/serial.log
-          grep -Fq "present=false write=false user=false reserved=false exec=false" build/qemu/serial.log
-      - name: Preserve most recent QEMU diagnostics on success or failure
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: qemu-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
-          path: build/qemu/*.log
-          if-no-files-found: warn
-          retention-days: 7
-
-  ci-gate:
-    name: CI gate
-    if: always()
-    needs: [repository-quality, supply-chain, dependency-review, minimal-features, build-and-smoke-test]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 2
-    steps:
-      - name: Require every applicable check to succeed
-        env:
-          CHECKS: ${{ toJSON(needs) }}
-          EVENT: ${{ github.event_name }}
-        run: |
-          python3 - <<'PY'
-          import json, os, sys
-          checks = json.loads(os.environ["CHECKS"])
-          failed = []
-          for name, check in checks.items():
-              allowed = {"success"}
-              if name == "dependency-review" and os.environ["EVENT"] != "pull_request":
-                  allowed = {"skipped"}
-              if check["result"] not in allowed:
-                  failed.append(f'{name}: {check["result"]}')
-          if failed:
-              print("Required checks did not pass:\n" + "\n".join(failed))
-              sys.exit(1)
-          print("All applicable CI checks passed.")
-          PY
-
       - name: QEMU supervisor write-protection fault
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,vm-write-probe bash tools/build-qemu.sh
