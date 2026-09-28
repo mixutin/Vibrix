@@ -111,7 +111,10 @@ mod tests {
             vm.memory.events[vm.memory.events.len() - 2],
             Event::Write(ROOT, ARENA_SLOT, _)
         ));
-        assert_eq!(vm.memory.events.last(), Some(&Event::Invalidate(ARENA_BASE)));
+        assert_eq!(
+            vm.memory.events.last(),
+            Some(&Event::Invalidate(ARENA_BASE))
+        );
     }
 
     #[test]
