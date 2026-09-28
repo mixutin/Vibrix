@@ -385,7 +385,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                         match console::command(bytes) {
                             console::Command::Empty => {}
                             console::Command::Help => {
-                                crate::println!("commands: help info");
+                                crate::println!("commands: help info uptime");
                                 debugcon::write("VIBRIX: kernel console command help\r\n");
                             }
                             console::Command::Info => {
@@ -394,6 +394,16 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                                     env!("CARGO_PKG_VERSION")
                                 );
                                 debugcon::write("VIBRIX: kernel console command info\r\n");
+                            }
+                            console::Command::Uptime => {
+                                let ticks = arch::x86_64::irq::timer_ticks();
+                                crate::println!(
+                                    "uptime: {} ticks (~{}.{:02}s)",
+                                    ticks,
+                                    ticks / 100,
+                                    ticks % 100
+                                );
+                                debugcon::write("VIBRIX: kernel console command uptime\r\n");
                             }
                             console::Command::Unknown => {
                                 crate::println!("unknown command");
