@@ -79,6 +79,7 @@ while time.monotonic() < deadline:
                     # Real virtual keyboard: edited "help", then live diagnostics.
                     keys = (
                         "h", "e", "l", "x", "backspace", "p", "ret",
+                        "c", "l", "e", "a", "r", "ret",
                         "m", "e", "m", "ret",
                         "p", "c", "i", "ret",
                         "a", "c", "p", "i", "ret",
@@ -196,11 +197,19 @@ if [[ "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" ]]; then
   grep -Fq "VIBRIX: kernel console prompt ready" "$LOG"
   grep -Fq "VIBRIX: kernel console backspace accepted" "$LOG"
   grep -Fq "VIBRIX: kernel console command help" "$LOG"
+  grep -Fq "VIBRIX: kernel console command clear" "$LOG"
   grep -Fq "VIBRIX: kernel console command mem" "$LOG"
   grep -Fq "VIBRIX: kernel console command pci" "$LOG"
   grep -Fq "VIBRIX: kernel console command acpi" "$LOG"
   grep -Fq "VIBRIX: kernel console command uptime" "$LOG"
-  grep -Fq "commands: help info mem pci acpi uptime" "$SERIAL_LOG"
+  grep -Fq "commands: help clear info mem pci acpi uptime" "$SERIAL_LOG"
+  python3 - "$SERIAL_LOG" <<'PY'
+import pathlib
+import sys
+data = pathlib.Path(sys.argv[1]).read_bytes()
+if b"\x1b[2J\x1b[H" not in data:
+    raise SystemExit("console clear command did not emit ANSI clear/home")
+PY
   tr -d '\r' < "$SERIAL_LOG" | grep -Eq 'mem: descriptors=[1-9][0-9]* claimed_frames=0x[0-9a-f]+,0x[0-9a-f]+ early_heap_bytes=65536'
   tr -d '\r' < "$SERIAL_LOG" | grep -Eq 'pci: devices=[1-9][0-9]* bars=[1-9][0-9]* xhci=[0-9]+ malformed_bars=0'
   tr -d '\r' < "$SERIAL_LOG" | grep -Eq 'acpi: mcfg_allocations=[1-9][0-9]* ecam_bus0_devices=[1-9][0-9]* ioapics=[1-9][0-9]* timer_gsi=[0-9]+'
