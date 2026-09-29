@@ -252,7 +252,8 @@ pub fn parse_a_response(id: u16, name: &str, input: &[u8]) -> Result<AnswerSet, 
             return Err(Error::Length);
         }
 
-        if record_type == TYPE_A && class == CLASS_IN && data_len == 4 && result.len < MAX_ADDRESSES {
+        if record_type == TYPE_A && class == CLASS_IN && data_len == 4 && result.len < MAX_ADDRESSES
+        {
             result.addresses[result.len].copy_from_slice(&input[cursor..data_end]);
             result.len += 1;
             result.ttl_min = result.ttl_min.min(ttl);
@@ -308,18 +309,15 @@ pub(super) fn self_test() -> Result<(), Error> {
         &mut udp_bytes,
     )
     .map_err(|_| Error::Length)?;
-    let datagram = udp::parse(source, resolver, &udp_bytes[..udp_len]).map_err(|_| Error::Length)?;
+    let datagram =
+        udp::parse(source, resolver, &udp_bytes[..udp_len]).map_err(|_| Error::Length)?;
     if datagram.destination_port() != PORT || datagram.payload() != &query[..query_len] {
         return Err(Error::Header);
     }
 
     let mut response = [0u8; MAX_MESSAGE_BYTES];
-    let response_len = write_test_response(
-        &query[..query_len],
-        id,
-        [203, 0, 113, 7],
-        &mut response,
-    )?;
+    let response_len =
+        write_test_response(&query[..query_len], id, [203, 0, 113, 7], &mut response)?;
     let answers = parse_a_response(id, name, &response[..response_len])?;
     if answers.addresses() != [[203, 0, 113, 7]] || answers.ttl_min() != 300 {
         return Err(Error::NoAddress);
@@ -340,7 +338,10 @@ mod tests {
     fn query_encodes_labels_header_and_a_in_question() {
         let mut output = [0xa5; MAX_MESSAGE_BYTES];
         let len = encode_query(0x1234, "WWW.Example.COM.", &mut output).unwrap();
-        assert_eq!(&output[..12], &[0x12, 0x34, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(
+            &output[..12],
+            &[0x12, 0x34, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0]
+        );
         assert_eq!(&output[12..29], b"\x03WWW\x07Example\x03COM\x00");
         assert_eq!(&output[29..33], &[0, 1, 0, 1]);
         assert_eq!(output[len], 0xa5);
@@ -363,7 +364,10 @@ mod tests {
         let mut output = [0u8; MAX_MESSAGE_BYTES];
         assert_eq!(encode_query(1, "", &mut output), Err(Error::Name));
         assert_eq!(encode_query(1, "a..b", &mut output), Err(Error::Name));
-        assert_eq!(encode_query(1, &"a".repeat(64), &mut output), Err(Error::Name));
+        assert_eq!(
+            encode_query(1, &"a".repeat(64), &mut output),
+            Err(Error::Name)
+        );
 
         let query_len = encode_query(9, "vibrix.test", &mut output).unwrap();
         let query = output;
