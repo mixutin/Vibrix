@@ -80,9 +80,7 @@ pub fn encode_echo(
     data: &[u8],
     output: &mut [u8],
 ) -> Result<usize, Error> {
-    let length = HEADER_BYTES
-        .checked_add(data.len())
-        .ok_or(Error::Length)?;
+    let length = HEADER_BYTES.checked_add(data.len()).ok_or(Error::Length)?;
     if length > ipv4::MAX_PAYLOAD {
         return Err(Error::Length);
     }
@@ -184,9 +182,8 @@ pub(super) fn self_test() -> Result<(), RespondError> {
     let remote_ip = [192, 0, 2, 2];
 
     let mut request_icmp = [0u8; ipv4::MAX_PAYLOAD];
-    let request_icmp_length =
-        encode_echo(Kind::Request, 0x1234, 7, b"vibrix", &mut request_icmp)
-            .map_err(RespondError::Icmp)?;
+    let request_icmp_length = encode_echo(Kind::Request, 0x1234, 7, b"vibrix", &mut request_icmp)
+        .map_err(RespondError::Icmp)?;
     let mut request_ip = [0u8; MTU];
     let request_ip_length = ipv4::encode(
         ipv4::Header {
@@ -332,24 +329,14 @@ mod tests {
         .unwrap();
         let mut output = [0xa5; super::super::MAX_FRAME];
         assert_eq!(
-            echo_reply_frame(
-                local_mac,
-                [192, 0, 2, 1],
-                &frame[..length],
-                &mut output
-            ),
+            echo_reply_frame(local_mac, [192, 0, 2, 1], &frame[..length], &mut output),
             Ok(None)
         );
         assert_eq!(output, [0xa5; super::super::MAX_FRAME]);
 
         frame[..6].copy_from_slice(&ethernet::BROADCAST);
         assert_eq!(
-            echo_reply_frame(
-                local_mac,
-                [192, 0, 2, 1],
-                &frame[..length],
-                &mut output
-            ),
+            echo_reply_frame(local_mac, [192, 0, 2, 1], &frame[..length], &mut output),
             Ok(None)
         );
         assert_eq!(output, [0xa5; super::super::MAX_FRAME]);
