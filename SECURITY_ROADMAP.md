@@ -81,11 +81,18 @@ Vibrix is an experimental operating system and is **not currently production-rea
 - [ ] Guard pages for userspace stacks
 - [ ] Process/resource limits
 - [ ] Handle/capability or descriptor ownership model documented
+- [ ] Real/effective/saved UID/GID model integrated with process identity
+- [ ] Supplementary group list has explicit capacity and mutation policy
+- [ ] Credential-changing syscalls enforce privilege and saved-ID rules
+- [ ] VFS path traversal enforces owner/group/other DAC
+- [ ] File mutation and creation enforce DAC, sticky-directory and umask policy
+- [ ] set-user-ID/set-group-ID execution has explicit secure-transition rules
+- [ ] Authentication secrets never enter argv, logs or crash reports
 - [ ] Syscall fuzz/property tests
 - [ ] Malformed executable tests
 - [ ] Privilege transitions tested under QEMU fault probes
 
-**Gate before third-party applications:** a process cannot directly read/write kernel or another process's memory through supported interfaces.
+**Gate before third-party applications:** a process cannot directly read/write kernel or another process's memory through supported interfaces, and process credentials cannot bypass filesystem policy through an unchecked syscall path.
 
 ## S4 — Driver, MMIO and DMA security
 
