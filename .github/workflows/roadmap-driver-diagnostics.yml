@@ -1,0 +1,32 @@
+name: Driver diagnostics evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  driver-diagnostics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Test driver diagnostic policy on host and target
+        run: |
+          rustfmt --edition 2024 --check kernel/src/device.rs kernel/src/main.rs
+          cargo test --locked -p vibrix-kernel --lib device::
+          cargo clippy --locked -p vibrix-kernel --lib --target x86_64-unknown-none -- -D warnings
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+      - name: Exercise native post-firmware driver diagnostics
+        run: |
+          ./tools/test-qemu.sh
+          tr -d '\r' < build/qemu/debugcon.log | grep -Fx 'VIBRIX: kernel driver diagnostics ready'
+          tr -d '\r' < build/qemu/serial.log | grep -E '^Vibrix driver diagnostics: discovered=[1-9][0-9]* candidates=[0-9]+ bound=[0-9]+ missing_driver=[0-9]+ binding_failures=[0-9]+ healthy=(true|false)$'

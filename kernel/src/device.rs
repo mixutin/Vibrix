@@ -204,6 +204,35 @@ impl DiscoverySummary {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct DiagnosticSummary {
+    pub discovered: u32,
+    pub candidates: u32,
+    pub bound: u32,
+    pub missing_driver: u32,
+    pub binding_failures: u32,
+}
+
+impl DiagnosticSummary {
+    pub fn new(discovery: DiscoverySummary, binder: &Binder, binding_failures: u32) -> Self {
+        let bound = u32::try_from(binder.len()).unwrap_or(u32::MAX);
+        Self {
+            discovered: discovery.devices,
+            candidates: discovery.driver_candidates,
+            bound,
+            missing_driver: discovery
+                .devices
+                .saturating_sub(discovery.driver_candidates),
+            binding_failures: binding_failures
+                .max(discovery.driver_candidates.saturating_sub(bound)),
+        }
+    }
+
+    pub const fn healthy(self) -> bool {
+        self.binding_failures == 0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,6 +363,35 @@ mod tests {
             })),
             Err(BindError::Full)
         );
+    }
+
+    #[test]
+    fn diagnostics_distinguish_missing_drivers_from_binding_failures() {
+        let mut discovery = DiscoverySummary::default();
+        let xhci_identity = pci(0x1022, 0x43ee, 0x0c, 0x03, 0x30);
+        let unknown_identity = pci(0x1af4, 0x1000, 0x02, 0x00, 0x00);
+        discovery.observe(xhci_identity);
+        discovery.observe(unknown_identity);
+
+        let mut binder = Binder::new();
+        binder.bind_identity(xhci_identity).unwrap();
+        assert_eq!(
+            DiagnosticSummary::new(discovery, &binder, 0),
+            DiagnosticSummary {
+                discovered: 2,
+                candidates: 1,
+                bound: 1,
+                missing_driver: 1,
+                binding_failures: 0,
+            }
+        );
+        assert!(DiagnosticSummary::new(discovery, &binder, 0).healthy());
+
+        let failed = DiagnosticSummary::new(discovery, &Binder::new(), 1);
+        assert_eq!(failed.bound, 0);
+        assert_eq!(failed.missing_driver, 1);
+        assert_eq!(failed.binding_failures, 1);
+        assert!(!failed.healthy());
     }
 
     #[test]
