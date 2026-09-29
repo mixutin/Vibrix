@@ -37,8 +37,12 @@ PID 1 starts with root credentials. New child process-table entries inherit the
 parent's complete credential object unchanged. Supplementary-group replacement
 is allocation-free, capacity-checked before mutation, and permitted only while
 the process effective UID is 0. A failed permission or capacity check leaves the
-existing list unchanged. Other credential mutation remains deliberately
-unexposed until the transition syscalls are designed.
+existing list unchanged. Real/effective/saved UID/GID mutation is exposed through additive ABI v1
+`getresuid`/`setresuid` and `getresgid`/`setresgid` calls. Effective UID
+0 may select arbitrary non-sentinel IDs; non-root callers may only select IDs
+already present in the corresponding real/effective/saved tuple. Validation is
+transactional. The all-ones u32 value is reserved by the syscall ABI as
+“unchanged.” Set-user-ID/set-group-ID executable semantics remain separate.
 
 The DAC evaluator accepts validated VibrixFS-style mode bits and selects exactly
 one class:
@@ -100,7 +104,9 @@ The kernel library tests must cover:
 - exclusive owner/group/other class selection;
 - root DAC behavior including the regular-file execute exception;
 - rejection of invalid mode bits;
-- process credential inheritance.
+- process credential inheritance;
+- real/effective/saved UID/GID transition privilege and failure atomicity;
+- a real Ring-3 drop-and-regain transition through the syscall/copyout path.
 
 The normal post-firmware subsystem self-test also executes the credential DAC
 policy and emits a marker only after the checks pass. The M11 top-level
