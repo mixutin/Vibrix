@@ -225,6 +225,18 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         driver_binder.count_driver(device::DriverKind::Rtl8168),
         bind_failures
     );
+    let driver_diagnostics =
+        device::DiagnosticSummary::new(device_model, &driver_binder, bind_failures);
+    crate::println!(
+        "Vibrix driver diagnostics: discovered={} candidates={} bound={} missing_driver={} binding_failures={} healthy={}",
+        driver_diagnostics.discovered,
+        driver_diagnostics.candidates,
+        driver_diagnostics.bound,
+        driver_diagnostics.missing_driver,
+        driver_diagnostics.binding_failures,
+        driver_diagnostics.healthy()
+    );
+    debugcon::write("VIBRIX: kernel driver diagnostics ready\r\n");
     #[cfg(all(
         feature = "xhci-init-probe",
         not(feature = "usb-enum-probe"),
