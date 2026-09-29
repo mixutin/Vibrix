@@ -898,15 +898,14 @@ pub unsafe fn load_elf_probe() -> Result<ActivatedProbe, ElfProbeError> {
     // sixteen-page stack for its fixed database/wire fixtures; the shell uses
     // four pages and the desktop profile expands further. Both guards and W^X
     // stay enforced.
-    let stack_pages = if cfg!(feature = "userspace-desktop")
-        || cfg!(feature = "package-metadata-probe")
-    {
-        16
-    } else if cfg!(feature = "rust-shell-probe") {
-        4
-    } else {
-        1
-    };
+    let stack_pages =
+        if cfg!(feature = "userspace-desktop") || cfg!(feature = "package-metadata-probe") {
+            16
+        } else if cfg!(feature = "rust-shell-probe") {
+            4
+        } else {
+            1
+        };
     let stack_layout = GuardedLayout::new(
         Page::new_user(STACK_GUARD).map_err(|e| ElfProbeError::AddressSpace(e.into()))?,
         stack_pages,
