@@ -43,6 +43,10 @@ pub enum Syscall {
     DisplayFill = 16,
     DisplayBlit = 17,
     InputPoll = 18,
+    GetResUid = 19,
+    SetResUid = 20,
+    GetResGid = 21,
+    SetResGid = 22,
 }
 
 impl Syscall {
@@ -67,6 +71,10 @@ impl Syscall {
             16 => Some(Self::DisplayFill),
             17 => Some(Self::DisplayBlit),
             18 => Some(Self::InputPoll),
+            19 => Some(Self::GetResUid),
+            20 => Some(Self::SetResUid),
+            21 => Some(Self::GetResGid),
+            22 => Some(Self::SetResGid),
             _ => None,
         }
     }
@@ -104,6 +112,24 @@ impl DirEntry {
     };
 }
 
+pub const ID_UNCHANGED: u64 = u32::MAX as u64;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IdTriple {
+    pub real: u32,
+    pub effective: u32,
+    pub saved: u32,
+}
+
+impl IdTriple {
+    pub const ROOT: Self = Self {
+        real: 0,
+        effective: 0,
+        saved: 0,
+    };
+}
+
 pub const PROCESS_RUNNING: u8 = 1;
 pub const PROCESS_ZOMBIE: u8 = 2;
 
@@ -132,6 +158,8 @@ impl ProcessInfo {
 const _: () = assert!(core::mem::size_of::<DirEntry>() == 40);
 const _: () = assert!(core::mem::align_of::<DirEntry>() == 1);
 const _: () = assert!(core::mem::size_of::<ProcessInfo>() == 16);
+const _: () = assert!(core::mem::size_of::<IdTriple>() == 12);
+const _: () = assert!(core::mem::align_of::<IdTriple>() == 4);
 const _: () = assert!(core::mem::offset_of!(ProcessInfo, status) == 12);
 
 #[repr(u16)]
@@ -217,6 +245,10 @@ mod tests {
             Syscall::DisplayFill,
             Syscall::DisplayBlit,
             Syscall::InputPoll,
+            Syscall::GetResUid,
+            Syscall::SetResUid,
+            Syscall::GetResGid,
+            Syscall::SetResGid,
         ];
         for (expected, call) in calls.into_iter().enumerate() {
             assert_eq!(call.number(), expected as u64);
