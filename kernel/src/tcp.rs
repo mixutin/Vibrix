@@ -1,8 +1,8 @@
 //! Bounded TCP client transport foundation.
 //!
-//! Implements an active-open client handshake, in-order data transfer,
-//! cumulative acknowledgments and active close. Retransmission timers,
-//! congestion control, receive reassembly, options and passive listen are
+//! Implements active-open and passive-open handshakes, in-order data transfer,
+//! cumulative acknowledgments, active close, and a bounded retransmission/RTO
+//! policy. Congestion control, receive reassembly and TCP options remain
 //! deliberately outside this module.
 
 use super::ipv4;
@@ -30,6 +30,7 @@ pub enum Error {
     State,
     OutputTooSmall,
     ReceiveTooSmall,
+    RetransmissionExhausted,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -99,6 +100,202 @@ impl<'a> Segment<'a> {
 pub struct Endpoint {
     pub address: [u8; 4],
     pub port: u16,
+}
+
+pub const INITIAL_RTO_TICKS: u64 = 1_000;
+pub const MAX_RTO_TICKS: u64 = 60_000;
+pub const MAX_RETRANSMISSIONS: u8 = 5;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TimerAction {
+    Waiting,
+    Retransmit,
+    Exhausted,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RetransmissionTimer {
+    deadline: u64,
+    rto_ticks: u64,
+    retransmissions: u8,
+    armed: bool,
+}
+
+impl RetransmissionTimer {
+    pub const fn new() -> Self {
+        Self {
+            deadline: 0,
+            rto_ticks: INITIAL_RTO_TICKS,
+            retransmissions: 0,
+            armed: false,
+        }
+    }
+
+    pub fn arm(&mut self, now_ticks: u64) {
+        self.deadline = now_ticks.saturating_add(self.rto_ticks);
+        self.armed = true;
+    }
+
+    pub fn acknowledge(&mut self) {
+        self.deadline = 0;
+        self.rto_ticks = INITIAL_RTO_TICKS;
+        self.retransmissions = 0;
+        self.armed = false;
+    }
+
+    pub const fn retransmissions(&self) -> u8 {
+        self.retransmissions
+    }
+
+    pub const fn rto_ticks(&self) -> u64 {
+        self.rto_ticks
+    }
+
+    pub fn poll(&mut self, now_ticks: u64) -> TimerAction {
+        if !self.armed || now_ticks < self.deadline {
+            return TimerAction::Waiting;
+        }
+        if self.retransmissions >= MAX_RETRANSMISSIONS {
+            self.armed = false;
+            return TimerAction::Exhausted;
+        }
+        self.retransmissions += 1;
+        self.rto_ticks = self.rto_ticks.saturating_mul(2).min(MAX_RTO_TICKS);
+        self.deadline = now_ticks.saturating_add(self.rto_ticks);
+        TimerAction::Retransmit
+    }
+}
+
+impl Default for RetransmissionTimer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Listener {
+    local: Endpoint,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PendingPassive {
+    local: Endpoint,
+    remote: Endpoint,
+    snd_nxt: u32,
+    rcv_nxt: u32,
+    peer_window: u16,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PassiveConnection {
+    local: Endpoint,
+    remote: Endpoint,
+    snd_nxt: u32,
+    rcv_nxt: u32,
+    peer_window: u16,
+}
+
+impl Listener {
+    pub const fn new(local: Endpoint) -> Self {
+        Self { local }
+    }
+
+    pub fn accept_syn(
+        &self,
+        remote_address: [u8; 4],
+        input: &[u8],
+        initial_sequence: u32,
+        output: &mut [u8],
+    ) -> Result<(PendingPassive, usize), Error> {
+        if self.local.port == 0 {
+            return Err(Error::State);
+        }
+        let segment = parse(remote_address, self.local.address, input)?;
+        if segment.destination_port() != self.local.port || segment.source_port() == 0 {
+            return Err(Error::Port);
+        }
+        if !segment.syn() || segment.ack() || segment.fin() || segment.rst() || !segment.payload().is_empty() {
+            return Err(Error::Header);
+        }
+        let remote = Endpoint {
+            address: remote_address,
+            port: segment.source_port(),
+        };
+        let rcv_nxt = segment.sequence().wrapping_add(1);
+        let snd_nxt = initial_sequence.wrapping_add(1);
+        let len = encode(
+            self.local.address,
+            remote.address,
+            self.local.port,
+            remote.port,
+            initial_sequence,
+            rcv_nxt,
+            FLAG_SYN | FLAG_ACK,
+            u16::MAX,
+            &[],
+            output,
+        )?;
+        Ok((
+            PendingPassive {
+                local: self.local,
+                remote,
+                snd_nxt,
+                rcv_nxt,
+                peer_window: segment.window(),
+            },
+            len,
+        ))
+    }
+}
+
+impl PendingPassive {
+    pub fn accept_ack(self, input: &[u8]) -> Result<PassiveConnection, Error> {
+        let segment = parse(self.remote.address, self.local.address, input)?;
+        if segment.source_port() != self.remote.port || segment.destination_port() != self.local.port {
+            return Err(Error::Port);
+        }
+        if segment.rst() {
+            return Err(Error::Reset);
+        }
+        if !segment.ack() || segment.syn() || segment.fin() || !segment.payload().is_empty() {
+            return Err(Error::Header);
+        }
+        if segment.sequence() != self.rcv_nxt {
+            return Err(Error::Sequence);
+        }
+        if segment.acknowledgment() != self.snd_nxt {
+            return Err(Error::Acknowledgment);
+        }
+        Ok(PassiveConnection {
+            local: self.local,
+            remote: self.remote,
+            snd_nxt: self.snd_nxt,
+            rcv_nxt: self.rcv_nxt,
+            peer_window: segment.window(),
+        })
+    }
+}
+
+impl PassiveConnection {
+    pub const fn local(&self) -> Endpoint {
+        self.local
+    }
+
+    pub const fn remote(&self) -> Endpoint {
+        self.remote
+    }
+
+    pub const fn send_next(&self) -> u32 {
+        self.snd_nxt
+    }
+
+    pub const fn receive_next(&self) -> u32 {
+        self.rcv_nxt
+    }
+
+    pub const fn peer_window(&self) -> u16 {
+        self.peer_window
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -577,6 +774,59 @@ pub(super) fn self_test() -> Result<(), Error> {
     if client.state() != State::TimeWait {
         return Err(Error::State);
     }
+
+    let listener = Listener::new(Endpoint {
+        address: [192, 0, 2, 30],
+        port: 8080,
+    });
+    let peer = Endpoint {
+        address: [192, 0, 2, 40],
+        port: 53000,
+    };
+    let peer_syn = synthetic_peer(
+        peer,
+        Endpoint {
+            address: [192, 0, 2, 30],
+            port: 8080,
+        },
+        700,
+        0,
+        FLAG_SYN,
+        &[],
+        &mut wire,
+    )?;
+    let (pending, syn_ack_len) =
+        listener.accept_syn(peer.address, &wire[..peer_syn], 900, &mut reply)?;
+    let syn_ack = parse([192, 0, 2, 30], peer.address, &reply[..syn_ack_len])?;
+    if !syn_ack.syn() || !syn_ack.ack() || syn_ack.acknowledgment() != 701 {
+        return Err(Error::State);
+    }
+    let final_ack_len = synthetic_peer(
+        peer,
+        Endpoint {
+            address: [192, 0, 2, 30],
+            port: 8080,
+        },
+        701,
+        901,
+        FLAG_ACK,
+        &[],
+        &mut wire,
+    )?;
+    let passive = pending.accept_ack(&wire[..final_ack_len])?;
+    if passive.remote() != peer || passive.send_next() != 901 || passive.receive_next() != 701 {
+        return Err(Error::State);
+    }
+
+    let mut timer = RetransmissionTimer::new();
+    timer.arm(10);
+    if timer.poll(1_009) != TimerAction::Waiting || timer.poll(1_010) != TimerAction::Retransmit {
+        return Err(Error::Invariant);
+    }
+    timer.acknowledge();
+    if timer.retransmissions() != 0 || timer.rto_ticks() != INITIAL_RTO_TICKS {
+        return Err(Error::Invariant);
+    }
     Ok(())
 }
 
@@ -699,6 +949,67 @@ mod tests {
         assert_eq!(receive, [0xa5; 4]);
     }
 
+
+    #[test]
+    fn passive_handshake_validates_sequence_ack_and_ports() {
+        let server = Endpoint {
+            address: [203, 0, 113, 10],
+            port: 8080,
+        };
+        let peer = Endpoint {
+            address: [203, 0, 113, 20],
+            port: 55000,
+        };
+        let listener = Listener::new(server);
+        let mut input = [0u8; 64];
+        let mut output = [0u8; 64];
+        let syn_len =
+            synthetic_peer(peer, server, 100, 0, FLAG_SYN, &[], &mut input).unwrap();
+        let (pending, syn_ack_len) = listener
+            .accept_syn(peer.address, &input[..syn_len], 500, &mut output)
+            .unwrap();
+        let syn_ack = parse(server.address, peer.address, &output[..syn_ack_len]).unwrap();
+        assert!(syn_ack.syn());
+        assert!(syn_ack.ack());
+        assert_eq!(syn_ack.sequence(), 500);
+        assert_eq!(syn_ack.acknowledgment(), 101);
+
+        let ack_len =
+            synthetic_peer(peer, server, 101, 501, FLAG_ACK, &[], &mut input).unwrap();
+        let connection = pending.accept_ack(&input[..ack_len]).unwrap();
+        assert_eq!(connection.local(), server);
+        assert_eq!(connection.remote(), peer);
+
+        let bad_len =
+            synthetic_peer(peer, server, 102, 501, FLAG_ACK, &[], &mut input).unwrap();
+        assert_eq!(
+            pending.accept_ack(&input[..bad_len]),
+            Err(Error::Sequence)
+        );
+    }
+
+    #[test]
+    fn retransmission_timer_backs_off_and_exhausts_without_wrap() {
+        let mut timer = RetransmissionTimer::new();
+        timer.arm(u64::MAX - 500);
+        assert_eq!(timer.poll(u64::MAX - 1), TimerAction::Waiting);
+        assert_eq!(timer.poll(u64::MAX), TimerAction::Retransmit);
+        assert_eq!(timer.rto_ticks(), 2_000);
+        assert_eq!(timer.retransmissions(), 1);
+
+        let mut now = u64::MAX;
+        for expected in 2..=MAX_RETRANSMISSIONS {
+            assert_eq!(timer.poll(now), TimerAction::Waiting);
+            now = u64::MAX;
+            assert_eq!(timer.poll(now), TimerAction::Retransmit);
+            assert_eq!(timer.retransmissions(), expected);
+        }
+        assert_eq!(timer.poll(u64::MAX), TimerAction::Exhausted);
+        assert_eq!(timer.poll(u64::MAX), TimerAction::Waiting);
+        timer.acknowledge();
+        assert_eq!(timer.rto_ticks(), INITIAL_RTO_TICKS);
+        assert_eq!(timer.retransmissions(), 0);
+    }
     #[test]
     fn corrupt_checksum_wrong_ack_and_reset_fail_closed() {
         let (local, remote) = endpoints();
