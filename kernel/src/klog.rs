@@ -240,11 +240,17 @@ pub fn self_test() -> Result<(), &'static str> {
         Level::Warn,
         Subsystem::Kernel.bit() | Subsystem::Security.bit(),
     ));
-    let info_filtered = log(Level::Info, Subsystem::Kernel, EVENT_SELF_TEST, 0, 0)
-        == Err(LogError::Filtered);
-    let subsystem_filtered = log(Level::Error, Subsystem::Network, EVENT_SELF_TEST, 0, 0)
-        == Err(LogError::Filtered);
-    let accepted = log(Level::Error, Subsystem::Kernel, EVENT_SELF_TEST, 0x56, 0x4258);
+    let info_filtered =
+        log(Level::Info, Subsystem::Kernel, EVENT_SELF_TEST, 0, 0) == Err(LogError::Filtered);
+    let subsystem_filtered =
+        log(Level::Error, Subsystem::Network, EVENT_SELF_TEST, 0, 0) == Err(LogError::Filtered);
+    let accepted = log(
+        Level::Error,
+        Subsystem::Kernel,
+        EVENT_SELF_TEST,
+        0x56,
+        0x4258,
+    );
     configure_filter(original_filter);
     if !info_filtered || !subsystem_filtered {
         return Err("structured log filter policy accepted a rejected event");
@@ -354,9 +360,6 @@ mod tests {
     fn zero_capacity_is_explicitly_full() {
         let log = Buffer::<0>::new();
         assert_eq!(log.capacity(), 0);
-        assert_eq!(
-            log.push(Level::Info, Subsystem::Kernel, 1, 0, 0),
-            Err(Full)
-        );
+        assert_eq!(log.push(Level::Info, Subsystem::Kernel, 1, 0, 0), Err(Full));
     }
 }
