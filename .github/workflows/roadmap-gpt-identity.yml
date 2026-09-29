@@ -51,4 +51,6 @@ jobs:
           fi
           grep -Fq "VIBRIX: boot USB GPT identity validated" build/qemu/gpt-identity-debugcon.log
           grep -Fq "VIBRIX: kernel entry after ExitBootServices" build/qemu/gpt-identity-debugcon.log
+          grep -Fq "VIBRIX: kernel BootInfo v4 validated" build/qemu/gpt-identity-debugcon.log
+          grep -Fq "VIBRIX: kernel boot USB identity available" build/qemu/gpt-identity-debugcon.log
           grep -Fq "Vibrix kernel started." build/qemu/gpt-identity-serial.log
