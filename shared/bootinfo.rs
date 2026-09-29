@@ -326,6 +326,9 @@ mod tests {
         let mut info = valid();
         info._reserved_v2 = 1;
         assert_eq!(info.validate(), Err(BootInfoError::NonzeroReserved));
+        let mut info = valid();
+        info._reserved_v4 = 1;
+        assert_eq!(info.validate(), Err(BootInfoError::NonzeroReserved));
     }
 
     #[test]
