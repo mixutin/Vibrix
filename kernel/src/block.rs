@@ -1,5 +1,8 @@
 //! Synchronous, bounded block I/O. No device discovery, DMA or implicit persistence.
 
+#[path = "block_partition.rs"]
+pub mod partition;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Error {
     Geometry,
@@ -203,6 +206,7 @@ pub fn self_test() -> Result<(), Error> {
     if output != [0; 512] {
         return Err(Error::Io);
     }
+    partition::self_test()?;
     Ok(())
 }
 
