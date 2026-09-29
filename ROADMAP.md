@@ -665,8 +665,8 @@ recursive copy semantics or POSIX conformance.
 - [x] xHCI initialization
 - [x] USB device enumeration
 - [x] USB hub support
-- [ ] USB HID keyboard
-- [ ] USB HID mouse
+- [x] USB HID keyboard
+- [x] USB HID mouse
 - [ ] USB mass-storage transport
 - [ ] SCSI transparent command subset for mass storage
 - [x] Block-device abstraction
@@ -721,6 +721,20 @@ This checks **bounded USB2-compatible hub support** only. It does not yet
 address the downstream child as a HID device through the hub, implement
 SuperSpeed hub semantics, hotplug, multiple-hub arbitration, mass storage,
 persistent boot-USB access or physical Target 001 validation.
+
+**Verified M7 native USB HID interrupt input (PR #230):**
+[Actions run 36614664509](https://github.com/mixutin/Vibrix/actions/runs/36614664509)
+passed the full exact-head CI matrix on implementation head
+`2660a874b0fe9590a5d7cea3874f575aa39b0cb8`. The xHCI path configures real
+interrupt-IN endpoints for bounded HID boot keyboard and mouse interfaces,
+validates descriptor geometry and completion identity/residue, observes real
+keypress/modifier/release and mouse motion/button transitions, and disables the
+slot cleanly after the proof sequence.
+
+This checks the current **USB HID keyboard** and **USB HID mouse** roadmap
+items for directly attached boot-protocol devices. It does not claim arbitrary
+report descriptors, hub-routed HID, hotplug, desktop/TTY integration, LED/layout
+support, persistent USB storage, or physical Target 001 validation.
 
 ## M8 — Vibrix filesystem
 - [x] On-disk specification
@@ -1100,7 +1114,7 @@ This is a single-process foreground desktop preview, **not completion of M13**, 
 - [x] Navi 23 modesetting research
 - [ ] native modesetting
 - [ ] acceleration
-- [ ] GUI toolkit
+- [x] GUI toolkit
 
 **Verified M13 bounded userspace framebuffer/display API (PR #199):**
 [Full CI run 36578586659](https://github.com/mixutin/Vibrix/actions/runs/36578586659)
@@ -1133,6 +1147,19 @@ for speculative raw register programming. Native modesetting therefore remains
 unchecked until a source-traceable implementation is validated, and physical
 Target 001 display claims still require real hardware evidence. See
 [ADR 0022](docs/decisions/0022-graphics-stack-navi23.md).
+
+**Verified M13 reusable native GUI toolkit (PR #241):**
+[Actions run 36615443810](https://github.com/mixutin/Vibrix/actions/runs/36615443810)
+passed the full exact-head repository matrix, including the dedicated GUI toolkit
+evidence workflow, on implementation head
+`92cdbcfbd8b19aa96847b5bfbc086a4ad1ee45b9`. The no_std `vibrix-ui` crate
+provides reusable widget/layout/rendering primitives and the native Ring 3
+desktop is migrated to those shared components while preserving the real
+display/input QEMU/RFB proof path.
+
+This checks the bounded **GUI toolkit** item only. Native GPU modesetting,
+acceleration, multi-process compositor isolation and physical display hardware
+validation remain separate work.
 
 ## M14 — Packages and development
 - [ ] Package format/database/dependencies
@@ -1247,7 +1274,7 @@ weakening the default system.
 - [ ] Filesystem/network/update health checks
 - [ ] Privacy-reviewed `vibrix doctor --bundle` support bundle
 - [ ] Verbose boot mode while normal boot remains clean
-- [ ] Hardware compatibility/quirk reporting
+- [x] Hardware compatibility/quirk reporting
 - [ ] Optional anonymized compatibility reports only with explicit opt-in
 
 **Verified M18 structured kernel logging and filtering (PR #219):**
@@ -1298,6 +1325,20 @@ This checks **Driver binding/missing-driver diagnostics** for the current early
 PCI/device model. A successful binding remains ownership bookkeeping, not proof
 of BAR activation, DMA, interrupts, useful device I/O, USB child-device
 coverage, hotplug, or physical Target 001 support.
+
+**Verified M18 hardware compatibility/quirk reporting (PR #245):**
+[Full CI run 36615272673](https://github.com/mixutin/Vibrix/actions/runs/36615272673)
+and dedicated hardware-compatibility
+[run 36615272434](https://github.com/mixutin/Vibrix/actions/runs/36615272434)
+passed on implementation head `6dac5ed85b31a3a33db57ce3e25ce962bc74406f`.
+The production diagnostic path reports discovered PCI devices, whether a current
+driver candidate exists, and known implementation limitations such as the
+existing 32-byte xHCI context boundary without conflating binding with working
+hardware I/O.
+
+This checks **Hardware compatibility/quirk reporting** for the current bounded
+PCI/device model. It does not claim exhaustive hardware coverage, hotplug,
+successful driver activation, or physical Target 001 compatibility.
 
 **Exit:** common boot, driver, storage, update and network failures can be
 diagnosed from Vibrix itself with useful logs and an exportable support bundle.
