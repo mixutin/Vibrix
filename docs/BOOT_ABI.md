@@ -3,14 +3,14 @@
 The boot ABI is the versioned, firmware-independent contract between the Rust
 UEFI loader and kernel. Both compile `shared/bootinfo.rs`.
 
-## Current layout: BootInfo v3
+## Current layout: BootInfo v4
 
-The `#[repr(C)]` object is 96 bytes with alignment 8 on x86-64.
+The `#[repr(C)]` object is 168 bytes with alignment 8 on x86-64. The first 96 bytes preserve the complete v3 layout.
 
 | Offset | Field | Meaning |
 | --- | --- | --- |
 | 0 | magic: u64 | `0x4942584952424956` (`VIBRIXBI` little endian) |
-| 8 | version: u32 | 3 |
+| 8 | version: u32 | 4 |
 | 12 | _reserved: u32 | zero |
 | 16 | framebuffer_base: u64 | physical framebuffer base |
 | 24 | framebuffer_size: u64 | byte extent |
@@ -22,17 +22,27 @@ The `#[repr(C)]` object is 96 bytes with alignment 8 on x86-64.
 | 80 | memory_descriptor_version: u32 | supported firmware descriptor version 1 |
 | 84 | _reserved_v2: u32 | zero |
 | 88 | kernel_window_table: u64 | physical address of retained, identity-mapped early-window PT |
+| 96 | boot_identity_flags: u32 | bit 0 identity present; bit 1 system GUID present |
+| 100 | _reserved_v4: u32 | zero |
+| 104 | boot_disk_guid: [u8; 16] | validated whole-disk GPT GUID, or zero when absent |
+| 120 | boot_esp_guid: [u8; 16] | validated boot ESP unique GUID, or zero when absent |
+| 136 | boot_system_guid: [u8; 16] | optional Vibrix System partition GUID |
+| 152 | boot_esp_first_lba: u64 | validated boot ESP first LBA |
+| 160 | boot_esp_last_lba: u64 | validated boot ESP last LBA |
 
 All stored addresses are physical numbers. The entry argument `*const BootInfo`
 is a virtual pointer under the active page tables. Scalar validation alone
 does not establish mapping, backing ownership or pointer provenance.
 
-Version 3 preserves the first 88 bytes but requires its new tail. The kernel
-reads the common-prefix version before copying the complete 96-byte object.
-Versions 1 and 2 fail closed; an older kernel also rejects v3. **Deploy a
-matching loader and kernel together.** Reserved fields retain their zero
-meaning. The descriptor version remains independent of the BootInfo version.
-The firmware map key is loader-local and never part of this ABI.
+Version 4 preserves the complete 96-byte v3 prefix and appends only
+firmware-neutral boot-media identity. The kernel reads the common-prefix version
+before copying the complete 168-byte object. Versions 1–3 fail closed; an older
+kernel also rejects v4. **Deploy a matching loader and kernel together.**
+Reserved fields retain their zero meaning. When the identity-present flag is
+clear, the entire new tail must be zero. When present, disk/ESP GUIDs and the
+ESP LBA extent must be nonzero/valid; the optional system GUID is controlled by
+its own flag. UEFI handles, device-path pointers, USB addresses and the firmware
+map key never enter this ABI.
 
 ## Early mapping window
 
@@ -54,7 +64,8 @@ interrupts-disabled ownership. It is not a recursive/whole-memory mapping.
    RSDP, the window PT and the uncached GOP framebuffer.
 4. Check NX, four-level paging and physical address constraints.
 5. Refresh the final memory map in its preallocated buffer; construct BootInfo
-   from that exact descriptor length/stride/version tuple.
+   from that exact descriptor length/stride/version tuple plus any validated
+   firmware-neutral boot USB identity.
 6. Call ExitBootServices with the associated key. On stale-key failure,
    refresh only the existing map buffer and rebuild BootInfo before retrying.
 7. Enable NX, switch CR3 and the dedicated stack, then pass BootInfo in RDI
@@ -73,4 +84,4 @@ backing from linked addresses; [ADR 0004](decisions/0004-memory-descriptor-versi
 introduced the v2 descriptor-version tail. [ADR 0006](decisions/0006-transition-mappings.md)
 and [ADR 0007](decisions/0007-uefi-exit-kernel-entry.md) describe the original
 QEMU-verified v2 transition. Those v2 observations are historical evidence,
-not evidence for new v3 behavior; the v3 validation result belongs in ADR 0009.
+not evidence for later ABI behavior; the v3 mapping-window result belongs in ADR 0009. BootInfo v4 appends the boot-media identity tail without changing that v3 window contract.
