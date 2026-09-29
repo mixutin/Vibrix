@@ -42,9 +42,32 @@ READ CAPACITY parameter data is decoded as big-endian and accepts power-of-two
 logical block sizes of at least 512 bytes. Fixed-format sense data extracts the
 sense key, ASC and ASCQ.
 
+## Native xHCI BOT/SCSI evidence
+
+The `usb-storage-probe` kernel profile reuses the production xHCI controller,
+slot, EP0 and event-ring ownership used by device enumeration. It parses the
+actual configuration descriptor for exactly one class 08/subclass 06/protocol
+50 interface, configures one Bulk-OUT and one Bulk-IN endpoint, and carries the
+shared CBW/CSW and SCSI contracts over real xHCI Normal TRBs.
+
+The bounded QEMU fixture executes TEST UNIT READY, INQUIRY, REQUEST SENSE,
+READ CAPACITY (10), READ (10), WRITE (10) and SYNCHRONIZE CACHE (10). It reads
+the final logical block, saves its original contents in a retained DMA page,
+writes a deterministic pattern, flushes and reads the pattern back, then restores
+the original block, flushes again and verifies the restoration. CI also compares
+the entire backing-image SHA-256 before and after the guest run.
+
+Every transfer validates the event slot, endpoint DCI, completed TRB pointer,
+completion code and residue. CBW/CSW tags must match and a command must report
+`Passed`; malformed/ambiguous descriptors and unsupported capacities fail
+closed. The test uses one directly attached 2 MiB QEMU USB disk with 512-byte
+logical blocks.
+
 ## Completion boundary
 
-These modules do not perform USB I/O and therefore do **not** complete the
-ROADMAP USB mass-storage or SCSI items by themselves. Completion requires the
-native xHCI driver to configure real bulk endpoints and execute these commands
-against an attached mass-storage device with exact guest evidence.
+This native probe is the implementation/evidence path for the bounded M7
+**USB mass-storage transport** and **SCSI transparent command subset** items
+once exact-head CI is green. It does not identify the firmware boot USB, keep
+the device open as a long-lived block backend, mount VibrixFS from USB, survive
+hotplug/reset recovery, support multiple LUNs/devices, provide DMA isolation, or
+prove physical Target 001 behavior. Those remain separate roadmap work.
