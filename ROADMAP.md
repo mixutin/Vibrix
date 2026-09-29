@@ -1047,12 +1047,29 @@ This is a single-process foreground desktop preview, **not completion of M13**, 
 - [ ] HDA + basic PCM
 - [ ] USB audio
 - [x] graphics architecture
-- [ ] framebuffer userspace API
+- [x] framebuffer userspace API
 - [x] compositor/display-server design
 - [x] Navi 23 modesetting research
 - [ ] native modesetting
 - [ ] acceleration
 - [ ] GUI toolkit
+
+**Verified M13 bounded userspace framebuffer/display API (PR #199):**
+[Full CI run 36578586659](https://github.com/mixutin/Vibrix/actions/runs/36578586659)
+and [dedicated userspace display run 36578586194](https://github.com/mixutin/Vibrix/actions/runs/36578586194)
+passed on implementation head `6c7774da242303c071e229431ff4b91a8d02895d`.
+The opt-in native Ring 3 desktop uses additive ABI v1 calls `DisplayInfo`,
+`DisplayFill` and `DisplayBlit` through the real syscall path. User pointers
+are validated by the checked copy layer, blits copy through a bounded kernel
+buffer, malformed rectangles/counts/reserved arguments fail before drawing,
+and no framebuffer/MMIO physical address is exposed to userspace. The dedicated
+workflow boots the real userspace ELF and validates actual guest framebuffer
+pixels and interactive input rather than a host-rendered mockup.
+
+This checks the bounded **framebuffer userspace API** only. The retained GOP
+framebuffer remains kernel-owned and software-rendered; native GPU modesetting,
+acceleration, multi-client compositor isolation, physical Target 001 display
+validation and the general GUI toolkit remain separate unchecked work.
 
 **Adopted M13 graphics architecture and Navi 23 research (ADR 0022):**
 Vibrix separates kernel modesetting/hardware ownership from a userspace
@@ -1075,7 +1092,22 @@ Target 001 display claims still require real hardware evidence. See
 - [ ] signed repositories
 - [ ] ports/build recipes
 - [ ] editor/developer tooling
-- [ ] compiler bootstrap plan
+- [x] compiler bootstrap plan
+
+**Verified M14 Rust compiler bootstrap plan (PR #220):**
+[Actions run 36590730685](https://github.com/mixutin/Vibrix/actions/runs/36590730685)
+passed the full exact-head repository matrix on implementation head
+`8c58ce2b9740ab78870693929456e3b95f641ce2`. The accepted plan defines the
+transition from the current external cross-compiled bare-metal toolchain to a
+hosted Vibrix target, an externally produced first native stage0, native program
+compilation evidence, upstream-style stage0/stage1/stage2 rebuilding,
+provenance/reproducibility metadata, explicit transitional linker/codegen trust
+dependencies, and the USB-only failure boundary.
+
+This checks only the **compiler bootstrap plan** deliverable. No hosted Vibrix
+Rust target, native rustc/Cargo execution, self-hosted userspace/kernel build or
+bootable-release production is claimed; those remain M15/M20 execution
+milestones.
 
 ## M15 — Self-hosting
 - [ ] Compile a Rust userspace program on Vibrix
@@ -1151,10 +1183,10 @@ weakening the default system.
 
 ## M18 — Observability and troubleshooting
 
-- [ ] Structured kernel logging
+- [x] Structured kernel logging
 - [ ] Persistent userspace journal
 - [ ] Boot IDs and monotonic/wall-clock timestamps
-- [ ] Log levels and subsystem filtering
+- [x] Log levels and subsystem filtering
 - [ ] `vlog` query/follow interface
 - [ ] Previous-boot log access
 - [ ] Flash-aware log rotation and retention
@@ -1169,6 +1201,25 @@ weakening the default system.
 - [ ] Verbose boot mode while normal boot remains clean
 - [ ] Hardware compatibility/quirk reporting
 - [ ] Optional anonymized compatibility reports only with explicit opt-in
+
+**Verified M18 structured kernel logging and filtering (PR #219):**
+[Actions run 36591286297](https://github.com/mixutin/Vibrix/actions/runs/36591286297)
+passed the full exact-head repository matrix on implementation head
+`fb375cdedf04a6fdae1a9a9deda46388f2601f43`. The kernel now owns a bounded
+128-record structured event buffer with boot-local sequence, severity,
+subsystem, stable event code and numeric values. Unique atomic slot reservation
+plus Release/Acquire publication makes published records immutable without a
+spin lock; full capacity fails explicitly rather than overwriting old records.
+A packed atomic filter applies one minimum severity and subsystem mask without
+torn configuration reads, and filtered events do not consume capacity.
+Production host tests cover record structure, sequence, bounds, saturation and
+filter behavior, while the normal post-ExitBootServices QEMU path requires the
+same compiled self-test marker on debugcon and COM1.
+
+This checks **Structured kernel logging** and **Log levels and subsystem
+filtering** only. Persistent journal storage, timestamps, `vlog`, previous-boot
+access, rotation/retention, crash persistence, symbolization and SMP/per-CPU
+logging remain separate unchecked M18 work.
 
 **Exit:** common boot, driver, storage, update and network failures can be
 diagnosed from Vibrix itself with useful logs and an exportable support bundle.
