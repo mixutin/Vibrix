@@ -4,10 +4,37 @@
 pub const MAX_TRIAL_BOOTS: u8 = 3;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Channel {
+    Stable,
+    Beta,
+    Nightly,
+}
+
+impl Channel {
+    pub const fn name(self) -> &'static [u8] {
+        match self {
+            Self::Stable => b"stable",
+            Self::Beta => b"beta",
+            Self::Nightly => b"nightly",
+        }
+    }
+
+    pub fn parse(name: &[u8]) -> Option<Self> {
+        match name {
+            b"stable" => Some(Self::Stable),
+            b"beta" => Some(Self::Beta),
+            b"nightly" => Some(Self::Nightly),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Error {
     InvalidRelease,
     SecurityFloor,
     NotNewer,
+    ChannelMismatch,
     Prerequisite,
     PendingTrial,
     SequenceExhausted,
@@ -20,16 +47,26 @@ pub enum Error {
 pub struct Release {
     generation: u64,
     security_epoch: u64,
+    channel: Channel,
 }
 
 impl Release {
     pub fn new(generation: u64, security_epoch: u64) -> Result<Self, Error> {
+        Self::new_in_channel(generation, security_epoch, Channel::Stable)
+    }
+
+    pub fn new_in_channel(
+        generation: u64,
+        security_epoch: u64,
+        channel: Channel,
+    ) -> Result<Self, Error> {
         if generation == 0 {
             return Err(Error::InvalidRelease);
         }
         Ok(Self {
             generation,
             security_epoch,
+            channel,
         })
     }
 
@@ -39,6 +76,10 @@ impl Release {
 
     pub const fn security_epoch(self) -> u64 {
         self.security_epoch
+    }
+
+    pub const fn channel(self) -> Channel {
+        self.channel
     }
 }
 
@@ -103,6 +144,7 @@ struct Trial {
 pub struct UpdatePolicy {
     known_good: Release,
     security_floor: u64,
+    channel: Channel,
     last_trial_id: u64,
     trial: Option<Trial>,
 }
@@ -115,6 +157,7 @@ impl UpdatePolicy {
         Ok(Self {
             known_good,
             security_floor,
+            channel: known_good.channel,
             last_trial_id: 0,
             trial: None,
         })
@@ -122,6 +165,18 @@ impl UpdatePolicy {
 
     pub const fn known_good(&self) -> Release {
         self.known_good
+    }
+
+    pub const fn channel(&self) -> Channel {
+        self.channel
+    }
+
+    pub fn set_channel(&mut self, channel: Channel) -> Result<(), Error> {
+        if self.trial.is_some() {
+            return Err(Error::PendingTrial);
+        }
+        self.channel = channel;
+        Ok(())
     }
 
     pub fn stage(&mut self, candidate: Release, evidence: Evidence) -> Result<(), Error> {
@@ -133,6 +188,9 @@ impl UpdatePolicy {
         }
         if candidate.generation <= self.known_good.generation {
             return Err(Error::NotNewer);
+        }
+        if candidate.channel != self.channel {
+            return Err(Error::ChannelMismatch);
         }
         if !evidence.complete() {
             return Err(Error::Prerequisite);
@@ -211,6 +269,9 @@ pub fn self_test() -> Result<(), Error> {
     let old = Release::new(1, 1)?;
     let new = Release::new(2, 1)?;
     let mut policy = UpdatePolicy::new(old, 1)?;
+    if policy.channel() != Channel::Stable {
+        return Err(Error::Invariant);
+    }
     policy.stage(new, complete_evidence())?;
     for _ in 0..MAX_TRIAL_BOOTS {
         if !matches!(policy.begin_boot(), BootChoice::Trial(release, _) if release == new) {
@@ -271,6 +332,32 @@ mod tests {
                 assert_eq!(policy, before);
             }
         }
+    }
+
+    #[test]
+    fn stable_beta_and_nightly_channels_are_explicit_and_fail_closed() {
+        assert_eq!(Channel::parse(b"stable"), Some(Channel::Stable));
+        assert_eq!(Channel::parse(b"beta"), Some(Channel::Beta));
+        assert_eq!(Channel::parse(b"nightly"), Some(Channel::Nightly));
+        assert_eq!(Channel::parse(b"STABLE"), None);
+        assert_eq!(Channel::parse(b"unknown"), None);
+
+        let mut policy = policy();
+        assert_eq!(policy.channel(), Channel::Stable);
+        let beta = Release::new_in_channel(11, 2, Channel::Beta).unwrap();
+        assert_eq!(
+            policy.stage(beta, complete_evidence()),
+            Err(Error::ChannelMismatch)
+        );
+        assert_eq!(policy.channel(), Channel::Stable);
+
+        policy.set_channel(Channel::Beta).unwrap();
+        assert_eq!(policy.channel(), Channel::Beta);
+        policy.stage(beta, complete_evidence()).unwrap();
+        assert_eq!(
+            policy.set_channel(Channel::Nightly),
+            Err(Error::PendingTrial)
+        );
     }
 
     #[test]
