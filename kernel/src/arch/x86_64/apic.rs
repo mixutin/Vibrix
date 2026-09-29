@@ -19,6 +19,12 @@ const APIC_X2_MODE: u64 = 1 << 10;
 const LAPIC_EOI: usize = 0x0b0;
 const LAPIC_SPURIOUS: usize = 0x0f0;
 const LAPIC_SOFTWARE_ENABLE: u32 = 1 << 8;
+#[cfg(feature = "ap-startup-probe")]
+const LAPIC_ICR_LOW: usize = 0x300;
+#[cfg(feature = "ap-startup-probe")]
+const LAPIC_ICR_HIGH: usize = 0x310;
+#[cfg(feature = "ap-startup-probe")]
+const ICR_DELIVERY_STATUS: u32 = 1 << 12;
 const IOAPIC_REDIRECTION_BASE: u32 = 0x10;
 const PIT_COMMAND: u16 = 0x43;
 const PIT_CHANNEL_ZERO: u16 = 0x40;
@@ -35,6 +41,8 @@ pub enum ApicError {
     Mapping,
     InvalidRegister,
     Routing,
+    StartupVector,
+    DeliveryTimeout,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -313,6 +321,68 @@ pub unsafe fn activate_pit_timer(
             },
         )?;
     }
+    Ok(())
+}
+
+#[cfg(feature = "ap-startup-probe")]
+fn ap_startup_delay(iterations: usize) {
+    for _ in 0..iterations {
+        // QEMU-only bounded startup proof. Target 001 needs a calibrated
+        // architectural delay source before this path may be used as hardware
+        // evidence for the later 8C/16T validation milestone.
+        unsafe { asm!("pause", options(nomem, nostack, preserves_flags)) };
+    }
+}
+
+#[cfg(feature = "ap-startup-probe")]
+unsafe fn wait_icr_idle() -> Result<(), ApicError> {
+    let low = (WINDOW_BASE as usize + LAPIC_ICR_LOW) as *const u32;
+    for _ in 0..1_000_000usize {
+        // SAFETY: activate_pit_timer retained the writable UC LAPIC mapping.
+        if unsafe { core::ptr::read_volatile(low) } & ICR_DELIVERY_STATUS == 0 {
+            return Ok(());
+        }
+        unsafe { asm!("pause", options(nomem, nostack, preserves_flags)) };
+    }
+    Err(ApicError::DeliveryTimeout)
+}
+
+#[cfg(feature = "ap-startup-probe")]
+unsafe fn send_ipi(destination: u8, command: u32) -> Result<(), ApicError> {
+    unsafe { wait_icr_idle()? };
+    let high = (WINDOW_BASE as usize + LAPIC_ICR_HIGH) as *mut u32;
+    let low = (WINDOW_BASE as usize + LAPIC_ICR_LOW) as *mut u32;
+    // SAFETY: retained xAPIC page, physical destination mode, IF=0.
+    unsafe {
+        core::ptr::write_volatile(high, u32::from(destination) << 24);
+        core::ptr::write_volatile(low, command);
+    }
+    unsafe { wait_icr_idle() }
+}
+
+/// Send the architectural INIT-deassert-SIPI-SIPI sequence to one xAPIC AP.
+///
+/// # Safety
+/// The BSP must have successfully called activate_pit_timer(), IF must remain
+/// clear, the destination must come from the validated MADT/per-CPU table and
+/// `vector` must name an owned 4-KiB trampoline page below 1 MiB.
+#[cfg(feature = "ap-startup-probe")]
+pub unsafe fn startup_xapic(destination: u8, vector: u8) -> Result<(), ApicError> {
+    if vector == 0 {
+        return Err(ApicError::StartupVector);
+    }
+
+    // Delivery mode INIT (101), level assert and level-triggered.
+    unsafe { send_ipi(destination, 0x0000_c500)? };
+    ap_startup_delay(1_000_000);
+    // INIT deassert retains level-triggered mode.
+    unsafe { send_ipi(destination, 0x0000_8500)? };
+    ap_startup_delay(100_000);
+
+    let sipi = 0x0000_0600 | u32::from(vector);
+    unsafe { send_ipi(destination, sipi)? };
+    ap_startup_delay(100_000);
+    unsafe { send_ipi(destination, sipi)? };
     Ok(())
 }
 
