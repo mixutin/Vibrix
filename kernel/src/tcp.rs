@@ -31,6 +31,7 @@ pub enum Error {
     OutputTooSmall,
     ReceiveTooSmall,
     RetransmissionExhausted,
+    Invariant,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -214,7 +215,12 @@ impl Listener {
         if segment.destination_port() != self.local.port || segment.source_port() == 0 {
             return Err(Error::Port);
         }
-        if !segment.syn() || segment.ack() || segment.fin() || segment.rst() || !segment.payload().is_empty() {
+        if !segment.syn()
+            || segment.ack()
+            || segment.fin()
+            || segment.rst()
+            || !segment.payload().is_empty()
+        {
             return Err(Error::Header);
         }
         let remote = Endpoint {
@@ -251,7 +257,9 @@ impl Listener {
 impl PendingPassive {
     pub fn accept_ack(self, input: &[u8]) -> Result<PassiveConnection, Error> {
         let segment = parse(self.remote.address, self.local.address, input)?;
-        if segment.source_port() != self.remote.port || segment.destination_port() != self.local.port {
+        if segment.source_port() != self.remote.port
+            || segment.destination_port() != self.local.port
+        {
             return Err(Error::Port);
         }
         if segment.rst() {
@@ -949,7 +957,6 @@ mod tests {
         assert_eq!(receive, [0xa5; 4]);
     }
 
-
     #[test]
     fn passive_handshake_validates_sequence_ack_and_ports() {
         let server = Endpoint {
@@ -963,8 +970,7 @@ mod tests {
         let listener = Listener::new(server);
         let mut input = [0u8; 64];
         let mut output = [0u8; 64];
-        let syn_len =
-            synthetic_peer(peer, server, 100, 0, FLAG_SYN, &[], &mut input).unwrap();
+        let syn_len = synthetic_peer(peer, server, 100, 0, FLAG_SYN, &[], &mut input).unwrap();
         let (pending, syn_ack_len) = listener
             .accept_syn(peer.address, &input[..syn_len], 500, &mut output)
             .unwrap();
@@ -974,18 +980,13 @@ mod tests {
         assert_eq!(syn_ack.sequence(), 500);
         assert_eq!(syn_ack.acknowledgment(), 101);
 
-        let ack_len =
-            synthetic_peer(peer, server, 101, 501, FLAG_ACK, &[], &mut input).unwrap();
+        let ack_len = synthetic_peer(peer, server, 101, 501, FLAG_ACK, &[], &mut input).unwrap();
         let connection = pending.accept_ack(&input[..ack_len]).unwrap();
         assert_eq!(connection.local(), server);
         assert_eq!(connection.remote(), peer);
 
-        let bad_len =
-            synthetic_peer(peer, server, 102, 501, FLAG_ACK, &[], &mut input).unwrap();
-        assert_eq!(
-            pending.accept_ack(&input[..bad_len]),
-            Err(Error::Sequence)
-        );
+        let bad_len = synthetic_peer(peer, server, 102, 501, FLAG_ACK, &[], &mut input).unwrap();
+        assert_eq!(pending.accept_ack(&input[..bad_len]), Err(Error::Sequence));
     }
 
     #[test]
