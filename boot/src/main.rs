@@ -21,6 +21,7 @@ fn create_boot_info(
     framebuffer: &uefi::Framebuffer,
     rsdp_address: u64,
     memory_map: &memory_map::CapturedMemoryMap,
+    ap_trampoline_page: u32,
     kernel_window_table: u64,
 ) -> Result<bootinfo::BootInfo, bootinfo::BootInfoError> {
     bootinfo::BootInfo::new(
@@ -39,6 +40,7 @@ fn create_boot_info(
             descriptor_size: memory_map.descriptor_size,
             descriptor_version: memory_map.descriptor_version,
         },
+        ap_trampoline_page,
         kernel_window_table,
     )
 }
@@ -180,6 +182,33 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
         return EFI_LOAD_ERROR;
     }
 
+    // x86 STARTUP IPIs encode a 4-KiB page below 1 MiB. Reserve one real
+    // loader-owned page rather than assuming arbitrary low RAM is available.
+    const AP_TRAMPOLINE_MAX: u64 = 0x000f_ffff;
+    let ap_trampoline_physical =
+        match unsafe { uefi::allocate_loader_pages_below(system_table, 1, AP_TRAMPOLINE_MAX) } {
+            Ok(physical) => physical,
+            Err(status) => {
+                console.write("VIBRIX: AP trampoline allocation failed\r\n");
+                return status;
+            }
+        };
+    let Ok(ap_trampoline_page) = u32::try_from(ap_trampoline_physical) else {
+        console.write("VIBRIX: AP trampoline address invalid\r\n");
+        return EFI_LOAD_ERROR;
+    };
+    if !(4096..=0x000f_f000).contains(&ap_trampoline_page)
+        || !ap_trampoline_page.is_multiple_of(4096)
+    {
+        console.write("VIBRIX: AP trampoline placement invalid\r\n");
+        return EFI_LOAD_ERROR;
+    }
+    // SAFETY: this exclusive EfiLoaderData page is live and writable before
+    // ExitBootServices. Zeroing prevents stale firmware bytes from becoming
+    // executable when the kernel later installs the bounded trampoline.
+    unsafe { core::ptr::write_bytes(ap_trampoline_physical as *mut u8, 0, 4096) };
+    console.write("VIBRIX: AP trampoline page reserved\r\n");
+
     // Reserve the map buffer early. Extending page tables may allocate more
     // pages and invalidate this provisional key; refresh in place afterwards.
     let mut memory_map = match unsafe { memory_map::capture(system_table) } {
@@ -220,6 +249,13 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
             byte_len: 4096,
             writable: true,
             executable: false,
+            uncached: false,
+        },
+        paging::IdentityRegion {
+            physical_base: ap_trampoline_physical,
+            byte_len: 4096,
+            writable: true,
+            executable: true,
             uncached: false,
         },
         paging::IdentityRegion {
@@ -287,6 +323,10 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
             byte_len: 4096,
         },
         transition::PhysicalRegion {
+            physical_base: ap_trampoline_physical,
+            byte_len: 4096,
+        },
+        transition::PhysicalRegion {
             physical_base: memory_map.physical_base,
             byte_len: memory_map.capacity as u64,
         },
@@ -327,10 +367,16 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     // this buffer's length, stride and descriptor version, and keep the key
     // strictly loader-local for the later ExitBootServices implementation.
     let boot_info =
-        match create_boot_info(&framebuffer, rsdp_address, &memory_map, kernel_window_table) {
+        match create_boot_info(
+            &framebuffer,
+            rsdp_address,
+            &memory_map,
+            ap_trampoline_page,
+            kernel_window_table,
+        ) {
             Ok(info) => info,
             Err(_error) => {
-                uefi::debug_write("VIBRIX: BootInfo v3 validation failed\r\n");
+                uefi::debug_write("VIBRIX: BootInfo v4 validation failed\r\n");
                 return EFI_LOAD_ERROR;
             }
         };
@@ -339,7 +385,7 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     // for BootInfo and the 96-byte object fits in the exclusive 4096-byte page.
     unsafe { (boot_info_address as *mut bootinfo::BootInfo).write(boot_info) };
     let _boot_info_page_owner = boot_info_physical;
-    uefi::debug_write("VIBRIX: BootInfo v3 staged\r\n");
+    uefi::debug_write("VIBRIX: BootInfo v4 staged\r\n");
 
     // UEFI 2.10 §7.4.6: use the exact key from our refreshed map.
     // On EFI_INVALID_PARAMETER, use *only* GetMemoryMap into the same owned
@@ -373,7 +419,13 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
             break;
         }
         let Ok(updated) =
-            create_boot_info(&framebuffer, rsdp_address, &memory_map, kernel_window_table)
+            create_boot_info(
+                &framebuffer,
+                rsdp_address,
+                &memory_map,
+                ap_trampoline_page,
+                kernel_window_table,
+            )
         else {
             uefi::debug_write("VIBRIX: ExitBootServices map version rejected\r\n");
             break;
