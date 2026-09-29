@@ -140,6 +140,71 @@ impl Credentials {
         Ok(())
     }
 
+    /// Atomically update real/effective/saved user IDs.
+    ///
+    /// Effective UID 0 may select arbitrary IDs. Otherwise every requested ID
+    /// must already be one of this process's real/effective/saved IDs. A denied
+    /// request leaves the entire credential tuple unchanged.
+    pub fn set_res_uids(
+        &mut self,
+        real: Option<Uid>,
+        effective: Option<Uid>,
+        saved: Option<Uid>,
+    ) -> Result<(), Error> {
+        let privileged = self.is_superuser();
+        let allowed = [self.real_uid, self.effective_uid, self.saved_uid];
+        if !privileged
+            && [real, effective, saved]
+                .into_iter()
+                .flatten()
+                .any(|uid| !allowed.contains(&uid))
+        {
+            return Err(Error::PermissionDenied);
+        }
+        if let Some(uid) = real {
+            self.real_uid = uid;
+        }
+        if let Some(uid) = effective {
+            self.effective_uid = uid;
+        }
+        if let Some(uid) = saved {
+            self.saved_uid = uid;
+        }
+        Ok(())
+    }
+
+    /// Atomically update real/effective/saved group IDs.
+    ///
+    /// Group-ID privilege is governed by effective UID 0. Non-root callers may
+    /// only select IDs already present in their real/effective/saved GID tuple.
+    pub fn set_res_gids(
+        &mut self,
+        real: Option<Gid>,
+        effective: Option<Gid>,
+        saved: Option<Gid>,
+    ) -> Result<(), Error> {
+        let privileged = self.is_superuser();
+        let allowed = [self.real_gid, self.effective_gid, self.saved_gid];
+        if !privileged
+            && [real, effective, saved]
+                .into_iter()
+                .flatten()
+                .any(|gid| !allowed.contains(&gid))
+        {
+            return Err(Error::PermissionDenied);
+        }
+        if let Some(gid) = real {
+            self.real_gid = gid;
+        }
+        if let Some(gid) = effective {
+            self.effective_gid = gid;
+        }
+        if let Some(gid) = saved {
+            self.saved_gid = gid;
+        }
+        Ok(())
+    }
+
     pub fn is_superuser(&self) -> bool {
         self.effective_uid == Uid::ROOT
     }
@@ -287,6 +352,48 @@ mod tests {
             Err(Error::PermissionDenied)
         );
         assert!(user.supplementary_groups().is_empty());
+    }
+
+    #[test]
+    fn root_and_nonroot_identity_transitions_are_atomic() {
+        let mut credentials = Credentials::root();
+        credentials
+            .set_res_gids(
+                Some(Gid::from_raw(10)),
+                Some(Gid::from_raw(20)),
+                Some(Gid::from_raw(30)),
+            )
+            .unwrap();
+        credentials
+            .set_res_uids(
+                Some(Uid::from_raw(1000)),
+                Some(Uid::from_raw(2000)),
+                Some(Uid::from_raw(3000)),
+            )
+            .unwrap();
+        assert_eq!(credentials.real_uid.get(), 1000);
+        assert_eq!(credentials.effective_uid.get(), 2000);
+        assert_eq!(credentials.saved_uid.get(), 3000);
+        assert_eq!(credentials.real_gid.get(), 10);
+        assert_eq!(credentials.effective_gid.get(), 20);
+        assert_eq!(credentials.saved_gid.get(), 30);
+
+        credentials
+            .set_res_uids(None, Some(Uid::from_raw(3000)), None)
+            .unwrap();
+        assert_eq!(credentials.effective_uid.get(), 3000);
+
+        let before = credentials;
+        assert_eq!(
+            credentials.set_res_uids(None, Some(Uid::from_raw(9999)), None),
+            Err(Error::PermissionDenied)
+        );
+        assert_eq!(credentials, before);
+        assert_eq!(
+            credentials.set_res_gids(None, Some(Gid::from_raw(9999)), None),
+            Err(Error::PermissionDenied)
+        );
+        assert_eq!(credentials, before);
     }
 
     #[test]

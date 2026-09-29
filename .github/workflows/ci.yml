@@ -612,6 +612,8 @@ jobs:
           VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
           grep -Fq "VIBRIX: kernel Rust init ELF loaded" build/qemu/debugcon.log
           grep -Fq "VIBRIX: Rust init userspace syscall reached" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel setresuid syscall verified" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel setresgid syscall verified" build/qemu/debugcon.log
           grep -Fq "VIBRIX: Rust init PID 1 exited through syscall" build/qemu/debugcon.log
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel Rust init: kernel_cr3="
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: getpid=1"
