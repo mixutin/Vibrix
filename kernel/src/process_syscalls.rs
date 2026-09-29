@@ -117,10 +117,7 @@ pub fn dispatch<const N: usize>(
     match call {
         abi::Syscall::GetPid => Ok(Action::Return(u64::from(current.get()))),
         abi::Syscall::GetResUid => {
-            let credentials = table
-                .get(current)
-                .ok_or(abi::Errno::NotFound)?
-                .credentials;
+            let credentials = table.get(current).ok_or(abi::Errno::NotFound)?.credentials;
             Ok(Action::CredentialInfo {
                 real: credentials.real_uid.get(),
                 effective: credentials.effective_uid.get(),
@@ -395,7 +392,10 @@ mod tests {
             ),
             Ok(Action::Return(0))
         );
-        assert_eq!(table.get(init).unwrap().credentials.effective_uid.get(), 1000);
+        assert_eq!(
+            table.get(init).unwrap().credentials.effective_uid.get(),
+            1000
+        );
 
         assert_eq!(
             dispatch(
@@ -406,7 +406,10 @@ mod tests {
             ),
             Err(abi::Errno::PermissionDenied)
         );
-        assert_eq!(table.get(init).unwrap().credentials.effective_uid.get(), 1000);
+        assert_eq!(
+            table.get(init).unwrap().credentials.effective_uid.get(),
+            1000
+        );
 
         assert_eq!(
             dispatch(
