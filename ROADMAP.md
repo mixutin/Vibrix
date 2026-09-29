@@ -963,12 +963,28 @@ still separate work.
 ## M12 — SMP and performance
 - [x] CPU enumeration
 - [ ] AP startup
-- [ ] per-CPU structures
+- [x] per-CPU structures
 - [ ] SMP scheduler
 - [ ] synchronization
 - [ ] TLB shootdowns
 - [ ] profiling
 - [ ] Target 001 8C/16T validation
+
+**Verified M12 publish-once per-CPU structures (PR #200):**
+[Actions run 36582435601](https://github.com/mixutin/Vibrix/actions/runs/36582435601)
+passed the full exact-head CI matrix on implementation head
+`d3537f8a4437d901abf5c786856cf58ce577656e`. The kernel builds a fixed
+publish-once CPU slot table from validated MADT processor identities, retains
+firmware UID/APIC identity/availability and xAPIC/x2APIC origin, publishes the
+table with release/acquire ordering, and binds the BSP slot to the actually
+observed LAPIC ID. Host tests cover unavailable/duplicate/overflow cases, and
+the production post-firmware path reports the bound BSP through the same
+compiled implementation.
+
+This checks the bounded **per-CPU identity/state foundation** only. Application
+processor startup, per-CPU interrupt/syscall stacks, SMP scheduler/run queues,
+cross-CPU synchronization, TLB shootdowns, CPU hotplug and Target 001 8C/16T
+hardware validation remain separate unchecked work.
 
 ## M13 — Audio and graphics
 
