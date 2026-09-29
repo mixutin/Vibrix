@@ -25,6 +25,7 @@ jobs:
             kernel/src/ipv4.rs \
             kernel/src/icmp.rs \
             kernel/src/udp.rs \
+            kernel/src/dhcp.rs \
             kernel/src/lib.rs
           rustc --edition=2024 -D warnings --test kernel/src/nic.rs -o "$RUNNER_TEMP/nic-tests"
           "$RUNNER_TEMP/nic-tests"
@@ -44,3 +45,5 @@ jobs:
           tr -d '\r' < build/qemu/serial.log | grep -Fx 'VIBRIX: kernel UDP datagram verified'
           tr -d '\r' < build/qemu/debugcon.log | grep -Fx 'VIBRIX: kernel Ethernet ARP responder verified'
           tr -d '\r' < build/qemu/serial.log | grep -Fx 'VIBRIX: kernel Ethernet ARP responder verified'
+          tr -d '\r' < build/qemu/debugcon.log | grep -Fx 'VIBRIX: kernel DHCPv4 client exchange verified'
+          tr -d '\r' < build/qemu/serial.log | grep -Fx 'VIBRIX: kernel DHCPv4 client exchange verified'
