@@ -47,11 +47,11 @@ fn add_word(sum: &mut u32, word: u16) {
 }
 
 fn add_bytes(sum: &mut u32, bytes: &[u8]) {
-    let mut chunks = bytes.chunks_exact(2);
-    for chunk in &mut chunks {
-        add_word(sum, u16::from_be_bytes([chunk[0], chunk[1]]));
+    let (chunks, remainder) = bytes.as_chunks::<2>();
+    for chunk in chunks {
+        add_word(sum, u16::from_be_bytes(*chunk));
     }
-    if let [last] = chunks.remainder() {
+    if let [last] = remainder {
         add_word(sum, u16::from_be_bytes([*last, 0]));
     }
 }
