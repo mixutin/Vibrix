@@ -15,18 +15,35 @@
 <meta name="twitter:description" content="Rust-native kernel development, verified QEMU progress and the road to a persistent USB OS.">
 <meta name="theme-color" content="#08090d">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareSourceCode","name":"Vibrix","alternateName":"Vibrix OS","codeRepository":"https://github.com/mixutin/Vibrix","programmingLanguage":"Rust","license":"https://spdx.org/licenses/0BSD.html","url":"https://mixutin.github.io/Vibrix/","description":"Experimental independent Rust-native OS with a verified QEMU development console; persistent USB operation remains a goal.","runtimePlatform":"x86-64 UEFI","dateModified":"2026-09-28"}</script>
-<link rel="stylesheet" href="style.css"><link rel="stylesheet" href="engineering.css">
+<link rel="stylesheet" href="style.css"><link rel="stylesheet" href="engineering.css"><link rel="stylesheet" href="visuals.css">
 </head>
 <body>
 <div class="noise"></div><div class="glow"></div>
 <header class="nav wrap"><a class="brand" href="#"><b>◇</b> VIBRIX</a><nav><a href="status/">Status</a><a href="docs/">Docs</a><a href="#roadmap">Roadmap</a><a href="#software">Software</a><a href="blog/">Blog</a><a href="https://github.com/mixutin/Vibrix">GitHub</a></nav><a class="button mini" href="status/">Verified progress ↗</a></header>
 <main>
 <section class="hero wrap">
+<div class="hero-stage"><div class="hero-copy">
 <div class="eyebrow"><i></i> EXPERIMENTAL OS · QEMU CONSOLE VERIFIED</div>
 <h1>Your system.<br><span>In your pocket.</span></h1>
 <p class="lead">Vibrix is an independent, Rust-native operating system designed to live persistently on a removable USB drive. Not Linux underneath. The vision is portable; today's working milestone is our own kernel and development console in QEMU.</p>
 <div class="actions"><a class="button primary" href="https://github.com/mixutin/Vibrix">Explore the source ↗</a><a class="button" href="status/">See what works ↓</a></div>
 <div class="chips"><span>RUST</span><span>NO_STD</span><span>X86_64</span><span>UEFI</span><span>0BSD</span><span>AI-BUILT</span></div>
+</div>
+<figure class="vibrix-scene" data-vibrix-scene data-mode="core" data-motion="still" aria-label="Decorative Vibrix 3D showcase">
+<div class="scene-topline"><span>V / 001</span><span>THE PORTABLE CORE</span><span aria-hidden="true">✳</span></div>
+<div class="scene-viewport">
+<div class="scene-aura" aria-hidden="true"></div><div class="scene-grid" aria-hidden="true"></div>
+<div class="scene-fallback" aria-hidden="true"><div class="fallback-orbit"></div><div class="fallback-orbit orbit-two"></div><div class="fallback-orbit orbit-three"></div><div class="fallback-core"><span></span><span></span></div></div>
+<canvas aria-hidden="true" width="720" height="720"></canvas>
+<div class="scene-coordinate" aria-hidden="true">INDEPENDENT BY DESIGN<br><span>◇ RUST / X86_64</span></div>
+<div class="scene-axis" aria-hidden="true">Y<br>└── X</div>
+</div>
+<figcaption>
+<div class="scene-caption"><span data-scene-status role="status">Static artwork · illustrative</span><span>NOT A LIVE SYSTEM</span></div>
+<div class="scene-controls" hidden><div role="group" aria-label="Choose 3D artwork"><button type="button" data-scene-mode="core" aria-pressed="true">Core</button><button type="button" data-scene-mode="globe" aria-pressed="false">Globe</button><button type="button" data-scene-mode="shield" aria-pressed="false">Shield</button></div><button type="button" data-scene-pause aria-pressed="false">Pause motion</button></div>
+<noscript><p class="scene-nojs">Static artwork. Enable JavaScript to explore the 3D views.</p></noscript>
+</figcaption>
+</figure></div>
 <div class="terminal" id="console"><div class="termbar"><div>● ● ●</div><span>vibrix — illustrative boot sequence</span><span>⌁</span></div><div class="screen"><div class="bootlogo">◇ <b>VIBRIX</b></div><div id="terminal-lines"></div><noscript><p>QEMU kernel console verified. Read the linked status page for actual evidence.</p></noscript><div class="prompt"><b>vibrix&gt;</b> <span id="typed">help</span><span class="cursor">█</span></div></div></div>
 <p class="terminal-note">This animation is an illustration, not a live emulator or captured test log. <a href="status/">Actual test evidence and limitations →</a></p>
 <div class="status-note"><strong>Verified 28 September 2026:</strong> native timer IRQ delivery, polled PS/2 console input, bounded managed-VM map/protect/reclaim with guard/fault evidence, and isolated QEMU EDU MSI delivery/disable. No userspace shell, native USB persistence, MSI-X delivery or physical-machine support is claimed.</div>
@@ -58,4 +75,5 @@
 </main>
 <footer class="wrap"><a class="brand" href="#"><b>◇</b> VIBRIX</a><span><a href="status/">Status</a> · <a href="docs/">Docs</a> · <a href="blog/">Blog</a> · <a href="legal/terms/">Terms</a> · <a href="legal/privacy/">Privacy</a> · <a href="legal/license/">0BSD License</a></span><span>Built by AI agents.</span></footer>
 <script src="script.js"></script>
+<script src="visuals.js"></script>
 </body></html>
