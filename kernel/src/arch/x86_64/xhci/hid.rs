@@ -110,11 +110,17 @@ pub(super) unsafe fn run(
         write32(input_base, 44, 0);
         let offset = (usize::from(dci) + 1) * 32;
         write32(input_base, offset, u32::from(interval) << 16);
-        write32(input_base, offset + 4,
-            (3 << 1) | (7 << 3) | (u32::from(endpoint.max_packet) << 16));
+        write32(
+            input_base,
+            offset + 4,
+            (3 << 1) | (7 << 3) | (u32::from(endpoint.max_packet) << 16),
+        );
         write64(input_base, offset + 8, interrupt_ring | 1);
-        write32(input_base, offset + 16,
-            (protocol.report_bytes() as u32) | (u32::from(endpoint.max_packet) << 16));
+        write32(
+            input_base,
+            offset + 16,
+            (protocol.report_bytes() as u32) | (u32::from(endpoint.max_packet) << 16),
+        );
     }
     core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
     let configured = unsafe {
@@ -130,12 +136,24 @@ pub(super) unsafe fn run(
     }
     // SAFETY: the same serialized EP0 ownership; these requests have no data.
     unsafe {
-        rings.control_no_data(control.transfer_base, control.transfer_index, device.slot_id,
-            setup_set_configuration(endpoint.configuration))?;
-        rings.control_no_data(control.transfer_base, control.transfer_index, device.slot_id,
-            setup_hid_set_protocol(endpoint.interface))?;
-        rings.control_no_data(control.transfer_base, control.transfer_index, device.slot_id,
-            setup_hid_set_idle(endpoint.interface))?;
+        rings.control_no_data(
+            control.transfer_base,
+            control.transfer_index,
+            device.slot_id,
+            setup_set_configuration(endpoint.configuration),
+        )?;
+        rings.control_no_data(
+            control.transfer_base,
+            control.transfer_index,
+            device.slot_id,
+            setup_hid_set_protocol(endpoint.interface),
+        )?;
+        rings.control_no_data(
+            control.transfer_base,
+            control.transfer_index,
+            device.slot_id,
+            setup_hid_set_idle(endpoint.interface),
+        )?;
     }
     unsafe { unmap_ram(vm, 12) }?;
     unsafe { unmap_ram(vm, 7) }?;
@@ -153,11 +171,25 @@ pub(super) unsafe fn run(
         // only one outstanding TD. 32 TRBs occupy 512 bytes; all pages are WB
         // and x86 coherent. Publish data/control before ringing the doorbell.
         unsafe {
-            write_trb(interrupt_base, index, [report_buffer as u32,
-                (report_buffer >> 32) as u32, length, trb_control(NORMAL) | TRB_IOC]);
+            write_trb(
+                interrupt_base,
+                index,
+                [
+                    report_buffer as u32,
+                    (report_buffer >> 32) as u32,
+                    length,
+                    trb_control(NORMAL) | TRB_IOC,
+                ],
+            );
         }
         core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
-        unsafe { write32(rings.doorbell_base, usize::from(device.slot_id) * 4, u32::from(dci)) };
+        unsafe {
+            write32(
+                rings.doorbell_base,
+                usize::from(device.slot_id) * 4,
+                u32::from(dci),
+            )
+        };
         if index == 0 {
             crate::debugcon::write(match protocol {
                 Protocol::Keyboard => "VIBRIX: kernel USB HID keyboard ready\r\n",
@@ -167,8 +199,14 @@ pub(super) unsafe fn run(
         let mut completion = None;
         for _ in 0..16 {
             completion = unsafe {
-                wait_for_event_type(rings.event_base, rings.event_physical, rings.runtime_base,
-                    &mut rings.event_index, &mut rings.event_cycle, TRB_TYPE_TRANSFER_EVENT)
+                wait_for_event_type(
+                    rings.event_base,
+                    rings.event_physical,
+                    rings.runtime_base,
+                    &mut rings.event_index,
+                    &mut rings.event_cycle,
+                    TRB_TYPE_TRANSFER_EVENT,
+                )
             };
             if completion.is_some() {
                 break;
@@ -206,8 +244,11 @@ pub(super) unsafe fn run(
                     key_pressed = Some(current);
                 }
                 b_shifted |= pressed.contains(&5) && current.modifiers & 0x22 != 0;
-                crate::println!("kernel USB keyboard: modifiers={:#04x} keys={:?}",
-                    current.modifiers, current.keys);
+                crate::println!(
+                    "kernel USB keyboard: modifiers={:#04x} keys={:?}",
+                    current.modifiers,
+                    current.keys
+                );
                 verified = key_pressed.is_some() && b_shifted && current == Keyboard::RELEASED;
                 previous = current;
             }
@@ -217,8 +258,12 @@ pub(super) unsafe fn run(
                 if current.dx == 7 && current.dy == -5 {
                     motion = Some(current);
                 }
-                crate::println!("kernel USB mouse: buttons={} dx={} dy={}",
-                    current.buttons, current.dx, current.dy);
+                crate::println!(
+                    "kernel USB mouse: buttons={} dx={} dy={}",
+                    current.buttons,
+                    current.dx,
+                    current.dy
+                );
                 verified = button_pressed && motion.is_some() && current.buttons == 0;
             }
         }
@@ -232,8 +277,12 @@ pub(super) unsafe fn run(
     // SAFETY: no pending transfer. Disable Slot completes before retiring CPU
     // mappings; DMA frames stay reserved even if later boot probes reset HC.
     let disabled = unsafe {
-        rings.submit_command([0, 0, 0,
-            trb_control(DISABLE_SLOT) | (u32::from(device.slot_id) << 24)])
+        rings.submit_command([
+            0,
+            0,
+            0,
+            trb_control(DISABLE_SLOT) | (u32::from(device.slot_id) << 24),
+        ])
     }?;
     if event_slot_id(disabled[3]) != device.slot_id {
         return Err(InitError::InvalidControllerState);
@@ -244,5 +293,9 @@ pub(super) unsafe fn run(
         Protocol::Keyboard => "VIBRIX: USB keyboard interrupt press modifiers release verified\r\n",
         Protocol::Mouse => "VIBRIX: USB mouse interrupt motion buttons release verified\r\n",
     });
-    Ok(Evidence { endpoint, keyboard: key_pressed, mouse: motion })
+    Ok(Evidence {
+        endpoint,
+        keyboard: key_pressed,
+        mouse: motion,
+    })
 }
