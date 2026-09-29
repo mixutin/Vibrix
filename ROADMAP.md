@@ -989,7 +989,7 @@ still separate work.
   - [ ] persistent user/group account database
   - [ ] login/session authentication
   - [ ] real/effective/saved-ID transition syscalls
-  - [ ] supplementary-group management policy
+  - [x] supplementary-group management policy
   - [ ] set-user-ID/set-group-ID execution semantics
 - [ ] permissions
   - [ ] enforce owner/group/other DAC during VFS path traversal
@@ -1073,6 +1073,19 @@ UIDs/GIDs, bounded supplementary groups, process inheritance and a fail-closed
 owner/group/other DAC evaluator. The implementation is intentionally a
 foundation only: no M11 top-level checkbox is complete until persistent
 accounts, credential transitions and VFS enforcement have exact-head evidence.
+
+**Verified M11 supplementary-group management policy (PR #250):**
+[Actions run 36618504453](https://github.com/mixutin/Vibrix/actions/runs/36618504453)
+passed the full exact-head repository matrix on implementation head
+`24bc5c12881526f2e528a4773a50f7f218f497c6`. The fixed-capacity credential
+object now allows supplementary-group replacement only while effective UID is
+0, checks the eight-group capacity before mutation, and leaves the previous list
+unchanged on denied or oversized updates. The production credential self-test
+executes the same policy during the normal kernel boot path.
+
+This checks the bounded **supplementary-group management policy** sub-item only.
+Persistent accounts, login/authentication, ID-transition syscalls, set-ID
+execution and VFS DAC enforcement remain separate work.
 
 ## M12 — SMP and performance
 - [x] CPU enumeration
@@ -1267,12 +1280,12 @@ weakening the default system.
 - [ ] Flash-aware log rotation and retention
 - [ ] Panic/crash record persisted across reboot where safe
 - [ ] Symbolized kernel stack traces
-- [ ] Register/fault context in crash diagnostics
+- [x] Register/fault context in crash diagnostics
 - [x] `vibrix status` system overview
 - [x] `vibrix doctor` automated diagnostics
 - [x] Driver binding/missing-driver diagnostics
 - [ ] Filesystem/network/update health checks
-- [ ] Privacy-reviewed `vibrix doctor --bundle` support bundle
+- [x] Privacy-reviewed `vibrix doctor --bundle` support bundle
 - [ ] Verbose boot mode while normal boot remains clean
 - [x] Hardware compatibility/quirk reporting
 - [ ] Optional anonymized compatibility reports only with explicit opt-in
@@ -1339,6 +1352,32 @@ hardware I/O.
 This checks **Hardware compatibility/quirk reporting** for the current bounded
 PCI/device model. It does not claim exhaustive hardware coverage, hotplug,
 successful driver activation, or physical Target 001 compatibility.
+
+**Verified M18 architectural fault context (PR #243):**
+[Actions run 36618153044](https://github.com/mixutin/Vibrix/actions/runs/36618153044)
+passed the full exact-head repository matrix and the dedicated
+[fault-context run 36618152425](https://github.com/mixutin/Vibrix/actions/runs/36618152425)
+on implementation head `b937f1cfae95d0eec70c97b36e684b284f70a039`.
+Fatal x86-64 diagnostics now preserve the CPU-pushed RIP, CS, RFLAGS, RSP and SS
+frame plus the architectural error code; page faults also retain CR2 and decoded
+fault bits. The existing managed-VM page-fault oracle remains unambiguous.
+
+This checks **Register/fault context in crash diagnostics** for the current x86-64
+fatal exception path. General-purpose-register dumps, symbolized stacks and
+persistent crash records remain separate work.
+
+**Verified M18 privacy-bounded support bundle (PR #248):**
+[Actions run 36616277532](https://github.com/mixutin/Vibrix/actions/runs/36616277532)
+passed the full exact-head repository matrix on implementation head
+`d06e3fadb1820cf4447954768760511e4c3f0cf4`. Native Ring 3
+`vibrix doctor --bundle` emits only architecture, shell version, aggregate
+process count and fixed diagnostic availability/pass states. It excludes file
+contents, PID lists, memory addresses, hardware identifiers, environment data
+and shell history, and performs no upload automatically.
+
+This checks the bounded **privacy-reviewed support bundle** item only. Automatic
+report submission remains absent by design; richer persistent/network/update
+health requires those subsystems to exist.
 
 **Exit:** common boot, driver, storage, update and network failures can be
 diagnosed from Vibrix itself with useful logs and an exportable support bundle.
