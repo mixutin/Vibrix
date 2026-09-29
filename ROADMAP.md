@@ -973,13 +973,30 @@ still separate work.
 ## M11 — Security and multi-user
 - [ ] users/groups/credentials
 - [ ] permissions
-- [ ] secure random
+- [x] secure random
 - [x] W^X
 - [ ] userspace ASLR
 - [ ] stack protections
 - [ ] IOMMU
 - [ ] secure updates
 - [x] optional USB system encryption design
+
+**Verified M11 fail-closed secure random (PR #217):**
+[Actions run 36588340214](https://github.com/mixutin/Vibrix/actions/runs/36588340214)
+passed the full exact-head CI matrix on implementation head
+`944ce8ffad8985733a604b7d98c2ac4316f61be9`, with the dedicated secure-random
+evidence workflow also succeeding in
+[run 36588339666](https://github.com/mixutin/Vibrix/actions/runs/36588339666).
+The production kernel gates RDSEED with CPUID, checks the carry flag on every
+sample, uses bounded retries, applies a serialized continuous duplicate-word
+health check, fills output transactionally, and fails closed without silently
+falling back to a weaker entropy source. The post-ExitBootServices QEMU path
+executes the same production implementation used by host policy tests.
+
+This checks the bounded **secure random** roadmap item for the current x86-64
+RDSEED-backed design. It does not claim entropy from unsupported CPUs, a DRBG,
+persistent entropy pools, userspace random-device APIs, multi-source mixing,
+physical Target 001 validation, or cryptographic key-management completion.
 
 **Adopted optional encrypted-volume design (ADR 0023):** the Vibrix system
 partition may later expose an authenticated encrypted block layer beneath
