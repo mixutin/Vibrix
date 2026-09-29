@@ -1424,7 +1424,9 @@ pub unsafe fn probe_hid_boot_mouse(info: &BootInfo) -> Result<UsbHidMouseSummary
 pub unsafe fn probe_mass_storage(info: &BootInfo) -> Result<UsbStorageSummary, InitError> {
     unsafe { enumerate_first_device_inner(info, false, None, true) }?
         .4
-        .ok_or(InitError::Storage(vibrix_kernel::usb_storage::Error::Missing))
+        .ok_or(InitError::Storage(
+            vibrix_kernel::usb_storage::Error::Missing,
+        ))
 }
 
 #[cfg(test)]
