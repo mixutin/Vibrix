@@ -30,6 +30,8 @@ pub enum Error {
     State,
     OutputTooSmall,
     ReceiveTooSmall,
+    ReassemblyFull,
+    ReassemblyOverlap,
     RetransmissionExhausted,
     Invariant,
 }
@@ -168,6 +170,121 @@ impl RetransmissionTimer {
 }
 
 impl Default for RetransmissionTimer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub const REASSEMBLY_SLOTS: usize = 4;
+pub const REASSEMBLY_SEGMENT_BYTES: usize = 256;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct QueuedSegment {
+    sequence: u32,
+    len: u16,
+    payload: [u8; REASSEMBLY_SEGMENT_BYTES],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReassemblyQueue {
+    slots: [Option<QueuedSegment>; REASSEMBLY_SLOTS],
+}
+
+impl ReassemblyQueue {
+    pub const fn new() -> Self {
+        Self {
+            slots: [None; REASSEMBLY_SLOTS],
+        }
+    }
+
+    pub fn insert(&mut self, receive_next: u32, sequence: u32, payload: &[u8]) -> Result<(), Error> {
+        if payload.is_empty() || payload.len() > REASSEMBLY_SEGMENT_BYTES {
+            return Err(Error::Length);
+        }
+        if sequence_before(sequence, receive_next) {
+            return Err(Error::Sequence);
+        }
+        let start = sequence.wrapping_sub(receive_next) as u64;
+        if start > i32::MAX as u64 {
+            return Err(Error::Sequence);
+        }
+        let end = start
+            .checked_add(payload.len() as u64)
+            .ok_or(Error::Length)?;
+
+        for queued in self.slots.iter().flatten() {
+            let queued_start = queued.sequence.wrapping_sub(receive_next) as u64;
+            if queued_start > i32::MAX as u64 {
+                continue;
+            }
+            let queued_end = queued_start + u64::from(queued.len);
+            if start < queued_end && queued_start < end {
+                return Err(Error::ReassemblyOverlap);
+            }
+        }
+
+        let slot = self
+            .slots
+            .iter_mut()
+            .find(|slot| slot.is_none())
+            .ok_or(Error::ReassemblyFull)?;
+        let mut bytes = [0u8; REASSEMBLY_SEGMENT_BYTES];
+        bytes[..payload.len()].copy_from_slice(payload);
+        *slot = Some(QueuedSegment {
+            sequence,
+            len: payload.len() as u16,
+            payload: bytes,
+        });
+        Ok(())
+    }
+
+    pub fn contiguous_len(&self, mut receive_next: u32) -> usize {
+        let mut total = 0usize;
+        for _ in 0..REASSEMBLY_SLOTS {
+            let Some(segment) = self
+                .slots
+                .iter()
+                .flatten()
+                .find(|segment| segment.sequence == receive_next)
+            else {
+                break;
+            };
+            let len = usize::from(segment.len);
+            total = total.saturating_add(len);
+            receive_next = receive_next.wrapping_add(len as u32);
+        }
+        total
+    }
+
+    pub fn drain_contiguous(
+        &mut self,
+        mut receive_next: u32,
+        output: &mut [u8],
+    ) -> Result<(usize, u32), Error> {
+        let needed = self.contiguous_len(receive_next);
+        if output.len() < needed {
+            return Err(Error::ReceiveTooSmall);
+        }
+        let mut written = 0usize;
+        loop {
+            let Some(index) = self
+                .slots
+                .iter()
+                .position(|slot| slot.is_some_and(|segment| segment.sequence == receive_next))
+            else {
+                break;
+            };
+            let segment = self.slots[index].take().expect("located queued segment");
+            let len = usize::from(segment.len);
+            output[written..written + len].copy_from_slice(&segment.payload[..len]);
+            written += len;
+            receive_next = receive_next.wrapping_add(len as u32);
+        }
+        Ok((written, receive_next))
+    }
+}
+
+impl Default for ReassemblyQueue {
     fn default() -> Self {
         Self::new()
     }
@@ -446,6 +563,54 @@ impl Client {
         self.peer_window = segment.window();
         let ack_len = self.ack_segment(ack_output)?;
         Ok((segment.payload().len(), ack_len))
+    }
+
+    pub fn receive_with_reassembly(
+        &mut self,
+        input: &[u8],
+        queue: &mut ReassemblyQueue,
+        receive: &mut [u8],
+        ack_output: &mut [u8],
+    ) -> Result<(usize, usize), Error> {
+        if self.state != State::Established {
+            return Err(Error::State);
+        }
+        let segment = parse(self.remote.address, self.local.address, input)?;
+        self.validate_ports(&segment)?;
+        if segment.rst() {
+            return Err(Error::Reset);
+        }
+        if !segment.ack() || segment.syn() || segment.fin() {
+            return Err(Error::Header);
+        }
+        self.accept_ack(segment.acknowledgment())?;
+        self.peer_window = segment.window();
+
+        if segment.sequence() != self.rcv_nxt {
+            queue.insert(self.rcv_nxt, segment.sequence(), segment.payload())?;
+            return Ok((0, self.ack_segment(ack_output)?));
+        }
+
+        let queued_bytes = queue.contiguous_len(
+            self.rcv_nxt
+                .wrapping_add(segment.payload().len() as u32),
+        );
+        let needed = segment
+            .payload()
+            .len()
+            .checked_add(queued_bytes)
+            .ok_or(Error::Length)?;
+        if receive.len() < needed {
+            return Err(Error::ReceiveTooSmall);
+        }
+
+        let immediate = segment.payload().len();
+        receive[..immediate].copy_from_slice(segment.payload());
+        self.rcv_nxt = self.rcv_nxt.wrapping_add(immediate as u32);
+        let (drained, next) = queue.drain_contiguous(self.rcv_nxt, &mut receive[immediate..needed])?;
+        self.rcv_nxt = next;
+        let ack_len = self.ack_segment(ack_output)?;
+        Ok((immediate + drained, ack_len))
     }
 
     pub fn accept_ack_only(&mut self, input: &[u8]) -> Result<(), Error> {
@@ -783,6 +948,37 @@ pub(super) fn self_test() -> Result<(), Error> {
         return Err(Error::State);
     }
 
+    let mut reassembly = ReassemblyQueue::new();
+    let future_sequence = client.receive_next().wrapping_add(2);
+    let future_len = synthetic_peer(
+        remote,
+        local,
+        future_sequence,
+        client.send_next(),
+        FLAG_ACK | FLAG_PSH,
+        b"CD",
+        &mut wire,
+    )?;
+    let (queued, _) =
+        client.receive_with_reassembly(&wire[..future_len], &mut reassembly, &mut received, &mut reply)?;
+    if queued != 0 || reassembly.contiguous_len(future_sequence) != 2 {
+        return Err(Error::Invariant);
+    }
+    let gap_len = synthetic_peer(
+        remote,
+        local,
+        client.receive_next(),
+        client.send_next(),
+        FLAG_ACK | FLAG_PSH,
+        b"AB",
+        &mut wire,
+    )?;
+    let (assembled, _) =
+        client.receive_with_reassembly(&wire[..gap_len], &mut reassembly, &mut received, &mut reply)?;
+    if assembled != 4 || &received[..4] != b"ABCD" {
+        return Err(Error::Invariant);
+    }
+
     let listener = Listener::new(Endpoint {
         address: [192, 0, 2, 30],
         port: 8080,
@@ -1011,6 +1207,90 @@ mod tests {
         assert_eq!(saturated.poll(u64::MAX), TimerAction::Retransmit);
         assert_eq!(saturated.rto_ticks(), 2_000);
     }
+    #[test]
+    fn reassembly_queue_orders_gaps_and_rejects_overlap_transactionally() {
+        let mut queue = ReassemblyQueue::new();
+        queue.insert(100, 104, b"ef").unwrap();
+        queue.insert(100, 102, b"cd").unwrap();
+        assert_eq!(queue.contiguous_len(100), 0);
+        assert_eq!(queue.contiguous_len(102), 4);
+        assert_eq!(queue.insert(100, 103, b"XX"), Err(Error::ReassemblyOverlap));
+
+        let mut short = [0xa5; 3];
+        assert_eq!(
+            queue.drain_contiguous(102, &mut short),
+            Err(Error::ReceiveTooSmall)
+        );
+        assert_eq!(short, [0xa5; 3]);
+
+        let mut output = [0u8; 8];
+        assert_eq!(queue.drain_contiguous(102, &mut output), Ok((4, 106)));
+        assert_eq!(&output[..4], b"cdef");
+    }
+
+    #[test]
+    fn client_acks_gap_then_delivers_contiguous_reassembly() {
+        let (local, remote) = endpoints();
+        let mut client = Client::new(local, remote, 100);
+        let mut wire = [0u8; 128];
+        let mut ack = [0u8; 64];
+        client.connect(&mut wire).unwrap();
+        let peer_isn = 500;
+        let syn_ack = synthetic_peer(
+            remote,
+            local,
+            peer_isn,
+            client.send_next(),
+            FLAG_SYN | FLAG_ACK,
+            &[],
+            &mut wire,
+        )
+        .unwrap();
+        let input = wire;
+        client.accept_syn_ack(&input[..syn_ack], &mut ack).unwrap();
+
+        let mut queue = ReassemblyQueue::new();
+        let mut receive = [0u8; 16];
+        let later = synthetic_peer(
+            remote,
+            local,
+            client.receive_next().wrapping_add(2),
+            client.send_next(),
+            FLAG_ACK | FLAG_PSH,
+            b"cd",
+            &mut wire,
+        )
+        .unwrap();
+        let input = wire;
+        assert_eq!(
+            client
+                .receive_with_reassembly(&input[..later], &mut queue, &mut receive, &mut ack)
+                .unwrap()
+                .0,
+            0
+        );
+        let ack_segment = parse(local.address, remote.address, &ack[..HEADER_BYTES]).unwrap();
+        assert_eq!(ack_segment.acknowledgment(), peer_isn + 1);
+
+        let gap = synthetic_peer(
+            remote,
+            local,
+            client.receive_next(),
+            client.send_next(),
+            FLAG_ACK | FLAG_PSH,
+            b"ab",
+            &mut wire,
+        )
+        .unwrap();
+        let input = wire;
+        let (received, _) = client
+            .receive_with_reassembly(&input[..gap], &mut queue, &mut receive, &mut ack)
+            .unwrap();
+        assert_eq!(received, 4);
+        assert_eq!(&receive[..4], b"abcd");
+        assert_eq!(client.receive_next(), peer_isn + 5);
+    }
+
     #[test]
     fn corrupt_checksum_wrong_ack_and_reset_fail_closed() {
         let (local, remote) = endpoints();
