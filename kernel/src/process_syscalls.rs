@@ -6,7 +6,10 @@
 //! commit_wait reaps only after the architecture/user-memory layer has copied
 //! the status successfully.
 
-use crate::process::{self, Pid, Table, WaitObservation, WaitTarget};
+use crate::{
+    credentials::{self, Gid, Uid},
+    process::{self, Pid, Table, WaitObservation, WaitTarget},
+};
 
 #[allow(dead_code)]
 #[path = "../../shared/syscall_abi.rs"]
@@ -61,6 +64,12 @@ pub enum Action {
         process: process::Process,
         output: u64,
     },
+    CredentialInfo {
+        real: u32,
+        effective: u32,
+        saved: u32,
+        output: u64,
+    },
 }
 
 fn process_errno(error: process::Error) -> abi::Errno {
@@ -73,6 +82,31 @@ fn process_errno(error: process::Error) -> abi::Errno {
     }
 }
 
+fn credential_errno(error: credentials::Error) -> abi::Errno {
+    match error {
+        credentials::Error::PermissionDenied => abi::Errno::PermissionDenied,
+        credentials::Error::TooManyGroups | credentials::Error::InvalidMode => {
+            abi::Errno::InvalidArgument
+        }
+    }
+}
+
+fn requested_uid(raw: u64) -> Result<Option<Uid>, abi::Errno> {
+    if raw == abi::ID_UNCHANGED {
+        return Ok(None);
+    }
+    let raw = u32::try_from(raw).map_err(|_| abi::Errno::InvalidArgument)?;
+    Ok(Some(Uid::from_raw(raw)))
+}
+
+fn requested_gid(raw: u64) -> Result<Option<Gid>, abi::Errno> {
+    if raw == abi::ID_UNCHANGED {
+        return Ok(None);
+    }
+    let raw = u32::try_from(raw).map_err(|_| abi::Errno::InvalidArgument)?;
+    Ok(Some(Gid::from_raw(raw)))
+}
+
 pub fn dispatch<const N: usize>(
     table: &mut Table<N>,
     current: Pid,
@@ -82,6 +116,60 @@ pub fn dispatch<const N: usize>(
     let call = abi::Syscall::from_number(number).ok_or(abi::Errno::NotSupported)?;
     match call {
         abi::Syscall::GetPid => Ok(Action::Return(u64::from(current.get()))),
+        abi::Syscall::GetResUid => {
+            let credentials = table
+                .get(current)
+                .ok_or(abi::Errno::NotFound)?
+                .credentials;
+            Ok(Action::CredentialInfo {
+                real: credentials.real_uid.get(),
+                effective: credentials.effective_uid.get(),
+                saved: credentials.saved_uid.get(),
+                output: args[0],
+            })
+        }
+        abi::Syscall::GetResGid => {
+            let credentials = table
+                .get(current)
+                .ok_or(abi::Errno::NotFound)?
+                .credentials;
+            Ok(Action::CredentialInfo {
+                real: credentials.real_gid.get(),
+                effective: credentials.effective_gid.get(),
+                saved: credentials.saved_gid.get(),
+                output: args[0],
+            })
+        }
+        abi::Syscall::SetResUid => {
+            let process = table.get(current).ok_or(abi::Errno::NotFound)?;
+            let mut credentials = process.credentials;
+            credentials
+                .set_res_uids(
+                    requested_uid(args[0])?,
+                    requested_uid(args[1])?,
+                    requested_uid(args[2])?,
+                )
+                .map_err(credential_errno)?;
+            table
+                .replace_credentials(current, credentials)
+                .map_err(process_errno)?;
+            Ok(Action::Return(0))
+        }
+        abi::Syscall::SetResGid => {
+            let process = table.get(current).ok_or(abi::Errno::NotFound)?;
+            let mut credentials = process.credentials;
+            credentials
+                .set_res_gids(
+                    requested_gid(args[0])?,
+                    requested_gid(args[1])?,
+                    requested_gid(args[2])?,
+                )
+                .map_err(credential_errno)?;
+            table
+                .replace_credentials(current, credentials)
+                .map_err(process_errno)?;
+            Ok(Action::Return(0))
+        }
         abi::Syscall::Read => Ok(Action::Read {
             fd: args[0],
             address: args[1],
@@ -277,6 +365,83 @@ mod tests {
             Ok(Action::Return(0))
         );
         assert_eq!(table.get(child).unwrap().state, process::State::Zombie(9));
+    }
+
+    #[test]
+    fn real_effective_saved_identity_syscalls_are_bounded_and_atomic() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::GetResUid.number(),
+                [0x7000, 0, 0, 0, 0, 0]
+            ),
+            Ok(Action::CredentialInfo {
+                real: 0,
+                effective: 0,
+                saved: 0,
+                output: 0x7000
+            })
+        );
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::SetResUid.number(),
+                [0, 1000, 0, 0, 0, 0]
+            ),
+            Ok(Action::Return(0))
+        );
+        assert_eq!(table.get(init).unwrap().credentials.effective_uid.get(), 1000);
+
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::SetResUid.number(),
+                [abi::ID_UNCHANGED, 9999, abi::ID_UNCHANGED, 0, 0, 0]
+            ),
+            Err(abi::Errno::PermissionDenied)
+        );
+        assert_eq!(table.get(init).unwrap().credentials.effective_uid.get(), 1000);
+
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::SetResUid.number(),
+                [0, 0, 0, 0, 0, 0]
+            ),
+            Ok(Action::Return(0))
+        );
+        assert!(table.get(init).unwrap().credentials.is_superuser());
+
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::SetResGid.number(),
+                [10, 20, 30, 0, 0, 0]
+            ),
+            Ok(Action::Return(0))
+        );
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::GetResGid.number(),
+                [0x8000, 0, 0, 0, 0, 0]
+            ),
+            Ok(Action::CredentialInfo {
+                real: 10,
+                effective: 20,
+                saved: 30,
+                output: 0x8000
+            })
+        );
     }
 
     #[test]
