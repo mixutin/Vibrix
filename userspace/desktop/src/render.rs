@@ -1,113 +1,55 @@
 //! Userspace software presentation; bounded tiles cross the native syscall ABI.
-use crate::{App, CELL_HEIGHT, CELL_WIDTH, Desktop, Terminal, files::Files, font, task_button};
-use vibrix_syscall::{self as syscall, Result, display::Rect};
-pub const BACKGROUND: u32 = 0x0010_1925;
-pub const FOREGROUND: u32 = 0x00db_e7f3;
-const PANEL: u32 = 0x0022_3750;
-const ACCENT: u32 = 0x005e_a5ed;
-const MUTED: u32 = 0x0087_a5be;
+use crate::{App, Desktop, Terminal, files::Files};
+use vibrix_syscall::{Result, display::Rect};
+pub use vibrix_ui::{Canvas, NativeCanvas as Native};
+use vibrix_ui::{
+    CELL_HEIGHT, CELL_WIDTH, Painter, Theme, paint_button, paint_window_frame,
+};
 
-pub trait Canvas {
-    fn fill(&mut self, rect: Rect, color: u32) -> Result<()>;
-    fn blit(&mut self, rect: Rect, pixels: &[u32]) -> Result<()>;
-}
-pub struct Native;
-impl Canvas for Native {
-    fn fill(&mut self, rect: Rect, color: u32) -> Result<()> {
-        syscall::display_fill(rect, color)
-    }
-    fn blit(&mut self, rect: Rect, pixels: &[u32]) -> Result<()> {
-        syscall::display_blit(rect, pixels)
-    }
-}
-struct Painter<'a, C> {
-    canvas: &'a mut C,
-    width: u32,
-    height: u32,
-}
-impl<C: Canvas> Painter<'_, C> {
-    fn fill(&mut self, x: u32, y: u32, width: u32, height: u32, color: u32) -> Result<()> {
-        let width = width.min(self.width.saturating_sub(x));
-        let height = height.min(self.height.saturating_sub(y));
-        if width == 0 || height == 0 {
-            return Ok(());
-        }
-        self.canvas.fill(
-            Rect {
-                x,
-                y,
-                width,
-                height,
-            },
-            color,
-        )
-    }
-    fn text(&mut self, x: u32, y: u32, bytes: &[u8], colors: (u32, u32), limit: u32) -> Result<()> {
-        if y.saturating_add(CELL_HEIGHT) > self.height {
-            return Ok(());
-        }
-        let count = bytes
-            .len()
-            .min((limit.min(self.width.saturating_sub(x)) / CELL_WIDTH) as usize);
-        let mut pixels = [0u32; 960];
-        for (index, chunk) in bytes[..count].chunks(5).enumerate() {
-            let width = chunk.len() * CELL_WIDTH as usize;
-            for (cell, &byte) in chunk.iter().enumerate() {
-                let glyph = font::glyph(byte);
-                for y in 0..16 {
-                    for x in 0..12 {
-                        let on = y < 14 && x < 10 && glyph[y / 2] & (1 << (4 - x / 2)) != 0;
-                        pixels[y * width + cell * 12 + x] = if on { colors.0 } else { colors.1 };
-                    }
-                }
-            }
-            self.canvas.blit(
-                Rect {
-                    x: x + index as u32 * 60,
-                    y,
-                    width: width as u32,
-                    height: 16,
-                },
-                &pixels[..width * 16],
+pub const BACKGROUND: u32 = Theme::VIBRIX.background;
+pub const FOREGROUND: u32 = Theme::VIBRIX.foreground;
+const PANEL: u32 = Theme::VIBRIX.panel;
+const ACCENT: u32 = Theme::VIBRIX.accent;
+const MUTED: u32 = Theme::VIBRIX.muted;
+
+fn terminal<C: Canvas>(
+    painter: &mut Painter<'_, C>,
+    desktop: &Desktop,
+    terminal: &mut Terminal,
+) -> Result<()> {
+    for row in 0..terminal.rows {
+        if terminal.dirty[row] {
+            let start = row * terminal.columns;
+            painter.text(
+                desktop.window.x + 16,
+                desktop.window.y + 44 + row as u32 * CELL_HEIGHT,
+                &terminal.cells[start..start + terminal.columns],
+                (FOREGROUND, BACKGROUND),
+                desktop.window.width - 32,
             )?;
+            terminal.dirty[row] = false;
         }
-        Ok(())
     }
-    fn terminal(&mut self, desktop: &Desktop, terminal: &mut Terminal) -> Result<()> {
-        for row in 0..terminal.rows {
-            if terminal.dirty[row] {
-                let start = row * terminal.columns;
-                self.text(
-                    desktop.window.x + 16,
-                    desktop.window.y + 44 + row as u32 * 16,
-                    &terminal.cells[start..start + terminal.columns],
-                    (FOREGROUND, BACKGROUND),
-                    desktop.window.width - 32,
-                )?;
-                terminal.dirty[row] = false;
-            }
+    painter.fill(
+        desktop.window.x + 16 + terminal.column.min(terminal.columns - 1) as u32 * CELL_WIDTH,
+        desktop.window.y + 44 + terminal.row as u32 * CELL_HEIGHT + 14,
+        10,
+        2,
+        ACCENT,
+    )
+}
+
+fn pointer<C: Canvas>(painter: &mut Painter<'_, C>, desktop: &Desktop) -> Result<()> {
+    let x = desktop.pointer_x as u32;
+    let y = desktop.pointer_y as u32;
+    for row in 0..16 {
+        let width = (row / 2 + 1).min(10);
+        painter.fill(x, y + row, width, 1, 0x0005_0910)?;
+        if width > 2 {
+            painter.fill(x + 1, y + row, width - 2, 1, 0x00ff_ffff)?;
         }
-        self.fill(
-            desktop.window.x + 16 + terminal.column.min(terminal.columns - 1) as u32 * 12,
-            desktop.window.y + 44 + terminal.row as u32 * 16 + 14,
-            10,
-            2,
-            ACCENT,
-        )
     }
-    fn pointer(&mut self, desktop: &Desktop) -> Result<()> {
-        // Filled arrow and its outline; the scene is repainted before motion.
-        let x = desktop.pointer_x as u32;
-        let y = desktop.pointer_y as u32;
-        for row in 0..16 {
-            let width = (row / 2 + 1).min(10);
-            self.fill(x, y + row, width, 1, 0x0005_0910)?;
-            if width > 2 {
-                self.fill(x + 1, y + row, width - 2, 1, 0x00ff_ffff)?;
-            }
-        }
-        Ok(())
-    }
+    Ok(())
 }
 
 pub fn draw<C: Canvas>(
@@ -116,11 +58,7 @@ pub fn draw<C: Canvas>(
     terminal: &mut Terminal,
     files: &Files,
 ) -> Result<()> {
-    let mut p = Painter {
-        canvas,
-        width: desktop.width,
-        height: desktop.height,
-    };
+    let mut p = Painter::new(canvas, desktop.width, desktop.height);
     if desktop.full_redraw {
         p.fill(0, 0, desktop.width, desktop.height, 0x0008_121d)?;
         p.fill(0, 36, desktop.width / 3, desktop.height - 80, 0x000c_1b2b)?;
@@ -159,45 +97,22 @@ pub fn draw<C: Canvas>(
         .iter()
         .enumerate()
         {
-            let rect = task_button(desktop.height, index);
-            let background = if desktop.visible && desktop.app.index() == index {
-                0x0034_597c
-            } else {
-                BACKGROUND
-            };
-            p.fill(rect.x, rect.y, rect.width, rect.height, background)?;
-            p.text(
-                rect.x + 6,
-                rect.y + 6,
+            let rect = crate::task_button(desktop.height, index);
+            paint_button(
+                &mut p,
+                rect,
                 label,
-                (FOREGROUND, background),
-                rect.width - 12,
+                desktop.visible && desktop.app.index() == index,
+                Theme::VIBRIX,
             )?;
         }
         if desktop.visible {
             let w = desktop.window;
-            p.fill(w.x + 6, w.y + 6, w.width, w.height, 0x0003_0810)?;
-            p.fill(w.x, w.y, w.width, w.height, ACCENT)?;
-            p.fill(w.x + 1, w.y + 1, w.width - 2, 31, PANEL)?;
-            p.fill(w.x + 1, w.y + 32, w.width - 2, w.height - 33, BACKGROUND)?;
-            p.text(
-                w.x + 12,
-                w.y + 9,
-                desktop.app.title(),
-                (FOREGROUND, PANEL),
-                w.width - 120,
-            )?;
-            p.text(
-                w.x + w.width - 94,
-                w.y + 9,
-                b"_  +  x",
-                (FOREGROUND, PANEL),
-                88,
-            )?;
+            paint_window_frame(&mut p, w, desktop.app.title(), Theme::VIBRIX)?;
             match desktop.app {
                 App::Terminal => {
                     terminal.dirty.fill(true);
-                    p.terminal(desktop, terminal)?;
+                    terminal(&mut p, desktop, terminal)?;
                 }
                 App::Files => {
                     p.text(
@@ -327,9 +242,9 @@ pub fn draw<C: Canvas>(
         }
         desktop.full_redraw = false;
     } else if desktop.visible && desktop.app == App::Terminal {
-        p.terminal(desktop, terminal)?;
+        terminal(&mut p, desktop, terminal)?;
     }
-    p.pointer(desktop)
+    pointer(&mut p, desktop)
 }
 
 #[cfg(test)]
