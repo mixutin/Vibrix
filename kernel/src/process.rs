@@ -131,10 +131,12 @@ impl<const N: usize> Table<N> {
 
     pub fn spawn_child(&mut self, parent: Pid) -> Result<Pid, Error> {
         match self.get(parent) {
-            Some(process @ Process {
-                state: State::Running,
-                ..
-            }) => self.spawn(Some(parent), process.credentials),
+            Some(
+                process @ Process {
+                    state: State::Running,
+                    ..
+                },
+            ) => self.spawn(Some(parent), process.credentials),
             Some(_) => Err(Error::ParentNotRunning),
             None => Err(Error::NotFound),
         }
