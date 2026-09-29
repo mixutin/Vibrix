@@ -252,7 +252,7 @@ extern "x86-interrupt" fn page_fault_handler(frame: InterruptStackFrame, error_c
         reason.instruction_fetch
     );
     crate::println!(
-        "kernel #PF context rip={:#x} cs={:#x} rflags={:#x} rsp={:#x} ss={:#x} error={:#x}",
+        "kernel fault context rip={:#x} cs={:#x} rflags={:#x} rsp={:#x} ss={:#x} error={:#x}",
         frame.instruction_pointer,
         frame.code_segment,
         frame.cpu_flags,
