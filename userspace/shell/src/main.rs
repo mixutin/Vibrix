@@ -3,7 +3,7 @@
 
 use core::panic::PanicInfo;
 use vibrix_shell::{
-    Builtin, Command, LINE_BYTES,
+    Builtin, Command, LINE_BYTES, fetch,
     path::{PATH_BYTES, WorkingDir, same_path},
 };
 use vibrix_syscall::{self as syscall, abi};
@@ -15,7 +15,8 @@ fn write_all(fd: u64, mut bytes: &[u8]) -> bool {
     while !bytes.is_empty() {
         match syscall::write(fd, bytes) {
             Ok(0) | Err(_) => return false,
-            Ok(count) => bytes = &bytes[count..],
+            Ok(count) if count <= bytes.len() => bytes = &bytes[count..],
+            Ok(_) => return false,
         }
     }
     true
@@ -43,18 +44,18 @@ fn parse_u64(bytes: &[u8]) -> Option<u64> {
     Some(value)
 }
 
-fn write_u64(mut value: u64) {
-    let mut digits = [0u8; 20];
-    let mut cursor = digits.len();
-    loop {
-        cursor -= 1;
-        digits[cursor] = b'0' + (value % 10) as u8;
-        value /= 10;
-        if value == 0 {
-            break;
-        }
-    }
-    write(&digits[cursor..]);
+fn write_u64(value: u64) {
+    fetch::decimal(value, &mut write);
+}
+
+fn command_fetch() {
+    fetch::render(
+        &fetch::Cpu::discover(),
+        syscall::getpid().ok(),
+        fetch::privilege_level(),
+        env!("CARGO_PKG_VERSION"),
+        write,
+    );
 }
 
 fn resolve<'a>(
@@ -226,8 +227,34 @@ fn dispatch(line: &[u8], cwd: &mut WorkingDir) -> bool {
         }
         Some(Builtin::Help) => {
             write(b"cat echo ls pwd cd mkdir cp mv rm ps kill exit help\n");
+            write(b"vfetch (aliases: neofetch fastfetch), uname [-a], clear, pid\n");
+            write(b"Files live in RAM and are lost when the VM stops.\n");
             true
         }
+        Some(Builtin::Fetch) if command.argc == 1 => {
+            command_fetch();
+            true
+        }
+        Some(Builtin::Uname) if command.argc == 1 => {
+            write(b"Vibrix\n");
+            true
+        }
+        Some(Builtin::Uname) if command.argc == 2 && command.args[1] == b"-a" => {
+            write(b"Vibrix x86_64 native Rust userspace\n");
+            true
+        }
+        Some(Builtin::Clear) if command.argc == 1 => {
+            write(b"\x0c");
+            true
+        }
+        Some(Builtin::Pid) if command.argc == 1 => match syscall::getpid() {
+            Ok(pid) => {
+                write_u64(pid);
+                write(b"\n");
+                true
+            }
+            Err(_) => false,
+        },
         Some(Builtin::Echo) => {
             for (offset, argument) in command.args[1..command.argc].iter().enumerate() {
                 if offset != 0 {
@@ -281,7 +308,9 @@ pub extern "C" fn _start() -> ! {
     let mut line = [0u8; LINE_BYTES];
     let mut len = 0usize;
     let mut cwd = WorkingDir::root();
-    write(b"Vibrix shell\nvibrix$ ");
+    write(b"Vibrix shell\n");
+    command_fetch();
+    write(b"Type help for commands.\nvibrix$ ");
 
     loop {
         let mut byte = [0u8; 1];
@@ -293,6 +322,7 @@ pub extern "C" fn _start() -> ! {
                 b'\n' | b'\r' => {
                     write(b"\n");
                     if !dispatch(&line[..len], &mut cwd) {
+                        write(b"Boot shell stopped; restart the VM for a new session.\n");
                         let _ = syscall::exit(0);
                     }
                     len = 0;

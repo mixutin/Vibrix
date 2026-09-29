@@ -1,5 +1,6 @@
 #![no_std]
 
+pub mod fetch;
 pub mod path;
 
 pub const LINE_BYTES: usize = 256;
@@ -20,6 +21,10 @@ pub enum Builtin {
     Kill,
     Exit,
     Help,
+    Fetch,
+    Uname,
+    Clear,
+    Pid,
 }
 
 impl Builtin {
@@ -38,6 +43,10 @@ impl Builtin {
             b"kill" => Self::Kill,
             b"exit" => Self::Exit,
             b"help" => Self::Help,
+            b"vfetch" | b"neofetch" | b"fastfetch" => Self::Fetch,
+            b"uname" => Self::Uname,
+            b"clear" => Self::Clear,
+            b"pid" => Self::Pid,
             _ => return None,
         })
     }
@@ -106,8 +115,21 @@ mod tests {
             (&b"rm"[..], Builtin::Rm),
             (&b"ps"[..], Builtin::Ps),
             (&b"kill"[..], Builtin::Kill),
+            (&b"uname"[..], Builtin::Uname),
+            (&b"clear"[..], Builtin::Clear),
+            (&b"pid"[..], Builtin::Pid),
         ] {
             assert_eq!(Builtin::parse(name), Some(expected));
+        }
+    }
+
+    #[test]
+    fn fetch_aliases_are_exact_and_use_one_builtin() {
+        for name in [&b"vfetch"[..], &b"neofetch"[..], &b"fastfetch"[..]] {
+            assert_eq!(Builtin::parse(name), Some(Builtin::Fetch));
+        }
+        for name in [&b"vfetchx"[..], &b"Fetch"[..], &b"neo"[..], &b""[..]] {
+            assert_eq!(Builtin::parse(name), None);
         }
     }
 
