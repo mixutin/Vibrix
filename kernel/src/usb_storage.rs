@@ -200,8 +200,8 @@ mod tests {
         assert_eq!(bulk_interface(&wrong_class), Err(Error::Missing));
 
         let mut duplicate = descriptor();
-        duplicate[27] = 0x82;
-        assert_eq!(bulk_interface(&duplicate), Err(Error::Missing));
+        duplicate[20] = 0x82;
+        assert_eq!(bulk_interface(&duplicate), Err(Error::Ambiguous));
     }
 
     #[test]
