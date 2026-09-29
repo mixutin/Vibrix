@@ -50,7 +50,10 @@ pub(super) unsafe fn run(
         return Err(InitError::DescriptorMalformed);
     }
     let total = u16::from_le_bytes(unsafe {
-        [read8(control.descriptor_base, 2), read8(control.descriptor_base, 3)]
+        [
+            read8(control.descriptor_base, 2),
+            read8(control.descriptor_base, 3),
+        ]
     });
     if !(9..=256).contains(&total) {
         return Err(InitError::DescriptorMalformed);
@@ -78,8 +81,8 @@ pub(super) unsafe fn run(
         // SAFETY: completed DMA, checked length, volatile copy into owned RAM.
         *byte = unsafe { read8(control.descriptor_base, offset) };
     }
-    let endpoint = usb_hid::endpoint(&descriptor[..usize::from(total)], protocol)
-        .map_err(InitError::Hid)?;
+    let endpoint =
+        usb_hid::endpoint(&descriptor[..usize::from(total)], protocol).map_err(InitError::Hid)?;
     let interval = usb_hid::interval(device.speed_id, endpoint.interval).map_err(InitError::Hid)?;
     if device.speed_id == 2 && endpoint.max_packet > 8 {
         return Err(InitError::Hid(usb_hid::Error::Unsupported));
@@ -105,7 +108,11 @@ pub(super) unsafe fn run(
         }
         write32(input_base, 4, 1 | (1u32 << dci));
         let slot = read32(input_base, 32);
-        write32(input_base, 32, (slot & !(0x1f << 27)) | (u32::from(dci) << 27));
+        write32(
+            input_base,
+            32,
+            (slot & !(0x1f << 27)) | (u32::from(dci) << 27),
+        );
         // Input Slot DWord3 is reserved; output slot address/state is not input.
         write32(input_base, 44, 0);
         let offset = (usize::from(dci) + 1) * 32;
