@@ -910,14 +910,44 @@ package state, native USB storage and flash-write policy remain separate.
 ## M10 — Networking
 - [x] NIC abstraction
 - [ ] RTL8168-family driver
-- [ ] Ethernet + ARP
-- [ ] IPv4 + ICMP
-- [ ] UDP
+- [x] Ethernet + ARP
+- [x] IPv4 + ICMP
+- [x] UDP
 - [ ] DHCP
 - [ ] DNS
 - [ ] TCP
 - [ ] sockets
 - [ ] network utilities
+
+**Verified bounded M10 IPv4 + ICMP (PR #195):**
+[Actions run 36575304733](https://github.com/mixutin/Vibrix/actions/runs/36575304733)
+passed full exact-head CI on implementation head
+`9553657c07960522a9d2ed1ba26b5b48bc0e7593`. The production kernel includes
+strict IPv4 v4/IHL=5 parsing/encoding, Internet checksum validation, ICMPv4 Echo
+request/reply handling, odd-length checksum support and a post-ExitBootServices
+QEMU self-test requiring `VIBRIX: kernel IPv4 ICMP echo verified` on the
+network evidence path. Options, fragmentation/reassembly, routing, external
+hardware traffic and Target 001 remain outside this checkbox.
+
+**Verified bounded M10 UDP datagrams (PR #196):**
+[Actions run 36576980721](https://github.com/mixutin/Vibrix/actions/runs/36576980721)
+passed full exact-head CI on synchronized implementation head
+`b1907c2fababc237b0af0cd1e9fd98088443a46e`. The kernel validates UDP lengths
+inside IPv4 payloads, implements IPv4 pseudo-header checksums including
+odd-length payloads and zero-checksum semantics, and exercises the production
+path after firmware exit. This is the UDP datagram layer only: no sockets,
+port-allocation API, DHCP/DNS, TCP or external NIC claim follows.
+
+**Verified bounded M10 Ethernet + ARP runtime (PR #197):**
+[Actions run 36580005188](https://github.com/mixutin/Vibrix/actions/runs/36580005188)
+passed the exact-head host, target, QEMU, dependency and aggregate CI gates on
+implementation head `1e8c4a0fa1a19738691d9fb7c4c8e75222c3d0fb`. The production
+kernel has a fixed-capacity ARP neighbor table, RFC-826 update behavior,
+local-address request replies, probe handling without caching `0.0.0.0`,
+explicit local-address conflict detection and a deterministic full-table
+replacement policy. QEMU requires the kernel ARP responder evidence marker.
+Cache aging, DHCP, routing, physical RTL8168 I/O and Target 001 networking are
+still separate work.
 
 ## M11 — Security and multi-user
 - [ ] users/groups/credentials
