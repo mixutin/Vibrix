@@ -2,8 +2,9 @@
 //!
 //! This module owns the bounded early xHCI proof path: controller startup,
 //! one directly attached device, and USB2 hub class control/port management.
-//! HID boot input uses bounded native interrupt-IN endpoints; mass storage
-//! and general multi-device scheduling remain later milestones.
+//! HID boot input uses bounded native interrupt-IN endpoints. A separate
+//! evidence path configures one MSC/SCSI BOT bulk pair and proves reversible
+//! block I/O; persistent storage ownership and general scheduling remain later.
 
 use crate::{BootInfo, memory};
 use core::arch::{asm, x86_64::__cpuid_count};
