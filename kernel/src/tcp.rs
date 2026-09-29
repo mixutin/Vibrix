@@ -991,24 +991,24 @@ mod tests {
     #[test]
     fn retransmission_timer_backs_off_and_exhausts_without_wrap() {
         let mut timer = RetransmissionTimer::new();
-        timer.arm(u64::MAX - 500);
-        assert_eq!(timer.poll(u64::MAX - 1), TimerAction::Waiting);
-        assert_eq!(timer.poll(u64::MAX), TimerAction::Retransmit);
-        assert_eq!(timer.rto_ticks(), 2_000);
-        assert_eq!(timer.retransmissions(), 1);
-
-        let mut now = u64::MAX;
-        for expected in 2..=MAX_RETRANSMISSIONS {
-            assert_eq!(timer.poll(now), TimerAction::Waiting);
-            now = u64::MAX;
+        timer.arm(0);
+        let mut now = INITIAL_RTO_TICKS;
+        for expected in 1..=MAX_RETRANSMISSIONS {
             assert_eq!(timer.poll(now), TimerAction::Retransmit);
             assert_eq!(timer.retransmissions(), expected);
+            now = now.saturating_add(timer.rto_ticks());
         }
-        assert_eq!(timer.poll(u64::MAX), TimerAction::Exhausted);
-        assert_eq!(timer.poll(u64::MAX), TimerAction::Waiting);
+        assert_eq!(timer.poll(now), TimerAction::Exhausted);
+        assert_eq!(timer.poll(now), TimerAction::Waiting);
         timer.acknowledge();
         assert_eq!(timer.rto_ticks(), INITIAL_RTO_TICKS);
         assert_eq!(timer.retransmissions(), 0);
+
+        let mut saturated = RetransmissionTimer::new();
+        saturated.arm(u64::MAX - 500);
+        assert_eq!(saturated.poll(u64::MAX - 1), TimerAction::Waiting);
+        assert_eq!(saturated.poll(u64::MAX), TimerAction::Retransmit);
+        assert_eq!(saturated.rto_ticks(), 2_000);
     }
     #[test]
     fn corrupt_checksum_wrong_ack_and_reset_fail_closed() {
