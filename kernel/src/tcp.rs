@@ -588,10 +588,8 @@ impl Client {
             return Ok((0, self.ack_segment(ack_output)?));
         }
 
-        let queued_bytes = queue.contiguous_len(
-            self.rcv_nxt
-                .wrapping_add(segment.payload().len() as u32),
-        );
+        let queued_bytes =
+            queue.contiguous_len(self.rcv_nxt.wrapping_add(segment.payload().len() as u32));
         let needed = segment
             .payload()
             .len()
@@ -604,7 +602,8 @@ impl Client {
         let immediate = segment.payload().len();
         receive[..immediate].copy_from_slice(segment.payload());
         self.rcv_nxt = self.rcv_nxt.wrapping_add(immediate as u32);
-        let (drained, next) = queue.drain_contiguous(self.rcv_nxt, &mut receive[immediate..needed])?;
+        let (drained, next) =
+            queue.drain_contiguous(self.rcv_nxt, &mut receive[immediate..needed])?;
         self.rcv_nxt = next;
         let ack_len = self.ack_segment(ack_output)?;
         Ok((immediate + drained, ack_len))
@@ -956,8 +955,12 @@ pub(super) fn self_test() -> Result<(), Error> {
         b"CD",
         &mut wire,
     )?;
-    let (queued, _) =
-        client.receive_with_reassembly(&wire[..future_len], &mut reassembly, &mut received, &mut reply)?;
+    let (queued, _) = client.receive_with_reassembly(
+        &wire[..future_len],
+        &mut reassembly,
+        &mut received,
+        &mut reply,
+    )?;
     if queued != 0 || reassembly.contiguous_len(future_sequence) != 2 {
         return Err(Error::Invariant);
     }
@@ -970,8 +973,12 @@ pub(super) fn self_test() -> Result<(), Error> {
         b"AB",
         &mut wire,
     )?;
-    let (assembled, _) =
-        client.receive_with_reassembly(&wire[..gap_len], &mut reassembly, &mut received, &mut reply)?;
+    let (assembled, _) = client.receive_with_reassembly(
+        &wire[..gap_len],
+        &mut reassembly,
+        &mut received,
+        &mut reply,
+    )?;
     if assembled != 4 || &received[..4] != b"ABCD" {
         return Err(Error::Invariant);
     }
