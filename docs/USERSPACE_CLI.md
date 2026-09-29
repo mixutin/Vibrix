@@ -105,7 +105,7 @@ Every name below has a built-in `man NAME` page and `NAME --help` path. Options 
 | `ps` | Actual kernel PID, parent PID and running/zombie state. |
 | `kill` | `kill PID [STATUS]`: current bootstrap termination operation; default exit status 143, **not POSIX signal syntax**. |
 | `pid` | Current process ID from the kernel. |
-| `vibrix` | `vibrix status`: kernel-backed PID/process/VFS overview with explicit persistence/network-status limitations. |
+| `vibrix` | `vibrix status|doctor`: kernel-backed status plus read-only process/VFS/bootstrap-device diagnostics with explicit persistence/network/update limits. |
 | `vfetch` | Original CPUID, privilege, PID and build summary; unavailable accounting is labelled unavailable. |
 | `uname` | `uname [-a|-s|-m|-r]`: identity, architecture or shell build version; `-r` is not a compatibility promise. |
 | `clear` | Emit native form feed to clear the existing terminal and home the cursor in one redraw. |
