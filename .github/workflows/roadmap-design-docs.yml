@@ -34,3 +34,9 @@ jobs:
           grep -Fq "Text relocations are rejected" docs/DYNAMIC_LINKING.md
           grep -Fq "incompatible ABI changes require a new SONAME major" docs/DYNAMIC_LINKING.md
           grep -Fq "does not claim:" docs/DYNAMIC_LINKING.md
+      - name: Validate core-dump secret-exclusion policy
+        run: |
+          grep -Fq "Core dumps are disabled" docs/CORE_DUMP_POLICY.md
+          grep -Fq "cryptographic keys" docs/CORE_DUMP_POLICY.md
+          grep -Fq "fails closed" docs/CORE_DUMP_POLICY.md
+          grep -Fq "does not claim a core-dump writer" docs/CORE_DUMP_POLICY.md
