@@ -365,40 +365,44 @@ unsafe fn wait_for_event_type(
 }
 
 #[cfg(target_os = "none")]
-unsafe fn submit_command(
+struct RingCursor {
     command_base: usize,
-    command_index: &mut usize,
+    command_index: usize,
     doorbell_base: usize,
     event_base: usize,
     event_physical: u64,
     runtime_base: usize,
-    event_index: &mut usize,
-    event_cycle: &mut bool,
-    words: [u32; 4],
-) -> Result<[u32; 4], InitError> {
-    if *command_index >= 32 {
-        return Err(InitError::InvalidControllerState);
+    event_index: usize,
+    event_cycle: bool,
+}
+
+#[cfg(target_os = "none")]
+impl RingCursor {
+    unsafe fn submit_command(&mut self, words: [u32; 4]) -> Result<[u32; 4], InitError> {
+        if self.command_index >= 32 {
+            return Err(InitError::InvalidControllerState);
+        }
+        unsafe { write_trb(self.command_base, self.command_index, words) };
+        self.command_index += 1;
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
+        unsafe { write32(self.doorbell_base, 0, 0) };
+        let event = unsafe {
+            wait_for_event_type(
+                self.event_base,
+                self.event_physical,
+                self.runtime_base,
+                &mut self.event_index,
+                &mut self.event_cycle,
+                TRB_TYPE_COMMAND_COMPLETION,
+            )
+        }
+        .ok_or(InitError::CommandTimeout)?;
+        let code = completion_code(event[2]);
+        if code != COMPLETION_SUCCESS {
+            return Err(InitError::CommandFailed(code));
+        }
+        Ok(event)
     }
-    unsafe { write_trb(command_base, *command_index, words) };
-    *command_index += 1;
-    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
-    unsafe { write32(doorbell_base, 0, 0) };
-    let event = unsafe {
-        wait_for_event_type(
-            event_base,
-            event_physical,
-            runtime_base,
-            event_index,
-            event_cycle,
-            TRB_TYPE_COMMAND_COMPLETION,
-        )
-    }
-    .ok_or(InitError::CommandTimeout)?;
-    let code = completion_code(event[2]);
-    if code != COMPLETION_SUCCESS {
-        return Err(InitError::CommandFailed(code));
-    }
-    Ok(event)
 }
 
 /// Reset and start one PCI-discovered xHCI controller with a minimal command
@@ -717,22 +721,18 @@ pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary
     let speed_id = port_speed(portsc);
     let max_packet_size = endpoint0_packet_size(speed_id).ok_or(InitError::DescriptorMalformed)?;
 
-    let mut command_index = 0usize;
-    let mut event_index = 0usize;
-    let mut event_cycle = true;
-    let enable_event = unsafe {
-        submit_command(
-            command_base,
-            &mut command_index,
-            doorbell_base,
-            event_base,
-            event_ring,
-            runtime_base,
-            &mut event_index,
-            &mut event_cycle,
-            [0, 0, 0, trb_control(TRB_TYPE_ENABLE_SLOT)],
-        )
-    }?;
+    let mut rings = RingCursor {
+        command_base,
+        command_index: 0,
+        doorbell_base,
+        event_base,
+        event_physical: event_ring,
+        runtime_base,
+        event_index: 0,
+        event_cycle: true,
+    };
+    let enable_event =
+        unsafe { rings.submit_command([0, 0, 0, trb_control(TRB_TYPE_ENABLE_SLOT)]) }?;
     let slot_id = event_slot_id(enable_event[3]);
     if slot_id == 0 || slot_id > capability.max_slots.min(8) {
         return Err(InitError::InvalidControllerState);
@@ -774,22 +774,12 @@ pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary
     core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
 
     let address_event = unsafe {
-        submit_command(
-            command_base,
-            &mut command_index,
-            doorbell_base,
-            event_base,
-            event_ring,
-            runtime_base,
-            &mut event_index,
-            &mut event_cycle,
-            [
-                input_context as u32,
-                (input_context >> 32) as u32,
-                0,
-                trb_control(TRB_TYPE_ADDRESS_DEVICE) | (u32::from(slot_id) << 24),
-            ],
-        )
+        rings.submit_command([
+            input_context as u32,
+            (input_context >> 32) as u32,
+            0,
+            trb_control(TRB_TYPE_ADDRESS_DEVICE) | (u32::from(slot_id) << 24),
+        ])
     }?;
     if event_slot_id(address_event[3]) != slot_id {
         return Err(InitError::InvalidControllerState);
@@ -823,8 +813,8 @@ pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary
             event_base,
             event_ring,
             runtime_base,
-            &mut event_index,
-            &mut event_cycle,
+            &mut rings.event_index,
+            &mut rings.event_cycle,
             TRB_TYPE_TRANSFER_EVENT,
         )
     }
