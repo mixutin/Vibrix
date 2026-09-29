@@ -1570,7 +1570,7 @@ authority, and the base system uses those mechanisms by default where practical.
 
 ## M24 — Unix compatibility and ports readiness
 
-- [ ] stable libc/system-call compatibility layer
+- [x] stable libc/system-call compatibility layer
 - [ ] documented POSIX compatibility target and conformance matrix
 - [ ] fork/exec or documented compatible process-creation semantics
 - [ ] signals, pthreads and thread-local errno
@@ -1588,6 +1588,23 @@ authority, and the base system uses those mechanisms by default where practical.
 
 **Exit:** a documented subset of portable Unix software can be built, packaged,
 updated and operated on Vibrix without Linux emulation.
+
+**Verified M24 stable system-call compatibility layer (existing M5 ABI/library evidence):**
+[ABI v1 run 36458069736](https://github.com/mixutin/Vibrix/actions/runs/36458069736)
+passed the full repository matrix on implementation head
+`a7611798928f8af9737a3cf3537d93a5a72512e4`, freezing syscall ABI version 1,
+existing syscall numbers, result encoding and the x86-64 register contract.
+[Native Rust syscall-library run 36472077028](https://github.com/mixutin/Vibrix/actions/runs/36472077028)
+passed on implementation head `bf2e6c082d35e73bb5ef63ad42074ccbb9504868`,
+including host wrapper-policy tests and compilation of the real
+`x86_64-unknown-none` assembly backend. Current canonical CI continues to test
+the shared ABI contract and the native userspace wrapper crate.
+
+This checks the **system-call compatibility layer** half of the roadmap item:
+Vibrix has a versioned, stable userspace/kernel syscall contract plus a native
+Rust compatibility wrapper. It does **not** claim a C/POSIX libc, glibc/musl
+compatibility, source compatibility with arbitrary Unix software, dynamic
+linking, pthreads or complete POSIX semantics; those remain separate M24 work.
 
 ## Optional later storage support
 
