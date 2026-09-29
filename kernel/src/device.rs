@@ -204,6 +204,69 @@ impl DiscoverySummary {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CompatibilityClass {
+    DriverCandidate,
+    MissingDriver,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CompatibilityQuirk {
+    XhciContext32Only,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CompatibilityObservation {
+    pub class: CompatibilityClass,
+    pub driver_name: Option<&'static str>,
+    pub quirk: Option<CompatibilityQuirk>,
+}
+
+pub fn compatibility(identity: DeviceIdentity) -> CompatibilityObservation {
+    match candidate(identity) {
+        Some(found) => CompatibilityObservation {
+            class: CompatibilityClass::DriverCandidate,
+            driver_name: Some(found.driver_name),
+            quirk: match found.driver {
+                DriverKind::Xhci => Some(CompatibilityQuirk::XhciContext32Only),
+                DriverKind::Rtl8168 => None,
+            },
+        },
+        None => CompatibilityObservation {
+            class: CompatibilityClass::MissingDriver,
+            driver_name: None,
+            quirk: None,
+        },
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct CompatibilitySummary {
+    pub discovered: u32,
+    pub driver_candidates: u32,
+    pub missing_driver: u32,
+    pub limited_by_known_quirk: u32,
+}
+
+impl CompatibilitySummary {
+    pub fn observe(&mut self, identity: DeviceIdentity) -> CompatibilityObservation {
+        self.discovered = self.discovered.saturating_add(1);
+        let observation = compatibility(identity);
+        match observation.class {
+            CompatibilityClass::DriverCandidate => {
+                self.driver_candidates = self.driver_candidates.saturating_add(1);
+            }
+            CompatibilityClass::MissingDriver => {
+                self.missing_driver = self.missing_driver.saturating_add(1);
+            }
+        }
+        if observation.quirk.is_some() {
+            self.limited_by_known_quirk = self.limited_by_known_quirk.saturating_add(1);
+        }
+        observation
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DiagnosticSummary {
     pub discovered: u32,
@@ -362,6 +425,52 @@ mod tests {
                 programming_interface: 0x30,
             })),
             Err(BindError::Full)
+        );
+    }
+
+    #[test]
+    fn compatibility_reporting_distinguishes_candidates_missing_drivers_and_limits() {
+        let xhci = pci(0x1234, 0x11e8, 0x0c, 0x03, 0x30);
+        let rtl = pci(0x10ec, 0x8168, 0x02, 0x00, 0x00);
+        let unknown = pci(0x1af4, 0x1000, 0x02, 0x00, 0x00);
+
+        assert_eq!(
+            compatibility(xhci),
+            CompatibilityObservation {
+                class: CompatibilityClass::DriverCandidate,
+                driver_name: Some("xhci"),
+                quirk: Some(CompatibilityQuirk::XhciContext32Only),
+            }
+        );
+        assert_eq!(
+            compatibility(rtl),
+            CompatibilityObservation {
+                class: CompatibilityClass::DriverCandidate,
+                driver_name: Some("rtl8168"),
+                quirk: None,
+            }
+        );
+        assert_eq!(
+            compatibility(unknown),
+            CompatibilityObservation {
+                class: CompatibilityClass::MissingDriver,
+                driver_name: None,
+                quirk: None,
+            }
+        );
+
+        let mut summary = CompatibilitySummary::default();
+        summary.observe(xhci);
+        summary.observe(rtl);
+        summary.observe(unknown);
+        assert_eq!(
+            summary,
+            CompatibilitySummary {
+                discovered: 3,
+                driver_candidates: 2,
+                missing_driver: 1,
+                limited_by_known_quirk: 1,
+            }
         );
     }
 
