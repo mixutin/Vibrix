@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["boot", "kernel", "shared/vmm", "userspace/syscall", "userspace/init", "userspace/shell"]
+members = ["boot", "kernel", "shared/vmm", "userspace/syscall", "userspace/init", "userspace/shell", "userspace/desktop"]
 
 [workspace.package]
 license = "0BSD"
@@ -15,6 +15,9 @@ panic = "abort"
 opt-level = 2
 
 [profile.dev.package.vibrix-syscall]
+opt-level = 2
+
+[profile.dev.package.vibrix-desktop]
 opt-level = 2
 
 [profile.release]

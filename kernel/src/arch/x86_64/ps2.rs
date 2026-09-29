@@ -38,6 +38,31 @@ impl SetOne {
         }
     }
 
+    /// Desktop make events extend ASCII without changing canonical TTY input.
+    /// Function keys use the desktop ABI range; unsupported extended keys stay
+    /// suppressed and Pause is consumed by the same modifier state machine.
+    #[cfg(any(feature = "userspace-desktop", test))]
+    pub fn feed_desktop(&mut self, scan: u8) -> Option<u32> {
+        let special = if self.pause_remaining != 0 {
+            None
+        } else if self.extended {
+            match scan {
+                0x48 => Some(261),
+                0x50 => Some(262),
+                _ => None,
+            }
+        } else {
+            match scan {
+                0x01 => Some(27),
+                0x3b..=0x3e => Some(256 + u32::from(scan - 0x3b)),
+                0x57 => Some(260),
+                _ => None,
+            }
+        };
+        let ascii = self.feed(scan).map(u32::from);
+        special.or(ascii)
+    }
+
     pub fn feed(&mut self, scan: u8) -> Option<u8> {
         if self.pause_remaining != 0 {
             self.pause_remaining -= 1;
@@ -175,6 +200,21 @@ pub unsafe fn poll_scancode() -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn desktop_keys_preserve_tty_policy_and_modifier_sequences() {
+        let mut keys = SetOne::new();
+        assert_eq!(keys.feed_desktop(0x3b), Some(256));
+        assert_eq!(keys.feed_desktop(0xbb), None);
+        assert_eq!(keys.feed_desktop(0xe0), None);
+        assert_eq!(keys.feed_desktop(0x48), Some(261));
+        assert_eq!(keys.feed_desktop(0x01), Some(27));
+        for scan in [0xe1, 0x1d, 0x45, 0xe1, 0x9d, 0xc5] {
+            assert_eq!(keys.feed_desktop(scan), None);
+        }
+        assert_eq!(keys.feed_desktop(0x1e), Some(97));
+        assert_eq!(keys.feed(0x3b), None);
+    }
 
     #[test]
     fn qemu_h_and_enter_are_one_ascii_event_each() {

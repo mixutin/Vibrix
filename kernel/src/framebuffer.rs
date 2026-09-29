@@ -13,9 +13,21 @@ mod bootinfo;
 #[cfg(test)]
 use bootinfo::BootInfo;
 
-#[cfg(any(feature = "userspace-shell", test))]
+#[cfg(any(
+    all(feature = "userspace-shell", not(feature = "userspace-desktop")),
+    test
+))]
 #[path = "framebuffer/terminal.rs"]
 pub mod terminal;
+
+#[cfg(any(feature = "userspace-desktop", test))]
+#[path = "framebuffer/desktop.rs"]
+pub mod desktop;
+#[cfg(all(
+    not(test),
+    any(feature = "userspace-shell", feature = "userspace-desktop")
+))]
+mod root;
 
 const BANNER_X: usize = 16;
 const BANNER_Y: usize = 16;
@@ -202,12 +214,22 @@ pub unsafe fn draw_boot_marker(info: &BootInfo) -> Result<bool, ()> {
         draw_text(&pixels, b"VIBRIX", BANNER_X + 68, BANNER_Y + 12, 6)?;
         draw_text(&pixels, b"KERNEL LIVE", BANNER_X + 77, BANNER_Y + 72, 3)?;
     }
-    #[cfg(all(feature = "userspace-shell", not(test)))]
+    #[cfg(all(
+        feature = "userspace-shell",
+        not(feature = "userspace-desktop"),
+        not(test)
+    ))]
     {
         // SAFETY: final boot renderer call, pre-STI under the retained kernel
         // root. The terminal captures that root for later syscall-side use.
         unsafe { terminal::init(info)? };
         crate::debugcon::write("VIBRIX: framebuffer terminal initialized\r\n");
+    }
+    #[cfg(all(feature = "userspace-desktop", not(test)))]
+    {
+        // SAFETY: sole framebuffer owner, pre-STI with the retained kernel CR3.
+        unsafe { desktop::init(info)? };
+        crate::debugcon::write("VIBRIX: desktop framebuffer initialized\r\n");
     }
     Ok(true)
 }

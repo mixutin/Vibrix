@@ -9,7 +9,7 @@
 `x86_64` · `UEFI` · `Rust` · `no_std` · `QEMU/OVMF` · `0BSD`
 
 > **How far can vibe coding go?**  
-> A compiled Rust shell now runs in Ring 3, with real syscalls and a bounded RAM filesystem.
+> A native Ring 3 desktop preview now runs a real terminal and file viewer on our own kernel. Chromium is not ported yet.
 
 [**Website**](https://mixutin.github.io/Vibrix/) · [Verified status](https://mixutin.github.io/Vibrix/status/) · [Roadmap](ROADMAP.md) · [Security roadmap](SECURITY_ROADMAP.md) · [Architecture](docs/ARCHITECTURE.md) · [Dependencies](docs/DEPENDENCIES.md) · [Contributing](CONTRIBUTING.md)
 
@@ -46,6 +46,7 @@ The M5/M6 baseline includes merged [shell runtime #176](https://github.com/mixut
 | M5 userspace | Private CR3, Ring 3, ELF loading, ABI/wrappers, real SYSCALL/SYSRETQ and bounded PID/wait/exit behavior |
 | M6 shell and files | Real `vibrix-sh`, `/dev/tty`, descriptors, bootstrap VFS and core utilities; RAM-only, minimal process/job control |
 | Interactive display | The launcher selects the userspace profile and mirrors its TTY to GOP pixels; the dedicated display workflow verifies automatic boot and real VNC input against screenshots |
+| Native desktop preview | Opt-in `--desktop`: checked userspace graphics/input, terminal, read-only file browser, PS/2 pointer and one movable/maximizable foreground window; no Chromium or persistence |
 | Legacy kernel console | Retained explicitly with `--kernel-console`; distinct `vibrix>` diagnostic prompt |
 | Native USB persistence / Target 001 | Not demonstrated by these userspace/QEMU milestones |
 
@@ -62,9 +63,23 @@ true false status history exit
 
 The bounded utilities have real VFS/process backends. This does not imply external program spawning, shell pipelines or append redirection, full signals/job control, atomic rename, recursive copy or POSIX conformance. Bootstrap files disappear at reboot. The userspace RAM root has 64 slots and a 1024-byte per-file limit. See the [userspace CLI guide](docs/USERSPACE_CLI.md) for quoting, input/output redirection, every command and its limits.
 
-The graphical frontend displays the actual shell's `vibrix$` output, echoes accepted keyboard input, and handles a cursor, wrapping, Backspace and scrolling. It is a small ASCII software terminal, not a graphical desktop or an ANSI/Unicode terminal emulator. The PS/2 decoder supports a bounded US-ASCII layout, Shift, Caps Lock, punctuation and Ctrl-U; this is not international or USB keyboard support. Serial/debug logging is retained independently. See [userspace display](docs/USERSPACE_DISPLAY.md) for safety, input and testing boundaries.
+The default shell-only graphical frontend displays the actual shell's `vibrix$` output, echoes accepted keyboard input, and handles a cursor, wrapping, Backspace and scrolling. It is a small ASCII software terminal, not a graphical desktop or an ANSI/Unicode terminal emulator. The PS/2 decoder supports a bounded US-ASCII layout, Shift, Caps Lock, punctuation and Ctrl-U; this is not international or USB keyboard support. Serial/debug logging is retained independently. See [userspace display](docs/USERSPACE_DISPLAY.md) for safety, input and testing boundaries.
 
 The earlier M4.5 kernel development console is still useful for diagnostics, but is no longer the ordinary interactive launcher's default. Its `vibrix>` prompt and commands such as `mem`, `pci`, `acpi`, `uptime` and `reboot` are not the Ring 3 shell.
+
+## Native desktop preview
+
+```bash
+./tools/run-qemu.sh --desktop
+# Or view the same native guest on localhost port 5901:
+./tools/run-qemu.sh --desktop --vnc=1
+```
+
+**F1** Terminal, **F2** Files, **F3** System, **F4** Chromium port status. **F11** maximizes/restores; Escape hides/restores. Drag the title bar or click task buttons. The terminal reuses the documented shell and real VFS: `echo native > /note` creates a file that the Files view can independently open. This is original Rust userspace at CPL3, not a host-side UI or Linux guest.
+
+It is a **single-process, one-foreground-window preview**, with a bounded software renderer and buffered polled PS/2 input. Files remain volatile; the read-only browser displays at most 16 directory entries and 1024 preview bytes. There is no general application launcher, PTY, USB desktop input, GPU acceleration, Unicode or idle sleep yet. The existing shell-only default and `--kernel-console` remain unchanged.
+
+**Chromium is not running.** F4 is explicitly a port-status panel, not a web browser. Real Chromium requires native user processes/threads, memory/IPC, an application runtime, networking and sandbox/platform integration beyond the graphics API. See [desktop architecture, controls and tests](docs/DESKTOP.md) and the [native Chromium port gates](docs/CHROMIUM_PORT.md). The [desktop workflow](.github/workflows/userspace-desktop.yml) retains actual QEMU screenshots, pixel assertions and source-head evidence; consult its exact-head result before integration.
 
 ## Boot path and next steps
 

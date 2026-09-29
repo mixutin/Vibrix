@@ -39,6 +39,10 @@ pub enum Syscall {
     ReadDir = 12,
     ProcessInfo = 13,
     Kill = 14,
+    DisplayInfo = 15,
+    DisplayFill = 16,
+    DisplayBlit = 17,
+    InputPoll = 18,
 }
 
 impl Syscall {
@@ -59,6 +63,10 @@ impl Syscall {
             12 => Some(Self::ReadDir),
             13 => Some(Self::ProcessInfo),
             14 => Some(Self::Kill),
+            15 => Some(Self::DisplayInfo),
+            16 => Some(Self::DisplayFill),
+            17 => Some(Self::DisplayBlit),
+            18 => Some(Self::InputPoll),
             _ => None,
         }
     }
@@ -205,6 +213,10 @@ mod tests {
             Syscall::ReadDir,
             Syscall::ProcessInfo,
             Syscall::Kill,
+            Syscall::DisplayInfo,
+            Syscall::DisplayFill,
+            Syscall::DisplayBlit,
+            Syscall::InputPoll,
         ];
         for (expected, call) in calls.into_iter().enumerate() {
             assert_eq!(call.number(), expected as u64);
