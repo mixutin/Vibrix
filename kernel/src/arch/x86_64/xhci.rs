@@ -1515,8 +1515,8 @@ pub unsafe fn probe_hid_boot_mouse(info: &BootInfo) -> Result<UsbHidMouseSummary
             }),
         )
     }?
-        .3
-        .ok_or(InitError::NotHidBootMouse)
+    .3
+    .ok_or(InitError::NotHidBootMouse)
 }
 
 #[cfg(test)]
