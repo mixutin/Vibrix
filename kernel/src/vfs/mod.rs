@@ -65,9 +65,20 @@ pub struct Name {
 }
 
 impl Name {
-    pub fn new(name: &str) -> Result<Self> {
-        if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\0']) {
+    pub const fn new(name: &str) -> Result<Self> {
+        let bytes = name.as_bytes();
+        if bytes.is_empty()
+            || (bytes.len() == 1 && bytes[0] == b'.')
+            || (bytes.len() == 2 && bytes[0] == b'.' && bytes[1] == b'.')
+        {
             return Err(Error::InvalidPath);
+        }
+        let mut index = 0;
+        while index < bytes.len() {
+            if bytes[index] == b'/' || bytes[index] == 0 {
+                return Err(Error::InvalidPath);
+            }
+            index += 1;
         }
         if name.len() > NAME_MAX {
             return Err(Error::NameTooLong);
@@ -76,7 +87,11 @@ impl Name {
             bytes: [0; NAME_MAX],
             len: name.len(),
         };
-        result.bytes[..name.len()].copy_from_slice(name.as_bytes());
+        index = 0;
+        while index < bytes.len() {
+            result.bytes[index] = bytes[index];
+            index += 1;
+        }
         Ok(result)
     }
 
