@@ -2,7 +2,7 @@
 
 Vibrix boots its native Rust shell in Ring 3 through the existing ELF loader, private address space and syscall-backed TTY. This is an original, allocation-free Unix-style command environment, not Linux, BusyBox, a hosted terminal simulation or a POSIX-conformance claim.
 
-The shell provides **37 built-ins and three aliases**, embedded reference pages, quoted arguments, input/output redirection, command status, bounded history, and byte-oriented file/text tools. No additional runtime or third-party package is required.
+The shell provides **38 built-ins and three aliases**, embedded reference pages, quoted arguments, input/output redirection, command status, bounded history, and byte-oriented file/text tools. No additional runtime or third-party package is required.
 
 ## Boot and learn
 
@@ -105,6 +105,7 @@ Every name below has a built-in `man NAME` page and `NAME --help` path. Options 
 | `ps` | Actual kernel PID, parent PID and running/zombie state. |
 | `kill` | `kill PID [STATUS]`: current bootstrap termination operation; default exit status 143, **not POSIX signal syntax**. |
 | `pid` | Current process ID from the kernel. |
+| `vibrix` | `vibrix status|doctor`: kernel-backed status plus read-only process/VFS/bootstrap-device diagnostics with explicit persistence/network/update limits. |
 | `vfetch` | Original CPUID, privilege, PID and build summary; unavailable accounting is labelled unavailable. |
 | `uname` | `uname [-a|-s|-m|-r]`: identity, architecture or shell build version; `-r` is not a compatibility promise. |
 | `clear` | Emit native form feed to clear the existing terminal and home the cursor in one redraw. |

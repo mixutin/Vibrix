@@ -513,6 +513,11 @@ impl Shell {
                 number(io, out, pid)?;
                 write_all(io, out, b"\n")?;
             }
+            Builtin::Vibrix => match args {
+                [b"status"] => render_vibrix_status(io, out)?,
+                [b"doctor"] => render_vibrix_doctor(io, out)?,
+                _ => return Err(Error::Usage),
+            },
             Builtin::Fetch => {
                 require_empty(args)?;
                 render_fetch(io, out)?;
@@ -771,6 +776,144 @@ fn search_manuals(io: &mut dyn System, fd: u64, word: &[u8]) -> Result<u8> {
         }
     }
     Ok(u8::from(!found))
+}
+
+fn render_vibrix_doctor(io: &mut dyn System, fd: u64) -> Result<()> {
+    let pid = io.getpid()?;
+    let mut current_seen = false;
+    let mut process_count = 0u64;
+    for index in 0..1024 {
+        let mut info = abi::ProcessInfo::EMPTY;
+        match io.process_info(index, &mut info) {
+            Ok(false) => break,
+            Err(code) if code == abi::Errno::NotFound.code() => break,
+            Err(code) => return Err(code.into()),
+            Ok(true) => {
+                process_count += 1;
+                if u64::from(info.pid) == pid {
+                    current_seen = true;
+                }
+            }
+        }
+    }
+    if !current_seen {
+        return Err(Error::Message(
+            b"doctor: current PID absent from process table",
+        ));
+    }
+
+    if !directory(io, b"/")? {
+        return Err(Error::Message(b"doctor: root directory unavailable"));
+    }
+    if !directory(io, b"/dev")? {
+        return Err(Error::Message(b"doctor: /dev unavailable"));
+    }
+
+    let welcome = io.open(b"/welcome", abi::OPEN_READ)?;
+    let mut welcome_byte = [0u8; 1];
+    let welcome_read = system::read(io, welcome, &mut welcome_byte);
+    let welcome_close = io.close(welcome);
+    if welcome_read? == 0 {
+        return Err(Error::Message(b"doctor: /welcome is unexpectedly empty"));
+    }
+    welcome_close?;
+
+    let zero = io.open(b"/dev/zero", abi::OPEN_READ)?;
+    let mut zero_byte = [0xa5u8; 1];
+    let zero_read = system::read(io, zero, &mut zero_byte);
+    let zero_close = io.close(zero);
+    if zero_read? != 1 || zero_byte != [0] {
+        return Err(Error::Message(b"doctor: /dev/zero contract failed"));
+    }
+    zero_close?;
+
+    let null = io.open(b"/dev/null", abi::OPEN_READ)?;
+    let mut null_byte = [0xa5u8; 1];
+    let null_read = system::read(io, null, &mut null_byte);
+    let null_close = io.close(null);
+    if null_read? != 0 {
+        return Err(Error::Message(b"doctor: /dev/null read contract failed"));
+    }
+    null_close?;
+
+    write_all(io, fd, b"Vibrix doctor\n")?;
+    write_all(io, fd, b"  process table: PASS (records=")?;
+    number(io, fd, process_count)?;
+    write_all(io, fd, b")\n")?;
+    write_all(io, fd, b"  root mount: PASS\n")?;
+    write_all(io, fd, b"  /dev mount: PASS\n")?;
+    write_all(io, fd, b"  /welcome read: PASS\n")?;
+    write_all(io, fd, b"  /dev/zero: PASS\n")?;
+    write_all(io, fd, b"  /dev/null: PASS\n")?;
+    write_all(
+        io,
+        fd,
+        b"doctor: PASS (bootstrap checks only; persistent USB, network link, updates and hardware health not tested)\n",
+    )?;
+    Ok(())
+}
+
+fn render_vibrix_status(io: &mut dyn System, fd: u64) -> Result<()> {
+    let pid = io.getpid()?;
+    let mut total = 0u64;
+    let mut running = 0u64;
+    let mut zombie = 0u64;
+    for index in 0..1024 {
+        let mut info = abi::ProcessInfo::EMPTY;
+        match io.process_info(index, &mut info) {
+            Ok(false) => break,
+            Err(code) if code == abi::Errno::NotFound.code() => break,
+            Err(code) => return Err(code.into()),
+            Ok(true) => {
+                total += 1;
+                if info.state == abi::PROCESS_RUNNING {
+                    running += 1;
+                } else if info.state == abi::PROCESS_ZOMBIE {
+                    zombie += 1;
+                }
+            }
+        }
+    }
+
+    let root_ready = directory(io, b"/")?;
+    let dev_ready = directory(io, b"/dev")?;
+
+    write_all(io, fd, b"Vibrix status\n")?;
+    write_all(io, fd, b"  userspace: native ring3 shell\n")?;
+    write_all(io, fd, b"  pid: ")?;
+    number(io, fd, pid)?;
+    write_all(io, fd, b"\n  processes: total=")?;
+    number(io, fd, total)?;
+    write_all(io, fd, b" running=")?;
+    number(io, fd, running)?;
+    write_all(io, fd, b" zombie=")?;
+    number(io, fd, zombie)?;
+    write_all(io, fd, b"\n  root: ")?;
+    write_all(
+        io,
+        fd,
+        if root_ready {
+            b"bootstrap RAM mounted (volatile)\n"
+        } else {
+            b"unavailable\n"
+        },
+    )?;
+    write_all(io, fd, b"  dev: ")?;
+    write_all(
+        io,
+        fd,
+        if dev_ready {
+            b"/dev mounted\n"
+        } else {
+            b"unavailable\n"
+        },
+    )?;
+    write_all(
+        io,
+        fd,
+        b"  persistence: not available in bootstrap root\n  network link: not exposed to userspace status\n",
+    )?;
+    Ok(())
 }
 
 pub fn render_fetch(io: &mut dyn System, fd: u64) -> Result<()> {
