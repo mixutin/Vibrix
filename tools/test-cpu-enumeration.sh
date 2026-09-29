@@ -37,11 +37,21 @@ debug = (root / "debugcon.log").read_text().splitlines()
 marker = "VIBRIX: kernel CPU enumeration verified"
 assert marker in serial and marker in debug, "missing independent CPU evidence"
 assert f"kernel CPUs: enabled={expected} online_capable=0 total={expected}" in serial
+per_cpu_marker = "VIBRIX: kernel per-CPU topology published"
+bsp_marker = "VIBRIX: kernel per-CPU BSP bound"
+assert per_cpu_marker in serial and per_cpu_marker in debug, "missing per-CPU publication evidence"
+assert bsp_marker in serial and bsp_marker in debug, "missing BSP per-CPU binding evidence"
+assert f"kernel per-CPU table: slots={expected} published=true" in serial
 records = [re.fullmatch(r"kernel CPU enabled: uid=(\d+) apic=(\d+) x2apic=(true|false)", line) for line in serial]
 records = [record for record in records if record]
 assert len(records) == expected, "CPU entry count mismatch"
 assert len({record[1] for record in records}) == expected, "duplicate CPU UIDs"
 assert len({record[2] for record in records}) == expected, "duplicate APIC IDs"
+bsp = [re.fullmatch(r"kernel per-CPU BSP: uid=(\\d+) apic=(\\d+) slots=(\\d+)", line) for line in serial]
+bsp = [record for record in bsp if record]
+assert len(bsp) == 1, "expected exactly one BSP per-CPU record"
+assert int(bsp[0][3]) == expected, "per-CPU slot count mismatch"
+assert bsp[0][2] in {record[2] for record in records}, "BSP APIC ID missing from firmware inventory"
 assert "VIBRIX: kernel console prompt ready" in debug, "console boot regression"
 assert "VIBRIX: kernel timer IRQ delivered" in debug, "timer IRQ regression"
 assert not any("kernel panic" in line for line in serial + debug), "unexpected panic"
