@@ -4,6 +4,9 @@
 #[path = "../../shared/bootinfo.rs"]
 #[allow(dead_code)]
 mod bootinfo;
+#[path = "../../shared/gpt_identity.rs"]
+#[allow(dead_code)]
+mod gpt_identity;
 #[path = "../../shared/uefi_boot_path.rs"]
 #[allow(dead_code)]
 mod uefi_boot_path;
@@ -61,6 +64,28 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
 
     console.write("Vibrix bootloader v0.0.2\r\n");
     console.write("VIBRIX: bootloader entered\r\n");
+
+    #[cfg(feature = "boot-usb-identity-probe")]
+    let _boot_identity = {
+        let disk = match unsafe { uefi::discover_boot_whole_disk(image, system_table) } {
+            Ok(disk) => disk,
+            Err(status) => {
+                console.write("VIBRIX: boot USB whole-disk discovery failed\r\n");
+                return status;
+            }
+        };
+        match unsafe { uefi::read_boot_gpt_identity(&disk, system_table) } {
+            Ok(identity) => {
+                console.write("VIBRIX: boot USB GPT identity validated\r\n");
+                identity
+            }
+            Err(status) => {
+                console.write("VIBRIX: boot USB GPT identity rejected\r\n");
+                return status;
+            }
+        }
+    };
+
 
     let kernel = match unsafe { uefi::load_kernel(image, system_table) } {
         Ok(kernel) => kernel,
