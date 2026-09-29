@@ -147,6 +147,13 @@ jobs:
           rustfmt --edition 2024 --check shared/syscall_abi.rs
           rustc --edition=2024 -D warnings --test shared/syscall_abi.rs -o "$RUNNER_TEMP/vibrix-syscall-abi-tests"
           "$RUNNER_TEMP/vibrix-syscall-abi-tests"
+      - name: Test USB mass-storage BOT and SCSI wire contracts on host
+        run: |
+          rustfmt --edition 2024 --check shared/usb_mass_bulk.rs shared/scsi.rs
+          rustc --edition=2024 -D warnings --test shared/usb_mass_bulk.rs -o "$RUNNER_TEMP/vibrix-usb-bot-tests"
+          "$RUNNER_TEMP/vibrix-usb-bot-tests"
+          rustc --edition=2024 -D warnings --test shared/scsi.rs -o "$RUNNER_TEMP/vibrix-scsi-tests"
+          "$RUNNER_TEMP/vibrix-scsi-tests"
       - name: Test native Rust syscall wrapper policy on host
         run: |
           cargo test --locked --package vibrix-syscall
