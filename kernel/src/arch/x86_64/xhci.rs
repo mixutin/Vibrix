@@ -1290,8 +1290,12 @@ unsafe fn enumerate_first_device_inner(
             return Err(InitError::DescriptorMalformed);
         }
         let mut configuration = [0u8; 256];
-        for offset in 0..usize::from(total_length) {
-            configuration[offset] = unsafe { read8(descriptor_base, offset) };
+        for (offset, byte) in configuration
+            .iter_mut()
+            .enumerate()
+            .take(usize::from(total_length))
+        {
+            *byte = unsafe { read8(descriptor_base, offset) };
         }
         let keyboard =
             parse_hid_boot_keyboard_configuration(&configuration[..usize::from(total_length)])?;
@@ -1391,7 +1395,11 @@ pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary
 ///
 /// # Safety
 /// Same single-BSP/IF=0 exclusive-controller ownership as device enumeration.
-#[cfg(target_os = "none")]
+#[cfg(all(
+    target_os = "none",
+    feature = "usb-hub-probe",
+    not(feature = "usb-hid-keyboard-probe")
+))]
 pub unsafe fn inspect_first_hub(info: &BootInfo) -> Result<UsbHubSummary, InitError> {
     unsafe { enumerate_first_device_inner(info, true, None) }?
         .1
