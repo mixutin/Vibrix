@@ -10,7 +10,7 @@ const PANEL: u32 = Theme::VIBRIX.panel;
 const ACCENT: u32 = Theme::VIBRIX.accent;
 const MUTED: u32 = Theme::VIBRIX.muted;
 
-fn terminal<C: Canvas>(
+fn draw_terminal<C: Canvas>(
     painter: &mut Painter<'_, C>,
     desktop: &Desktop,
     terminal: &mut Terminal,
@@ -110,7 +110,7 @@ pub fn draw<C: Canvas>(
             match desktop.app {
                 App::Terminal => {
                     terminal.dirty.fill(true);
-                    terminal(&mut p, desktop, terminal)?;
+                    draw_terminal(&mut p, desktop, terminal)?;
                 }
                 App::Files => {
                     p.text(
