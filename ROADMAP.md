@@ -943,13 +943,28 @@ package state, native USB storage and flash-write policy remain separate.
 ## M13 — Audio and graphics
 - [ ] HDA + basic PCM
 - [ ] USB audio
-- [ ] graphics architecture
+- [x] graphics architecture
 - [ ] framebuffer userspace API
-- [ ] compositor/display-server design
-- [ ] Navi 23 modesetting research
+- [x] compositor/display-server design
+- [x] Navi 23 modesetting research
 - [ ] native modesetting
 - [ ] acceleration
 - [ ] GUI toolkit
+
+**Adopted M13 graphics architecture and Navi 23 research (ADR 0022):**
+Vibrix separates kernel modesetting/hardware ownership from a userspace
+compositor/display server and application-owned rendering buffers. The kernel
+side uses validated connector/timing/plane/buffer objects and atomic
+validate-then-commit state; the compositor owns presentation, focus and input
+routing through an asynchronous surface/buffer protocol. The initial path may
+remain software-rendered and single-output.
+
+Research against upstream AMD Display Core/DCN, DRM/KMS and AMDGPU sources
+establishes the Navi 23 implementation path but does **not** provide evidence
+for speculative raw register programming. Native modesetting therefore remains
+unchecked until a source-traceable implementation is validated, and physical
+Target 001 display claims still require real hardware evidence. See
+[ADR 0022](docs/decisions/0022-graphics-stack-navi23.md).
 
 ## M14 — Packages and development
 - [ ] Package format/database/dependencies
