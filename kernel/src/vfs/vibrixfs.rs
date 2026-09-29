@@ -17,6 +17,13 @@ mod wire;
 
 const MAX_RECORD_BYTES: usize = 272;
 
+struct DirectoryRecord {
+    inode: u64,
+    file_type: u8,
+    name: Option<Name>,
+    bytes: usize,
+}
+
 struct DeviceCell<T>(UnsafeCell<BlockDevice<T>>);
 
 impl<T: Transport> DeviceCell<T> {
@@ -234,7 +241,7 @@ impl<T: Transport> VibrixFs<T> {
         directory: &wire::Inode,
         offset: usize,
         storage: &mut [u8; MAX_RECORD_BYTES],
-    ) -> Result<Option<(u64, u8, Option<Name>, usize)>> {
+    ) -> Result<Option<DirectoryRecord>> {
         let size = usize::try_from(directory.size).map_err(|_| Error::BackendContract)?;
         if offset == size {
             return Ok(None);
@@ -271,7 +278,12 @@ impl<T: Transport> VibrixFs<T> {
         } else {
             Some(Name::new(entry.name)?)
         };
-        Ok(Some((entry.inode, entry.file_type, name, record)))
+        Ok(Some(DirectoryRecord {
+            inode: entry.inode,
+            file_type: entry.file_type,
+            name,
+            bytes: record,
+        }))
     }
 }
 
@@ -296,13 +308,16 @@ impl<T: Transport> Filesystem for VibrixFs<T> {
         }
         let mut offset = 0usize;
         let mut raw = [0u8; MAX_RECORD_BYTES];
-        while let Some((number, _, entry_name, used)) =
-            self.directory_record(&inode, offset, &mut raw)?
-        {
-            if entry_name.is_some_and(|entry_name| entry_name.as_str() == name) {
-                return Ok(NodeId(number));
+        while let Some(record) = self.directory_record(&inode, offset, &mut raw)? {
+            if record
+                .name
+                .is_some_and(|entry_name| entry_name.as_str() == name)
+            {
+                return Ok(NodeId(record.inode));
             }
-            offset = offset.checked_add(used).ok_or(Error::BackendContract)?;
+            offset = offset
+                .checked_add(record.bytes)
+                .ok_or(Error::BackendContract)?;
         }
         Err(Error::NotFound)
     }
@@ -315,18 +330,18 @@ impl<T: Transport> Filesystem for VibrixFs<T> {
         let mut offset = 0usize;
         let mut visible = 0usize;
         let mut raw = [0u8; MAX_RECORD_BYTES];
-        while let Some((number, file_type, name, used)) =
-            self.directory_record(&inode, offset, &mut raw)?
-        {
-            offset = offset.checked_add(used).ok_or(Error::BackendContract)?;
-            let Some(name) = name else {
+        while let Some(record) = self.directory_record(&inode, offset, &mut raw)? {
+            offset = offset
+                .checked_add(record.bytes)
+                .ok_or(Error::BackendContract)?;
+            let Some(name) = record.name else {
                 continue;
             };
             if visible == index {
                 return Ok(Some(Entry {
                     name,
-                    id: NodeId(number),
-                    kind: kind(file_type)?,
+                    id: NodeId(record.inode),
+                    kind: kind(record.file_type)?,
                 }));
             }
             visible += 1;
