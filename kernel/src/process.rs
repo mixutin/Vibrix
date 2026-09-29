@@ -38,6 +38,7 @@ pub struct Process {
     pub parent: Option<Pid>,
     pub state: State,
     pub credentials: Credentials,
+    pub no_new_privileges: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -117,6 +118,18 @@ impl<const N: usize> Table<N> {
         Ok(())
     }
 
+    /// Permanently prevent this process and its descendants from gaining
+    /// privileges through future execution transitions.
+    pub fn set_no_new_privileges(&mut self, pid: Pid) -> Result<(), Error> {
+        let index = self.index_of(pid).ok_or(Error::NotFound)?;
+        let process = self.slots[index].as_mut().ok_or(Error::NotFound)?;
+        if process.state != State::Running {
+            return Err(Error::ParentNotRunning);
+        }
+        process.no_new_privileges = true;
+        Ok(())
+    }
+
     fn index_of(&self, pid: Pid) -> Option<usize> {
         self.slots
             .iter()
@@ -136,7 +149,7 @@ impl<const N: usize> Table<N> {
         if self.get(Pid::INIT).is_some() || self.next_pid != Pid::INIT.get() {
             return Err(Error::ParentNotRunning);
         }
-        self.spawn(None, Credentials::root())
+        self.spawn(None, Credentials::root(), false)
     }
 
     pub fn spawn_child(&mut self, parent: Pid) -> Result<Pid, Error> {
@@ -146,13 +159,18 @@ impl<const N: usize> Table<N> {
                     state: State::Running,
                     ..
                 },
-            ) => self.spawn(Some(parent), process.credentials),
+            ) => self.spawn(Some(parent), process.credentials, process.no_new_privileges),
             Some(_) => Err(Error::ParentNotRunning),
             None => Err(Error::NotFound),
         }
     }
 
-    fn spawn(&mut self, parent: Option<Pid>, credentials: Credentials) -> Result<Pid, Error> {
+    fn spawn(
+        &mut self,
+        parent: Option<Pid>,
+        credentials: Credentials,
+        no_new_privileges: bool,
+    ) -> Result<Pid, Error> {
         let slot = self
             .slots
             .iter()
@@ -164,6 +182,7 @@ impl<const N: usize> Table<N> {
             parent,
             state: State::Running,
             credentials,
+            no_new_privileges,
         });
         Ok(pid)
     }
@@ -337,6 +356,20 @@ mod tests {
             table.get(child).unwrap().credentials,
             table.get(init).unwrap().credentials
         );
+    }
+
+    #[test]
+    fn no_new_privileges_is_monotonic_and_inherited() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+        assert!(!table.get(init).unwrap().no_new_privileges);
+        table.set_no_new_privileges(init).unwrap();
+        assert!(table.get(init).unwrap().no_new_privileges);
+
+        let child = table.spawn_child(init).unwrap();
+        assert!(table.get(child).unwrap().no_new_privileges);
+        table.set_no_new_privileges(child).unwrap();
+        assert!(table.get(child).unwrap().no_new_privileges);
     }
 
     #[test]
