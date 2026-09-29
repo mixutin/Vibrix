@@ -124,7 +124,7 @@ impl Credentials {
         &self.supplementary[..usize::from(self.supplementary_len)]
     }
 
-    pub const fn is_superuser(&self) -> bool {
+    pub fn is_superuser(&self) -> bool {
         self.effective_uid == Uid::ROOT
     }
 
