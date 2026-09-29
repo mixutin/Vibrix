@@ -921,7 +921,11 @@ pub unsafe fn load_elf_probe() -> Result<ActivatedProbe, ElfProbeError> {
         not(clippy)
     ))]
     let image: &[u8] = include_bytes!("../../../target/x86_64-unknown-none/debug/vibrix-sh");
-    #[cfg(all(feature = "package-metadata-probe", not(feature = "rust-shell-probe"), not(clippy)))]
+    #[cfg(all(
+        feature = "package-metadata-probe",
+        not(feature = "rust-shell-probe"),
+        not(clippy)
+    ))]
     let image: &[u8] =
         include_bytes!("../../../target/x86_64-unknown-none/debug/vibrix-package-probe");
     #[cfg(all(
