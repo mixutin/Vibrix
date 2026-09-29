@@ -107,6 +107,18 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     arch::x86_64::serial::init();
     crate::println!("Vibrix kernel started.");
     debugcon::write("VIBRIX: kernel serial initialized\r\n");
+    #[cfg(feature = "verbose-boot")]
+    {
+        crate::println!(
+            "Vibrix verbose boot: bootinfo memory_map_bytes={} descriptor_bytes={} framebuffer={}x{} stride={}",
+            info.memory_map_len,
+            info.memory_descriptor_size,
+            info.framebuffer_width,
+            info.framebuffer_height,
+            info.framebuffer_stride
+        );
+        debugcon::write("VIBRIX: verbose boot bootinfo reported\r\n");
+    }
 
     #[cfg(feature = "qemu-debugcon")]
     vibrix_kernel::subsystem_self_test(|marker| {
@@ -247,6 +259,18 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         compatibility.limited_by_known_quirk
     );
     debugcon::write("VIBRIX: kernel hardware compatibility report ready\r\n");
+    #[cfg(feature = "verbose-boot")]
+    {
+        crate::println!(
+            "Vibrix verbose boot: pci devices={} bars={} xhci={} candidates={} bound={}",
+            pci.devices,
+            pci.assigned_bars,
+            pci.xhci_controllers,
+            device_model.driver_candidates,
+            driver_binder.len()
+        );
+        debugcon::write("VIBRIX: verbose boot PCI summary reported\r\n");
+    }
     #[cfg(all(
         feature = "xhci-init-probe",
         not(feature = "usb-enum-probe"),
