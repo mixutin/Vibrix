@@ -58,7 +58,7 @@ echo "[vibrix] OVMF VARS: $OVMF_VARS"
 echo "[vibrix] QEMU CPU: ${VIBRIX_QEMU_CPU:-max}"
 echo "[vibrix] QEMU RAM: ${VIBRIX_QEMU_RAM:-512M}"
 echo "[vibrix] running headless QEMU smoke test"
-if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" ]]; then
+if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" || "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" == "1" ]]; then
   # Connect through QEMU's HMP monitor and send an actual emulated key
   # only after the independent native kernel reports its poll loop ready.
   # Python is host test infrastructure, not part of the Vibrix runtime.
@@ -124,7 +124,7 @@ timeout "$QEMU_TIMEOUT" qemu-system-x86_64 "${ARGS[@]}"
 RC=$?
 set -e
 
-if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" ]]; then
+if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" || "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" == "1" ]]; then
   if ! wait "$KEYBOARD_PID"; then
     echo "[vibrix] QEMU native keyboard injection failed" >&2
     [[ -f "$LOG" ]] && cat "$LOG"
