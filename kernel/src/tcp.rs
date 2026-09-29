@@ -244,7 +244,10 @@ impl Client {
     }
 
     pub fn accept_ack_only(&mut self, input: &[u8]) -> Result<(), Error> {
-        if !matches!(self.state, State::Established | State::FinWait1 | State::FinWait2) {
+        if !matches!(
+            self.state,
+            State::Established | State::FinWait1 | State::FinWait2
+        ) {
             return Err(Error::State);
         }
         let segment = parse(self.remote.address, self.local.address, input)?;
@@ -307,7 +310,9 @@ impl Client {
     }
 
     fn validate_ports(&self, segment: &Segment<'_>) -> Result<(), Error> {
-        if segment.source_port() != self.remote.port || segment.destination_port() != self.local.port {
+        if segment.source_port() != self.remote.port
+            || segment.destination_port() != self.local.port
+        {
             return Err(Error::Port);
         }
         Ok(())
