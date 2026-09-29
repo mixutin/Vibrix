@@ -33,5 +33,9 @@ pub mod serial;
 #[cfg(any(feature = "syscall-probe", feature = "process-syscall-probe"))]
 pub mod syscall;
 
-#[cfg(any(feature = "xhci-init-probe", feature = "usb-enum-probe"))]
+#[cfg(any(
+    feature = "xhci-init-probe",
+    feature = "usb-enum-probe",
+    feature = "usb-hub-probe"
+))]
 pub mod xhci;
