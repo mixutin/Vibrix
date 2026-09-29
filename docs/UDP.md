@@ -9,6 +9,8 @@ Checked: **2026-09-29**.
 This change adds an allocation-free UDP datagram layer on top of the bounded
 IPv4 implementation from PR #195.
 
+Synchronized merged IPv4/ICMP base: `8ae87325f8b7db161e4b664bbbdc063a45c10647`.
+
 Implemented behavior:
 
 - RFC 768 source/destination port fields;
