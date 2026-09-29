@@ -369,13 +369,13 @@ fn parse_reply(mac: MacAddress, xid: u32, input: &[u8]) -> Result<ParsedReply, E
                 subnet_mask = Some(read_ipv4(data)?);
             }
             OPTION_ROUTER => {
-                if data.len() < 4 || data.len() % 4 != 0 || router.is_some() {
+                if data.len() < 4 || !data.len().is_multiple_of(4) || router.is_some() {
                     return Err(Error::Options);
                 }
                 router = Some(read_ipv4(&data[..4])?);
             }
             OPTION_DNS => {
-                if data.len() < 4 || data.len() % 4 != 0 || dns.is_some() {
+                if data.len() < 4 || !data.len().is_multiple_of(4) || dns.is_some() {
                     return Err(Error::Options);
                 }
                 dns = Some(read_ipv4(&data[..4])?);
