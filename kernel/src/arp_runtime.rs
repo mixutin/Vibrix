@@ -172,10 +172,10 @@ pub fn process(
 }
 
 pub(super) fn self_test() -> Result<(), Error> {
-    let local_mac = MacAddress::new([2, 0, 0, 0, 0, 1])
-        .map_err(|_| Error::Arp(arp::Error::Invariant))?;
-    let remote_mac = MacAddress::new([2, 0, 0, 0, 0, 2])
-        .map_err(|_| Error::Arp(arp::Error::Invariant))?;
+    let local_mac =
+        MacAddress::new([2, 0, 0, 0, 0, 1]).map_err(|_| Error::Arp(arp::Error::Invariant))?;
+    let remote_mac =
+        MacAddress::new([2, 0, 0, 0, 0, 2]).map_err(|_| Error::Arp(arp::Error::Invariant))?;
     let local_ip = [192, 0, 2, 1];
     let remote_ip = [192, 0, 2, 2];
 
@@ -200,8 +200,13 @@ pub(super) fn self_test() -> Result<(), Error> {
 
     let mut cache = NeighborCache::new();
     let mut reply = [0u8; MAX_FRAME];
-    let Action::Reply(reply_length) =
-        process(local_mac, local_ip, &mut cache, &frame[..frame_length], &mut reply)?
+    let Action::Reply(reply_length) = process(
+        local_mac,
+        local_ip,
+        &mut cache,
+        &frame[..frame_length],
+        &mut reply,
+    )?
     else {
         return Err(Error::Arp(arp::Error::Invariant));
     };
@@ -240,9 +245,14 @@ mod tests {
         let mut payload = [0u8; arp::PACKET_BYTES];
         packet.write(&mut payload).unwrap();
         let mut frame = [0u8; MAX_FRAME];
-        let length =
-            ethernet::encode(packet.sender_mac, destination, ethernet::ARP, &payload, &mut frame)
-                .unwrap();
+        let length = ethernet::encode(
+            packet.sender_mac,
+            destination,
+            ethernet::ARP,
+            &payload,
+            &mut frame,
+        )
+        .unwrap();
         (frame, length)
     }
 
