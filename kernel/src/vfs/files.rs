@@ -3,6 +3,10 @@
 //! description because namespace mutation is mediated by this owner.
 use super::{Entry, Error, Kind, Metadata, Node, Result, Vfs, pipe::Pipe};
 
+#[cfg(test)]
+#[path = "dup2_tests.rs"]
+mod dup2_tests;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Access {
     Read,
@@ -137,6 +141,34 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
             .references += 1;
         self.descriptors[free] = Some(index);
         Ok(free)
+    }
+
+    /// Rebind an exact descriptor to the source's open description. Validation
+    /// happens before closing the target. Exclusive table ownership makes the
+    /// close/rebind indivisible to other callers; no spare slot is required.
+    pub fn dup2(&mut self, source: usize, target: usize) -> Result<usize> {
+        let index = self.description_index(source)?;
+        if target >= D {
+            return Err(Error::BadDescriptor);
+        }
+        if self.descriptors[target] == Some(index) {
+            return Ok(target);
+        }
+        let references = self.descriptions[index]
+            .as_ref()
+            .expect("live description")
+            .references
+            .checked_add(1)
+            .ok_or(Error::NoSpace)?;
+        if self.descriptors[target].is_some() {
+            self.close(target)?;
+        }
+        self.descriptions[index]
+            .as_mut()
+            .expect("source remains live")
+            .references = references;
+        self.descriptors[target] = Some(index);
+        Ok(target)
     }
 
     pub fn close(&mut self, fd: usize) -> Result<()> {

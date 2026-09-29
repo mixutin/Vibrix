@@ -45,7 +45,11 @@ pub fn self_test(mut report: impl FnMut(&str)) -> Result<()> {
     let mut files = Files::<2, 8, 1, 8>::new(vfs);
     let fd = files.open("/tmp/note", Open::READ_WRITE)?;
     files.seek(fd, 3)?;
-    let duplicate = files.dup(fd)?;
+    let spare = files.open("/dev/null", Open::READ_WRITE)?;
+    let duplicate = files.dup2(fd, spare)?;
+    assert_eq!(duplicate, spare);
+    assert_eq!(files.dup2(fd, fd)?, fd);
+    assert_eq!(files.dup2(usize::MAX, duplicate), Err(Error::BadDescriptor));
     assert_eq!(files.read(fd, &mut data[..2])?, 2);
     assert_eq!(&data[..2], b"vi");
     assert_eq!(files.read(duplicate, &mut data[..4])?, 4);
@@ -108,7 +112,8 @@ pub fn self_test(mut report: impl FnMut(&str)) -> Result<()> {
     assert_eq!(files.read(reader, &mut data[..4])?, 4);
     assert_eq!(&data[..4], b"abcd");
     assert_eq!(files.write(writer, b"123456")?, 6);
-    let writer_dup = files.dup(writer)?;
+    let writer_dup = files.dup2(writer, 7)?;
+    assert_eq!(writer_dup, 7);
     files.close(writer)?;
     assert_eq!(files.read(reader, &mut data)?, 8);
     assert_eq!(&data[..8], b"ef123456");
