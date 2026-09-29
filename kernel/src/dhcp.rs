@@ -459,14 +459,7 @@ pub(super) fn self_test() -> Result<(), Error> {
         return Err(Error::Format);
     }
 
-    let offer_len = write_server_reply(
-        mac,
-        xid,
-        MessageType::Offer,
-        address,
-        server,
-        &mut packet,
-    )?;
+    let offer_len = write_server_reply(mac, xid, MessageType::Offer, address, server, &mut packet)?;
     let offer = client.accept_offer(&packet[..offer_len])?;
     if offer.address != address || offer.server != server || client.state() != State::Requesting {
         return Err(Error::State);
@@ -477,14 +470,7 @@ pub(super) fn self_test() -> Result<(), Error> {
         return Err(Error::Format);
     }
 
-    let ack_len = write_server_reply(
-        mac,
-        xid,
-        MessageType::Ack,
-        address,
-        server,
-        &mut packet,
-    )?;
+    let ack_len = write_server_reply(mac, xid, MessageType::Ack, address, server, &mut packet)?;
     let lease = client.accept_ack(&packet[..ack_len])?;
     if client.state() != State::Bound
         || lease.address != address
@@ -550,12 +536,16 @@ mod tests {
         assert_eq!(offer.server, server);
 
         let request_length = client.request(&mut packet).unwrap();
-        assert!(packet[..request_length]
-            .windows(6)
-            .any(|window| window == [50, 4, address[0], address[1], address[2], address[3]]));
-        assert!(packet[..request_length]
-            .windows(6)
-            .any(|window| window == [54, 4, server[0], server[1], server[2], server[3]]));
+        assert!(
+            packet[..request_length]
+                .windows(6)
+                .any(|window| window == [50, 4, address[0], address[1], address[2], address[3]])
+        );
+        assert!(
+            packet[..request_length]
+                .windows(6)
+                .any(|window| window == [54, 4, server[0], server[1], server[2], server[3]])
+        );
 
         let length = write_server_reply(
             mac,
@@ -586,7 +576,10 @@ mod tests {
             &mut packet,
         )
         .unwrap();
-        assert_eq!(client.accept_offer(&packet[..length]), Err(Error::Transaction));
+        assert_eq!(
+            client.accept_offer(&packet[..length]),
+            Err(Error::Transaction)
+        );
 
         let length = write_server_reply(
             MacAddress::new([2, 0, 0, 0, 0, 8]).unwrap(),
