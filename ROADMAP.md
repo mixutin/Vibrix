@@ -913,7 +913,7 @@ package state, native USB storage and flash-write policy remain separate.
 - [x] Ethernet + ARP
 - [x] IPv4 + ICMP
 - [x] UDP
-- [ ] DHCP
+- [x] DHCP
 - [ ] DNS
 - [ ] TCP
 - [ ] sockets
@@ -937,6 +937,23 @@ inside IPv4 payloads, implements IPv4 pseudo-header checksums including
 odd-length payloads and zero-checksum semantics, and exercises the production
 path after firmware exit. This is the UDP datagram layer only: no sockets,
 port-allocation API, DHCP/DNS, TCP or external NIC claim follows.
+
+**Verified bounded M10 DHCPv4 acquisition (PR #211):**
+[Actions run 36586598165](https://github.com/mixutin/Vibrix/actions/runs/36586598165)
+passed the full exact-head CI/QEMU matrix on implementation head
+`7348d34ac368c98af61f6481fe6eda30d4207790`. The production kernel contains
+an allocation-free RFC 2131/2132 client for the initial
+`DISCOVER → OFFER → REQUEST → ACK` exchange, validates BOOTP identity,
+transaction ID, client MAC, magic cookie and bounded TLV options, rejects
+duplicate/malformed/wrong-server replies, and carries subnet/router/DNS/lease
+parameters into the accepted lease. The normal post-ExitBootServices QEMU path
+requires `VIBRIX: kernel DHCPv4 client exchange verified` on both debugcon and
+COM1.
+
+This checkbox is the **bounded DHCP protocol/acquisition layer**. There is still
+no external DHCP traffic until a native NIC driver is active, and lease
+retransmission, renewal/rebinding, persistence and randomized transaction-ID
+policy remain later runtime work.
 
 **Verified bounded M10 Ethernet + ARP runtime (PR #197):**
 [Actions run 36580005188](https://github.com/mixutin/Vibrix/actions/runs/36580005188)
