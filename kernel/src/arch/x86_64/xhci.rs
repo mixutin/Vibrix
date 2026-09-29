@@ -2,13 +2,17 @@
 //!
 //! This module owns the bounded early xHCI proof path: controller startup,
 //! one directly attached device, and USB2 hub class control/port management.
-//! HID and mass-storage endpoint drivers remain later milestones.
+//! HID boot input uses bounded native interrupt-IN endpoints; mass storage
+//! and general multi-device scheduling remain later milestones.
 
 use crate::{BootInfo, memory};
 use core::arch::{asm, x86_64::__cpuid_count};
 
 use super::pci::{self, Bar, Device};
 use crate::memory::virtual_memory::Window;
+
+#[cfg(target_os = "none")]
+mod hid;
 
 const PAGE: u64 = 4096;
 const IA32_PAT: u32 = 0x277;
@@ -93,9 +97,13 @@ pub enum InitError {
     DescriptorMalformed,
     NotHub,
     NoDownstreamDevice,
+    #[cfg(all(
+        feature = "usb-hid-keyboard-probe",
+        not(feature = "usb-hid-mouse-probe")
+    ))]
     NotHidBootKeyboard,
     NotHidBootMouse,
-    HidReportTimeout,
+    Hid(vibrix_kernel::usb_hid::Error),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -155,15 +163,6 @@ pub struct UsbHidMouseSummary {
     pub buttons: u8,
     pub x: i8,
     pub y: i8,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct HidBootInterface {
-    configuration: u8,
-    interface: u8,
-    endpoint_address: u8,
-    endpoint_max_packet: u16,
-    interval: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -293,88 +292,6 @@ fn setup_hid_set_protocol(interface: u8) -> [u32; 4] {
 fn setup_hid_set_idle(interface: u8) -> [u32; 4] {
     // OUT | class | interface, SET_IDLE(duration=0, report-id=0).
     setup_packet(0x21, 0x0a, 0, u16::from(interface), 0, 0)
-}
-
-fn setup_hid_get_input_report(interface: u8, length: u16) -> [u32; 4] {
-    // IN | class | interface, GET_REPORT(Input, report-id=0).
-    setup_packet(0xa1, 0x01, 0x0100, u16::from(interface), length, 3)
-}
-
-fn parse_hid_boot_configuration(
-    bytes: &[u8],
-    protocol: u8,
-    minimum_packet: u16,
-    missing: InitError,
-) -> Result<HidBootInterface, InitError> {
-    if bytes.len() < 9 || bytes[0] < 9 || bytes[1] != 0x02 {
-        return Err(InitError::DescriptorMalformed);
-    }
-    let total = usize::from(u16::from_le_bytes([bytes[2], bytes[3]]));
-    if total < 9 || total > bytes.len() || bytes[5] == 0 {
-        return Err(InitError::DescriptorMalformed);
-    }
-
-    let mut offset = usize::from(bytes[0]);
-    let mut boot_interface = None;
-    while offset < total {
-        if offset + 2 > total {
-            return Err(InitError::DescriptorMalformed);
-        }
-        let length = usize::from(bytes[offset]);
-        let kind = bytes[offset + 1];
-        if length < 2 || offset + length > total {
-            return Err(InitError::DescriptorMalformed);
-        }
-
-        if kind == 0x04 {
-            if length < 9 {
-                return Err(InitError::DescriptorMalformed);
-            }
-            boot_interface = if bytes[offset + 5] == 0x03
-                && bytes[offset + 6] == 0x01
-                && bytes[offset + 7] == protocol
-            {
-                Some(bytes[offset + 2])
-            } else {
-                None
-            };
-        } else if kind == 0x05
-            && let Some(interface) = boot_interface
-        {
-            if length < 7 {
-                return Err(InitError::DescriptorMalformed);
-            }
-            let endpoint_address = bytes[offset + 2];
-            let attributes = bytes[offset + 3] & 0x03;
-            let endpoint_max_packet =
-                u16::from_le_bytes([bytes[offset + 4], bytes[offset + 5]]) & 0x07ff;
-            let interval = bytes[offset + 6];
-            if endpoint_address & 0x80 != 0
-                && attributes == 0x03
-                && endpoint_max_packet >= minimum_packet
-                && interval != 0
-            {
-                return Ok(HidBootInterface {
-                    configuration: bytes[5],
-                    interface,
-                    endpoint_address,
-                    endpoint_max_packet,
-                    interval,
-                });
-            }
-        }
-        offset += length;
-    }
-
-    Err(missing)
-}
-
-fn parse_hid_boot_keyboard_configuration(bytes: &[u8]) -> Result<HidBootInterface, InitError> {
-    parse_hid_boot_configuration(bytes, 1, 8, InitError::NotHidBootKeyboard)
-}
-
-fn parse_hid_boot_mouse_configuration(bytes: &[u8]) -> Result<HidBootInterface, InitError> {
-    parse_hid_boot_configuration(bytes, 2, 3, InitError::NotHidBootMouse)
 }
 
 fn setup_set_configuration(configuration: u8) -> [u32; 4] {
@@ -1286,145 +1203,55 @@ unsafe fn enumerate_first_device_inner(
     let mut keyboard_summary = None;
     let mut mouse_summary = None;
     if let Some(probe) = hid_probe {
-        let header_bytes = unsafe {
-            rings.control_in(
-                transfer_base,
-                &mut transfer_index,
-                slot_id,
-                setup_get_configuration_descriptor(9),
-                descriptor_buffer,
-                9,
-            )
-        }?;
-        if header_bytes < 9
-            || unsafe { read8(descriptor_base, 0) } < 9
-            || unsafe { read8(descriptor_base, 1) } != 0x02
-        {
-            return Err(InitError::DescriptorMalformed);
-        }
-        let total_length = u16::from_le_bytes([unsafe { read8(descriptor_base, 2) }, unsafe {
-            read8(descriptor_base, 3)
-        }]);
-        if !(9..=256).contains(&total_length) {
-            return Err(InitError::DescriptorMalformed);
-        }
-        let config_bytes = unsafe {
-            rings.control_in(
-                transfer_base,
-                &mut transfer_index,
-                slot_id,
-                setup_get_configuration_descriptor(total_length),
-                descriptor_buffer,
-                u32::from(total_length),
-            )
-        }?;
-        if config_bytes < u32::from(total_length) {
-            return Err(InitError::DescriptorMalformed);
-        }
-        let mut configuration = [0u8; 256];
-        for (offset, byte) in configuration
-            .iter_mut()
-            .enumerate()
-            .take(usize::from(total_length))
-        {
-            *byte = unsafe { read8(descriptor_base, offset) };
-        }
-        let config = &configuration[..usize::from(total_length)];
-        let interface = if probe.keyboard {
-            parse_hid_boot_keyboard_configuration(config)?
+        let protocol = if probe.keyboard {
+            vibrix_kernel::usb_hid::Protocol::Keyboard
         } else {
-            parse_hid_boot_mouse_configuration(config)?
+            vibrix_kernel::usb_hid::Protocol::Mouse
         };
-
-        unsafe {
-            rings.control_no_data(
-                transfer_base,
-                &mut transfer_index,
-                slot_id,
-                setup_set_configuration(interface.configuration),
-            )?;
-            rings.control_no_data(
-                transfer_base,
-                &mut transfer_index,
-                slot_id,
-                setup_hid_set_protocol(interface.interface),
-            )?;
-            rings.control_no_data(
-                transfer_base,
-                &mut transfer_index,
-                slot_id,
-                setup_hid_set_idle(interface.interface),
-            )?;
-        }
-
-        let report_length = if probe.keyboard {
-            crate::debugcon::write("VIBRIX: kernel USB HID keyboard ready\r\n");
-            8u16
-        } else {
-            crate::debugcon::write("VIBRIX: kernel USB HID mouse ready\r\n");
-            3u16
-        };
-
-        let mut observed = false;
-        for _ in 0..64 {
-            let report_bytes = unsafe {
-                rings.control_in(
+        // SAFETY: sole BSP, IF=0, completed EP0 transfer. The helper borrows
+        // the same exclusive window/rings and retained DMA ownership.
+        let evidence = unsafe {
+            hid::run(
+                &mut vm,
+                &mut rings,
+                hid::Control {
+                    input_context,
+                    device_context,
                     transfer_base,
-                    &mut transfer_index,
-                    slot_id,
-                    setup_hid_get_input_report(interface.interface, report_length),
+                    transfer_index: &mut transfer_index,
                     descriptor_buffer,
-                    u32::from(report_length),
-                )
-            }?;
-
-            if probe.keyboard && report_bytes >= 8 {
-                let modifiers = unsafe { read8(descriptor_base, 0) };
-                for index in 2..8 {
-                    let usage = unsafe { read8(descriptor_base, index) };
-                    if usage == probe.expected_usage {
-                        keyboard_summary = Some(UsbHidKeyboardSummary {
-                            root_port: port,
-                            slot_id,
-                            interface: interface.interface,
-                            endpoint_address: interface.endpoint_address,
-                            endpoint_max_packet: interface.endpoint_max_packet,
-                            interval: interface.interval,
-                            modifiers,
-                            usage,
-                        });
-                        observed = true;
-                        break;
-                    }
-                }
-            } else if !probe.keyboard && report_bytes >= 3 {
-                let buttons = unsafe { read8(descriptor_base, 0) };
-                let x = unsafe { read8(descriptor_base, 1) } as i8;
-                let y = unsafe { read8(descriptor_base, 2) } as i8;
-                if x != 0 || y != 0 {
-                    mouse_summary = Some(UsbHidMouseSummary {
-                        root_port: port,
-                        slot_id,
-                        interface: interface.interface,
-                        endpoint_address: interface.endpoint_address,
-                        endpoint_max_packet: interface.endpoint_max_packet,
-                        interval: interface.interval,
-                        buttons,
-                        x,
-                        y,
-                    });
-                    observed = true;
-                }
-            }
-            if observed {
-                break;
-            }
-            for _ in 0..64_000 {
-                core::hint::spin_loop();
-            }
+                    descriptor_base,
+                    device: device_summary,
+                },
+                protocol,
+                probe.expected_usage,
+            )
+        }?;
+        let endpoint = evidence.endpoint;
+        if let Some(keyboard) = evidence.keyboard {
+            keyboard_summary = Some(UsbHidKeyboardSummary {
+                root_port: port,
+                slot_id,
+                interface: endpoint.interface,
+                endpoint_address: endpoint.address,
+                endpoint_max_packet: endpoint.max_packet,
+                interval: endpoint.interval,
+                modifiers: keyboard.modifiers,
+                usage: probe.expected_usage,
+            });
         }
-        if !observed {
-            return Err(InitError::HidReportTimeout);
+        if let Some(mouse) = evidence.mouse {
+            mouse_summary = Some(UsbHidMouseSummary {
+                root_port: port,
+                slot_id,
+                interface: endpoint.interface,
+                endpoint_address: endpoint.address,
+                endpoint_max_packet: endpoint.max_packet,
+                interval: endpoint.interval,
+                buttons: mouse.buttons,
+                x: mouse.dx,
+                y: mouse.dy,
+            });
         }
     }
 
@@ -1469,7 +1296,7 @@ pub unsafe fn inspect_first_hub(info: &BootInfo) -> Result<UsbHubSummary, InitEr
 }
 
 /// Configure one directly attached USB HID boot keyboard and observe one
-/// expected usage code through the class GET_REPORT path.
+/// expected usage, a shifted key and releases over its interrupt-IN endpoint.
 ///
 /// # Safety
 /// Same exclusive single-BSP xHCI ownership as device enumeration. The host
@@ -1498,7 +1325,7 @@ pub unsafe fn probe_hid_boot_keyboard(
 }
 
 /// Configure one directly attached USB HID boot mouse and observe non-zero
-/// relative motion through the class GET_REPORT path.
+/// signed relative motion, button press and release over interrupt IN.
 ///
 /// # Safety
 /// Same exclusive single-BSP xHCI ownership as device enumeration. The host
@@ -1573,7 +1400,7 @@ mod tests {
     }
 
     #[test]
-    fn hid_setup_packets_and_boot_keyboard_parser_are_exact() {
+    fn hid_setup_packets_are_exact() {
         let protocol = setup_hid_set_protocol(2);
         assert_eq!(protocol[0], 0x0000_0b21);
         assert_eq!(protocol[1], 2);
@@ -1582,39 +1409,6 @@ mod tests {
         let idle = setup_hid_set_idle(2);
         assert_eq!(idle[0], 0x0000_0a21);
         assert_eq!(idle[1], 2);
-
-        let report = setup_hid_get_input_report(2, 8);
-        assert_eq!(report[0], 0x0100_01a1);
-        assert_eq!(report[1], (8 << 16) | 2);
-        assert_eq!((report[3] >> 16) & 0x3, 3);
-
-        let descriptor = [
-            9, 2, 34, 0, 1, 1, 0, 0xa0, 50, 9, 4, 0, 0, 1, 3, 1, 1, 0, 9, 0x21, 0x11, 0x01, 0, 1,
-            0x22, 63, 0, 7, 5, 0x81, 0x03, 8, 0, 10,
-        ];
-        let keyboard = parse_hid_boot_keyboard_configuration(&descriptor).unwrap();
-        assert_eq!(keyboard.configuration, 1);
-        assert_eq!(keyboard.interface, 0);
-        assert_eq!(keyboard.endpoint_address, 0x81);
-        assert_eq!(keyboard.endpoint_max_packet, 8);
-        assert_eq!(keyboard.interval, 10);
-
-        let mut not_keyboard = descriptor;
-        not_keyboard[16] = 2;
-        assert_eq!(
-            parse_hid_boot_keyboard_configuration(&not_keyboard),
-            Err(InitError::NotHidBootKeyboard)
-        );
-
-        let mut mouse = descriptor;
-        mouse[16] = 2;
-        mouse[32] = 4;
-        let parsed_mouse = parse_hid_boot_mouse_configuration(&mouse).unwrap();
-        assert_eq!(parsed_mouse.configuration, 1);
-        assert_eq!(parsed_mouse.interface, 0);
-        assert_eq!(parsed_mouse.endpoint_address, 0x81);
-        assert_eq!(parsed_mouse.endpoint_max_packet, 4);
-        assert_eq!(parsed_mouse.interval, 10);
     }
 
     #[test]

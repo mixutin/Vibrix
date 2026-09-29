@@ -320,8 +320,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     ))]
     {
         // SAFETY: the bounded probe owns the directly attached QEMU USB
-        // keyboard, configures HID Boot Protocol and observes a real class
-        // input report before releasing all temporary xHCI mappings.
+        // keyboard, configures HID Boot Protocol and observes real interrupt-IN
+        // input reports before releasing all temporary xHCI mappings.
         let keyboard = unsafe { arch::x86_64::xhci::probe_hid_boot_keyboard(&info, 0x0b) }
             .unwrap_or_else(|error| panic!("USB HID keyboard probe failed: {:?}", error));
         crate::println!(
@@ -341,7 +341,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     #[cfg(feature = "usb-hid-mouse-probe")]
     {
         // SAFETY: the bounded probe owns the directly attached QEMU USB mouse,
-        // configures HID Boot Protocol and observes a real class input report
+        // configures HID Boot Protocol and observes real interrupt-IN reports
         // before releasing all temporary xHCI mappings.
         let mouse = unsafe { arch::x86_64::xhci::probe_hid_boot_mouse(&info) }
             .unwrap_or_else(|error| panic!("USB HID mouse probe failed: {:?}", error));
