@@ -2,6 +2,8 @@
 pub mod acpi;
 pub mod acpi_runtime;
 pub mod apic;
+#[cfg(feature = "ap-startup-probe")]
+pub mod ap_startup;
 pub mod cpuid;
 pub mod gdt;
 pub mod idt;
