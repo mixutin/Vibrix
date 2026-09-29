@@ -478,7 +478,7 @@ jobs:
           VIBRIX_SKIP_BUILD=1 VIBRIX_QEMU_USB_HID_MOUSE_PROBE=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
           grep -Fq "VIBRIX: kernel USB HID mouse ready" build/qemu/debugcon.log
           grep -Fq "VIBRIX: kernel USB HID mouse motion observed" build/qemu/debugcon.log
-          tr -d '\r' < build/qemu/serial.log | grep -Eq '^kernel USB HID mouse: root_port=[1-9][0-9]* slot=[1-9][0-9]* interface=[0-9]+ endpoint=0x8[0-9a-f] mps=[1-9][0-9]* interval=[1-9][0-9]* buttons=0x[0-9a-f]{2} x=-?[0-9]+ y=-?[0-9]+        env:
+          tr -d '\\r' < build/qemu/serial.log | grep -Eq '^kernel USB HID mouse: root_port=[1-9][0-9]* slot=[1-9][0-9]* interface=[0-9]+ endpoint=0x8[0-9a-f] mps=[1-9][0-9]* interval=[1-9][0-9]* buttons=0x[0-9a-f]{2} x=-?[0-9]+ y=-?[0-9]+        env:
           VIBRIX_SKIP_BUILD: "1"
           VIBRIX_QEMU_KEYBOARD_PROBE: "1"
         run: |
@@ -654,7 +654,7 @@ jobs:
           print("All applicable CI checks passed.")
           PY
 
-          if tr -d '\r' < build/qemu/serial.log | grep -Fq " x=0 y=0"; then
+          if tr -d '\\r' < build/qemu/serial.log | grep -Fq " x=0 y=0"; then
             echo "USB HID mouse proof observed no motion" >&2
             exit 1
           fi
