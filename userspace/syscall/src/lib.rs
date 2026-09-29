@@ -113,6 +113,42 @@ pub fn getpid() -> Result<u64> {
     no_args(abi::Syscall::GetPid)
 }
 
+fn id_arg(value: Option<u32>) -> u64 {
+    value.map_or(abi::ID_UNCHANGED, u64::from)
+}
+
+pub fn getresuid(ids: &mut abi::IdTriple) -> Result<()> {
+    call(
+        abi::Syscall::GetResUid,
+        [ids as *mut abi::IdTriple as u64, 0, 0, 0, 0, 0],
+    )
+    .map(|_| ())
+}
+
+pub fn setresuid(real: Option<u32>, effective: Option<u32>, saved: Option<u32>) -> Result<()> {
+    call(
+        abi::Syscall::SetResUid,
+        [id_arg(real), id_arg(effective), id_arg(saved), 0, 0, 0],
+    )
+    .map(|_| ())
+}
+
+pub fn getresgid(ids: &mut abi::IdTriple) -> Result<()> {
+    call(
+        abi::Syscall::GetResGid,
+        [ids as *mut abi::IdTriple as u64, 0, 0, 0, 0, 0],
+    )
+    .map(|_| ())
+}
+
+pub fn setresgid(real: Option<u32>, effective: Option<u32>, saved: Option<u32>) -> Result<()> {
+    call(
+        abi::Syscall::SetResGid,
+        [id_arg(real), id_arg(effective), id_arg(saved), 0, 0, 0],
+    )
+    .map(|_| ())
+}
+
 pub fn read(fd: u64, buffer: &mut [u8]) -> Result<usize> {
     let raw = call(
         abi::Syscall::Read,
@@ -272,6 +308,15 @@ mod tests {
     fn host_backend_never_executes_host_syscalls() {
         assert_eq!(getpid(), Err(abi::Errno::NotSupported.code()));
         assert_eq!(yield_now(), Err(abi::Errno::NotSupported.code()));
+        let mut ids = abi::IdTriple::ROOT;
+        assert_eq!(
+            getresuid(&mut ids),
+            Err(abi::Errno::NotSupported.code())
+        );
+        assert_eq!(
+            setresuid(None, Some(1000), None),
+            Err(abi::Errno::NotSupported.code())
+        );
     }
 
     #[test]
@@ -302,5 +347,9 @@ mod tests {
         assert_eq!(abi::Syscall::ReadDir.number(), 12);
         assert_eq!(abi::Syscall::ProcessInfo.number(), 13);
         assert_eq!(abi::Syscall::Kill.number(), 14);
+        assert_eq!(abi::Syscall::GetResUid.number(), 19);
+        assert_eq!(abi::Syscall::SetResUid.number(), 20);
+        assert_eq!(abi::Syscall::GetResGid.number(), 21);
+        assert_eq!(abi::Syscall::SetResGid.number(), 22);
     }
 }
