@@ -998,33 +998,60 @@ pub fn copy_from_user(address: u64, bytes: &mut [u8]) -> Result<(), AddressSpace
     // SAFETY: process syscalls run on the sole BSP with IF masked by FMASK.
     let state = unsafe { &mut *ADDRESS_SPACE.0.get() };
     let space = state.as_mut().ok_or(AddressSpaceError::NotInitialized)?;
-    let active = ACTIVE_ROOT.load(Ordering::SeqCst);
-    if active == 0 || active != space.user_root || current_root() != active {
+    let user_root = ACTIVE_ROOT.load(Ordering::SeqCst);
+    if user_root == 0 || user_root != space.user_root || current_root() != user_root {
         return Err(AddressSpaceError::InvalidRoot);
     }
 
-    let mut cursor = address;
-    loop {
-        let page = Page::new_user(cursor & !0xfff)?;
-        let mapping = space.vm.query(page)?.ok_or(Error::NotMapped)?;
-        if mapping.privilege != Privilege::User {
-            return Err(AddressSpaceError::InvalidRoot);
+    // The VMM owns page-table frames through kernel mappings. Walking those
+    // tables while the private CR3 is active can touch unmapped physical
+    // addresses, so validate and stage each user page under the kernel root.
+    unsafe { switch_root(space.kernel_root) };
+    let result = (|| {
+        let mut cursor = address;
+        loop {
+            let page = Page::new_user(cursor & !0xfff)?;
+            let mapping = space.vm.query(page)?.ok_or(Error::NotMapped)?;
+            if mapping.privilege != Privilege::User {
+                return Err(AddressSpaceError::InvalidRoot);
+            }
+            if (cursor & !0xfff) == (final_address & !0xfff) {
+                break;
+            }
+            cursor = (cursor & !0xfff)
+                .checked_add(4096)
+                .ok_or(AddressSpaceError::InvalidRoot)?;
         }
-        if (cursor & !0xfff) == (final_address & !0xfff) {
-            break;
-        }
-        cursor = (cursor & !0xfff)
-            .checked_add(4096)
-            .ok_or(AddressSpaceError::InvalidRoot)?;
-    }
 
-    // SAFETY: the complete source range is mapped user-accessible in the
-    // currently active private CR3. The destination is a disjoint kernel
-    // buffer and no Rust reference is constructed for userspace memory.
-    unsafe {
-        core::ptr::copy_nonoverlapping(address as *const u8, bytes.as_mut_ptr(), bytes.len());
-    }
-    Ok(())
+        let mut copied = 0usize;
+        while copied < bytes.len() {
+            let current = address
+                .checked_add(copied as u64)
+                .ok_or(AddressSpaceError::InvalidRoot)?;
+            let page_address = current & !0xfff;
+            let offset = (current - page_address) as usize;
+            let count = core::cmp::min(4096 - offset, bytes.len() - copied);
+            let page = Page::new_user(page_address)?;
+            let mapping = space.vm.query(page)?.ok_or(Error::NotMapped)?;
+            let staged = unsafe { space.staging.map(mapping.physical, false) }
+                .map_err(|_| AddressSpaceError::Scratch)?;
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    (staged as *const u8).add(offset),
+                    bytes[copied..copied + count].as_mut_ptr(),
+                    count,
+                );
+                space
+                    .staging
+                    .unmap()
+                    .map_err(|_| AddressSpaceError::Scratch)?;
+            }
+            copied += count;
+        }
+        Ok(())
+    })();
+    unsafe { switch_root(user_root) };
+    result
 }
 
 #[cfg(feature = "process-syscall-probe")]
