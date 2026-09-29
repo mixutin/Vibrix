@@ -667,11 +667,28 @@ recursive copy semantics or POSIX conformance.
 - [x] USB hub support
 - [x] USB HID keyboard
 - [x] USB HID mouse
-- [ ] USB mass-storage transport
-- [ ] SCSI transparent command subset for mass storage
+- [x] USB mass-storage transport
+- [x] SCSI transparent command subset for mass storage
 - [x] Block-device abstraction
 - [ ] Detect the boot USB device robustly
 - [ ] Read/write blocks on the Vibrix USB device
+
+**Verified M7 native USB mass-storage BOT + SCSI transport (PR #253):**
+All 23 exact-head workflows passed implementation head
+`f9e14b6ec60996cdc90e78216eda9175079f07bd`, including the dedicated USB
+mass-storage evidence. The native xHCI path configures the device's bulk IN/OUT
+endpoints and carries the shared BOT CBW/CSW and SCSI contracts through real
+QEMU USB storage. Evidence exercises TEST UNIT READY, INQUIRY, REQUEST SENSE,
+READ CAPACITY(10), READ(10), WRITE(10), and SYNCHRONIZE CACHE(10), performs a
+reversible one-block write/flush/read-back at the bounded test LBA, restores the
+original contents, and requires the disposable backing image hash to match
+before and after the proof.
+
+This checks **USB mass-storage transport** and the bounded **SCSI transparent
+command subset for mass storage** only. It does not yet identify the firmware
+boot USB robustly, expose long-lived USB block-device ownership, mount a
+persistent root, cover hub-routed storage/reset recovery/multiple LUNs, or prove
+physical Target 001 behavior.
 
 **Exit:** Vibrix can access the same removable USB device it booted from after leaving firmware services.
 
