@@ -1269,7 +1269,7 @@ Post-operational milestone: Vibrix already boots into persistent userspace befor
 this milestone begins.
 
 - [ ] Signed system update manifests and artifacts
-- [ ] Stable / beta / nightly update channels
+- [x] Stable / beta / nightly update channels
 - [ ] Transactional update staging
 - [ ] Automatic rollback after failed boot/update
 - [ ] Explicit `vpm update` / system-update workflow
@@ -1281,6 +1281,18 @@ this milestone begins.
 - [ ] Offline signed update bundles
 - [ ] USB health and write/endurance diagnostics
 - [ ] Power-loss/update interruption tests
+
+**Verified M16 stable / beta / nightly update-channel policy (PR #265):**
+all 23 exact-head workflows passed implementation head
+`2a529807567ea6856d6ae348924dab4555e67cf4`, including dedicated
+[update-channel run 36629207805](https://github.com/mixutin/Vibrix/actions/runs/36629207805).
+The update state machine now carries an explicit stable/beta/nightly channel,
+strictly rejects unknown channel names and channel-mismatched candidate
+releases, and refuses a channel switch while a trial update is pending.
+
+This checks the bounded **Stable / beta / nightly update channels** control-plane
+item. Persistent channel configuration, artifact fetching, signatures and
+automatic update execution remain separate work.
 
 **Exit:** a failed system update can be diagnosed and rolled back from the same
 Vibrix USB without another computer or operating system.
