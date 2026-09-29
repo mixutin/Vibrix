@@ -247,8 +247,8 @@ pub fn draw<C: Canvas>(
 
 #[cfg(test)]
 mod tests {
-    use vibrix_syscall::display::Rect;
     use super::*;
+    use vibrix_syscall::display::Rect;
     struct Checked {
         width: u32,
         height: u32,
