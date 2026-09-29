@@ -50,6 +50,9 @@ impl MacAddress {
 #[path = "arp.rs"]
 pub mod arp;
 
+#[path = "arp_runtime.rs"]
+pub mod arp_runtime;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LinkState {
     Down,
@@ -194,6 +197,10 @@ pub fn udp_self_test() -> Result<(), Error> {
     udp::self_test().map_err(|_| Error::Io)
 }
 
+pub fn ethernet_arp_self_test() -> Result<(), Error> {
+    arp_runtime::self_test().map_err(|_| Error::Io)
+}
+
 pub fn self_test() -> Result<(), Error> {
     let address = MacAddress::new([2, 0, 0, 0, 0, 1])?;
     arp::self_test().map_err(|_| Error::Io)?;
@@ -248,6 +255,11 @@ mod tests {
     #[test]
     fn production_udp_datagram_path() {
         assert_eq!(udp_self_test(), Ok(()));
+    }
+
+    #[test]
+    fn production_ethernet_arp_path() {
+        assert_eq!(ethernet_arp_self_test(), Ok(()));
     }
 
     #[test]
