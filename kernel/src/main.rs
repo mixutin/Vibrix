@@ -128,6 +128,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     arch::x86_64::syscall::init_process_probe()
         .unwrap_or_else(|error| panic!("process syscall probe initialization failed: {:?}", error));
     #[cfg(feature = "userspace-io-probe")]
+    debugcon::write("VIBRIX: kernel process probe initialized for userspace I/O\r\n");
+    #[cfg(feature = "userspace-io-probe")]
     userspace_io::init().unwrap_or_else(|error| panic!("userspace stdio init failed: {:?}", error));
 
     // A kernel-side ACPI read after ExitBootServices, not a loader marker.
