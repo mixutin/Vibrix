@@ -1023,7 +1023,22 @@ Target 001 display claims still require real hardware evidence. See
 - [ ] signed repositories
 - [ ] ports/build recipes
 - [ ] editor/developer tooling
-- [ ] compiler bootstrap plan
+- [x] compiler bootstrap plan
+
+**Verified M14 Rust compiler bootstrap plan (PR #220):**
+[Actions run 36590730685](https://github.com/mixutin/Vibrix/actions/runs/36590730685)
+passed the full exact-head repository matrix on implementation head
+`8c58ce2b9740ab78870693929456e3b95f641ce2`. The accepted plan defines the
+transition from the current external cross-compiled bare-metal toolchain to a
+hosted Vibrix target, an externally produced first native stage0, native program
+compilation evidence, upstream-style stage0/stage1/stage2 rebuilding,
+provenance/reproducibility metadata, explicit transitional linker/codegen trust
+dependencies, and the USB-only failure boundary.
+
+This checks only the **compiler bootstrap plan** deliverable. No hosted Vibrix
+Rust target, native rustc/Cargo execution, self-hosted userspace/kernel build or
+bootable-release production is claimed; those remain M15/M20 execution
+milestones.
 
 ## M15 — Self-hosting
 - [ ] Compile a Rust userspace program on Vibrix
