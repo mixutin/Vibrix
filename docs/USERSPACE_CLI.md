@@ -190,3 +190,22 @@ explicitly invoke `--bundle`; ordinary `vibrix doctor` output remains unchanged.
 The current bundle labels persistence, network-link, update and hardware-health
 state unavailable rather than inventing diagnostics that the userspace ABI does
 not expose yet.
+
+
+## Explicit-opt-in anonymized compatibility report
+
+`vibrix compat-report --anonymized` emits a local-only, bounded compatibility
+summary. The exact `--anonymized` token is mandatory; `vibrix compat-report`
+without it is a usage error. This makes report generation an explicit operator
+action rather than a background behavior.
+
+The report deliberately contains only coarse architecture and implementation
+support states plus a known xHCI limitation. It excludes device/vendor/product
+IDs, serial-like identifiers, MAC/IP addresses, PIDs, usernames, user paths,
+file contents, environment variables and shell history. It also prints
+`upload=none`: Vibrix does not transmit the report automatically. Sharing it
+remains a separate explicit operator action outside the command.
+
+This is not hardware telemetry and does not prove physical compatibility. It is
+a privacy-bounded compatibility-report format suitable for future manual or
+explicitly consented submission workflows.

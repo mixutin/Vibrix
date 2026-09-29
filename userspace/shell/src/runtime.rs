@@ -517,6 +517,7 @@ impl Shell {
                 [b"status"] => render_vibrix_status(io, out)?,
                 [b"doctor"] => render_vibrix_doctor(io, out)?,
                 [b"doctor", b"--bundle"] => render_vibrix_doctor_bundle(io, out)?,
+                [b"compat-report", b"--anonymized"] => render_vibrix_compatibility_report(io, out)?,
                 _ => return Err(Error::Usage),
             },
             Builtin::Fetch => {
@@ -888,6 +889,29 @@ fn render_vibrix_doctor_bundle(io: &mut dyn System, fd: u64) -> Result<()> {
         fd,
         b"privacy_note=no-file-contents,no-pid-list,no-memory-addresses,no-hardware-identifiers,no-environment,no-history\nEND-VIBRIX-SUPPORT-BUNDLE\n",
     )?;
+    Ok(())
+}
+
+fn render_vibrix_compatibility_report(io: &mut dyn System, fd: u64) -> Result<()> {
+    // This report is local-only and intentionally contains no stable device,
+    // account, network, process or filesystem identifiers. The explicit
+    // --anonymized token is required by dispatch before this function runs.
+    write_all(io, fd, b"VIBRIX-COMPATIBILITY-REPORT v1\n")?;
+    write_all(io, fd, b"consent=explicit-anonymized\n")?;
+    write_all(io, fd, b"upload=none\n")?;
+    write_all(io, fd, b"architecture=x86_64\n")?;
+    write_all(io, fd, b"boot_environment=qemu-or-hardware-unclassified\n")?;
+    write_all(io, fd, b"usb_hid=implemented-bounded\n")?;
+    write_all(io, fd, b"usb_storage=not-claimed\n")?;
+    write_all(io, fd, b"network_driver=not-claimed\n")?;
+    write_all(io, fd, b"graphics=framebuffer-userspace-api\n")?;
+    write_all(io, fd, b"known_limit=xhci-32-byte-contexts-only\n")?;
+    write_all(
+        io,
+        fd,
+        b"privacy_note=no-device-ids,no-serials,no-network-addresses,no-pids,no-user-paths,no-file-contents,no-history\n",
+    )?;
+    write_all(io, fd, b"END-VIBRIX-COMPATIBILITY-REPORT\n")?;
     Ok(())
 }
 
