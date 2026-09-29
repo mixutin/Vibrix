@@ -580,7 +580,7 @@ jobs:
           grep -Fq "VIBRIX: kernel Rust shell ELF loaded" build/qemu/debugcon.log
           grep -Fq "VIBRIX: userspace TTY read waiting for keyboard" build/qemu/debugcon.log
           tr -d '\r' < build/qemu/serial.log | grep -Fq "Vibrix shell"
-          tr -d '\r' < build/qemu/serial.log | grep -Fq "cat echo ls pwd cd mkdir cp mv rm ps kill exit help"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "Vibrix commands - help COMMAND, man COMMAND, man shell"
           tr -d '\r' < build/qemu/serial.log | grep -Fq "hi"
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: exit pid=1 status=0"
 

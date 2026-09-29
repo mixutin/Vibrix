@@ -11,8 +11,8 @@ use core::fmt::Write;
 pub type BootstrapRoot = MemFs<16, 256>;
 pub type BootstrapFiles<'a> = Files<'a, 2, 16, 2, 256>;
 
-pub fn bootstrap<'a>(
-    root: &'a mut BootstrapRoot,
+pub fn bootstrap<'a, const N: usize, const B: usize>(
+    root: &'a mut MemFs<N, B>,
     devices: &'a mut DevFs,
 ) -> Result<BootstrapFiles<'a>> {
     let mut vfs = Vfs::<2>::new(root)?;

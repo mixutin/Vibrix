@@ -872,9 +872,17 @@ pub unsafe fn load_elf_probe() -> Result<ActivatedProbe, ElfProbeError> {
         ));
     };
 
+    // The interactive shell owns bounded history, parser and text buffers.
+    // Keep both guard pages and user RW/NX permissions; other ELF probes
+    // retain their original one-page stack and the frame pool is unchanged.
+    let stack_pages = if cfg!(feature = "rust-shell-probe") {
+        4
+    } else {
+        1
+    };
     let stack_layout = GuardedLayout::new(
         Page::new_user(STACK_GUARD).map_err(|e| ElfProbeError::AddressSpace(e.into()))?,
-        1,
+        stack_pages,
     )
     .map_err(|e| ElfProbeError::AddressSpace(e.into()))?;
     let stack_id = space

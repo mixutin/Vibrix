@@ -1,0 +1,54 @@
+name: Userspace CLI
+
+on:
+  push:
+    branches: [main, gpt-6-astra/unix-userspace-20260929]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: userspace-cli-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cli:
+    name: Command semantics and native target
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the exact source without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the repository toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt,clippy --target x86_64-unknown-none
+      - name: Test the production parser, manuals and command dispatcher
+        run: cargo test --locked -p vibrix-shell --lib
+      - name: Check native target and host test code
+        run: |
+          cargo clippy --locked -p vibrix-shell --target x86_64-unknown-none -- -D warnings
+          cargo clippy --locked -p vibrix-shell --lib --tests -- -D warnings
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Collect read-only source and formatter diagnostics
+        if: failure()
+        run: |
+          mkdir -p build/cli-diagnostics
+          git rev-parse HEAD > build/cli-diagnostics/source-commit.txt
+          git archive HEAD | gzip > build/cli-diagnostics/source.tar.gz
+          cargo fmt --all
+          git diff --binary > build/cli-diagnostics/format.patch
+      - name: Retain exact-source failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: userspace-cli-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/cli-diagnostics/
+          retention-days: 7
+          if-no-files-found: warn

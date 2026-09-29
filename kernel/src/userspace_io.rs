@@ -11,12 +11,17 @@ use core::{
 
 use vibrix_kernel::vfs::{
     Entry, Error, Result,
-    console::{BootstrapFiles, BootstrapRoot, bootstrap},
+    console::{BootstrapFiles, bootstrap},
     devfs::DevFs,
     files::{Access, Open},
+    memfs::MemFs,
 };
 
 use crate::arch::x86_64::{ps2, serial, syscall::abi};
+
+// Only the static userspace root grows. The legacy console keeps its
+// original small stack-owned filesystem. Capacity remains deterministic.
+type BootstrapRoot = MemFs<64, 1024>;
 
 struct StaticCell<T>(UnsafeCell<T>);
 
