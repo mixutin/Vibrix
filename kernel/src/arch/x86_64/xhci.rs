@@ -92,6 +92,8 @@ pub enum InitError {
     TransferTimeout,
     TransferFailed(u8),
     DescriptorMalformed,
+    NotHub,
+    NoDownstreamDevice,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,6 +118,16 @@ pub struct UsbDeviceSummary {
     pub subclass: u8,
     pub protocol: u8,
     pub max_packet_size0: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UsbHubSummary {
+    pub root_port: u8,
+    pub slot_id: u8,
+    pub downstream_ports: u8,
+    pub child_port: u8,
+    pub child_status: u16,
+    pub power_good_units: u8,
 }
 
 pub struct Capability {
@@ -198,15 +210,40 @@ fn endpoint0_packet_size(speed_id: u8) -> Option<u16> {
     }
 }
 
-fn setup_get_device_descriptor() -> [u32; 4] {
-    // bmRequestType=IN|standard|device, bRequest=GET_DESCRIPTOR,
-    // wValue=DEVICE<<8 | index0, wIndex=0, wLength=18.
+fn setup_packet(
+    request_type: u8,
+    request: u8,
+    value: u16,
+    index: u16,
+    length: u16,
+    transfer_type: u32,
+) -> [u32; 4] {
     [
-        0x0100_0680,
-        18u32 << 16,
+        u32::from(request_type) | (u32::from(request) << 8) | (u32::from(value) << 16),
+        u32::from(index) | (u32::from(length) << 16),
         8,
-        trb_control(TRB_TYPE_SETUP_STAGE) | TRB_IDT | (3 << 16),
+        trb_control(TRB_TYPE_SETUP_STAGE) | TRB_IDT | (transfer_type << 16),
     ]
+}
+
+fn setup_get_device_descriptor() -> [u32; 4] {
+    // IN | standard | device, GET_DESCRIPTOR(Device), 18 bytes.
+    setup_packet(0x80, 0x06, 0x0100, 0, 18, 3)
+}
+
+fn setup_get_hub_descriptor() -> [u32; 4] {
+    // IN | class | device, GET_DESCRIPTOR(Hub), bounded 9-byte USB2 header.
+    setup_packet(0xa0, 0x06, 0x2900, 0, 9, 3)
+}
+
+fn setup_set_port_feature(port: u8, feature: u16) -> [u32; 4] {
+    // OUT | class | other, SET_FEATURE(feature), wIndex=port, no data.
+    setup_packet(0x23, 0x03, feature, u16::from(port), 0, 0)
+}
+
+fn setup_get_port_status(port: u8) -> [u32; 4] {
+    // IN | class | other, GET_STATUS, four-byte port status/change payload.
+    setup_packet(0xa3, 0x00, 0, u16::from(port), 4, 3)
 }
 
 #[cfg(target_os = "none")]
@@ -402,6 +439,113 @@ impl RingCursor {
             return Err(InitError::CommandFailed(code));
         }
         Ok(event)
+    }
+
+    unsafe fn control_in(
+        &mut self,
+        transfer_base: usize,
+        transfer_index: &mut usize,
+        slot_id: u8,
+        setup: [u32; 4],
+        buffer: u64,
+        length: u32,
+    ) -> Result<u32, InitError> {
+        if *transfer_index + 3 > 256 {
+            return Err(InitError::InvalidControllerState);
+        }
+        unsafe {
+            write_trb(transfer_base, *transfer_index, setup);
+            write_trb(
+                transfer_base,
+                *transfer_index + 1,
+                [
+                    buffer as u32,
+                    (buffer >> 32) as u32,
+                    length,
+                    trb_control(TRB_TYPE_DATA_STAGE) | TRB_DIR_IN,
+                ],
+            );
+            write_trb(
+                transfer_base,
+                *transfer_index + 2,
+                [0, 0, 0, trb_control(TRB_TYPE_STATUS_STAGE) | TRB_IOC],
+            );
+        }
+        *transfer_index += 3;
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
+        unsafe { write32(self.doorbell_base, usize::from(slot_id) * 4, 1) };
+
+        let event = unsafe {
+            wait_for_event_type(
+                self.event_base,
+                self.event_physical,
+                self.runtime_base,
+                &mut self.event_index,
+                &mut self.event_cycle,
+                TRB_TYPE_TRANSFER_EVENT,
+            )
+        }
+        .ok_or(InitError::TransferTimeout)?;
+        let code = completion_code(event[2]);
+        if code != COMPLETION_SUCCESS && code != COMPLETION_SHORT_PACKET {
+            return Err(InitError::TransferFailed(code));
+        }
+        if event_slot_id(event[3]) != slot_id || ((event[3] >> 16) & 0x1f) != 1 {
+            return Err(InitError::InvalidControllerState);
+        }
+        let remaining = event[2] & 0x00ff_ffff;
+        if remaining > length {
+            return Err(InitError::DescriptorMalformed);
+        }
+        Ok(length - remaining)
+    }
+
+    unsafe fn control_no_data(
+        &mut self,
+        transfer_base: usize,
+        transfer_index: &mut usize,
+        slot_id: u8,
+        setup: [u32; 4],
+    ) -> Result<(), InitError> {
+        if *transfer_index + 2 > 256 {
+            return Err(InitError::InvalidControllerState);
+        }
+        unsafe {
+            write_trb(transfer_base, *transfer_index, setup);
+            write_trb(
+                transfer_base,
+                *transfer_index + 1,
+                [
+                    0,
+                    0,
+                    0,
+                    trb_control(TRB_TYPE_STATUS_STAGE) | TRB_DIR_IN | TRB_IOC,
+                ],
+            );
+        }
+        *transfer_index += 2;
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
+        unsafe { write32(self.doorbell_base, usize::from(slot_id) * 4, 1) };
+
+        let event = unsafe {
+            wait_for_event_type(
+                self.event_base,
+                self.event_physical,
+                self.runtime_base,
+                &mut self.event_index,
+                &mut self.event_cycle,
+                TRB_TYPE_TRANSFER_EVENT,
+            )
+        }
+        .ok_or(InitError::TransferTimeout)?;
+        let code = completion_code(event[2]);
+        if code != COMPLETION_SUCCESS {
+            return Err(InitError::TransferFailed(code));
+        }
+        if event_slot_id(event[3]) != slot_id || ((event[3] >> 16) & 0x1f) != 1 {
+            return Err(InitError::InvalidControllerState);
+        }
+        Ok(())
     }
 }
 
