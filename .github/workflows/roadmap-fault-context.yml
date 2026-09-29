@@ -1,0 +1,38 @@
+name: Fault context evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  fault-context:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt,clippy --target x86_64-unknown-uefi,x86_64-unknown-none
+      - name: Check fault handlers
+        run: |
+          cargo fmt --all -- --check
+          rustfmt --edition 2024 --check kernel/src/arch/x86_64/idt.rs
+          cargo clippy --locked -p vibrix-kernel --target x86_64-unknown-none --features qemu-debugcon,page-fault-probe -- -D warnings
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+      - name: Capture a real architectural page-fault frame
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,page-fault-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel page fault diagnostic" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel fault context captured" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Eq 'kernel #PF cr2=0x10000000000 rip=0x[0-9a-f]+ cs=0x[0-9a-f]+ rflags=0x[0-9a-f]+ rsp=0x[0-9a-f]+ ss=0x[0-9a-f]+ error=0x[0-9a-f]+ present=false write=false user=false reserved=false exec=false'
