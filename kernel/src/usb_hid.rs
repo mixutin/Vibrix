@@ -187,9 +187,7 @@ mod tests {
     use super::*;
 
     const CONFIG: [u8; 25] = [
-        9, 2, 25, 0, 1, 1, 0, 0x80, 50,
-        9, 4, 0, 0, 1, 3, 1, 1, 0,
-        7, 5, 0x81, 3, 8, 0, 10,
+        9, 2, 25, 0, 1, 1, 0, 0x80, 50, 9, 4, 0, 0, 1, 3, 1, 1, 0, 7, 5, 0x81, 3, 8, 0, 10,
     ];
 
     #[test]
@@ -219,7 +217,10 @@ mod tests {
         }
         let mut config = CONFIG;
         config[12] = 1; // alternate setting not enabled
-        assert_eq!(endpoint(&config, Protocol::Keyboard), Err(Error::Unsupported));
+        assert_eq!(
+            endpoint(&config, Protocol::Keyboard),
+            Err(Error::Unsupported)
+        );
     }
 
     #[test]
@@ -231,13 +232,26 @@ mod tests {
         assert_eq!(reordered.presses(first), [0; 6]);
         assert_eq!(Keyboard::decode(&[0; 8]), Ok(Keyboard::RELEASED));
         assert_eq!(Keyboard::decode(&[0; 7]), Err(Error::Malformed));
-        assert_eq!(Keyboard::decode(&[0, 0, 1, 1, 1, 1, 1, 1]), Err(Error::Rollover));
-        assert_eq!(Keyboard::decode(&[0, 0, 4, 4, 0, 0, 0, 0]), Err(Error::Malformed));
+        assert_eq!(
+            Keyboard::decode(&[0, 0, 1, 1, 1, 1, 1, 1]),
+            Err(Error::Rollover)
+        );
+        assert_eq!(
+            Keyboard::decode(&[0, 0, 4, 4, 0, 0, 0, 0]),
+            Err(Error::Malformed)
+        );
     }
 
     #[test]
     fn mouse_reports_have_signed_motion_and_three_buttons() {
-        assert_eq!(Mouse::decode(&[0xf9, 7, 251]), Ok(Mouse { buttons: 1, dx: 7, dy: -5 }));
+        assert_eq!(
+            Mouse::decode(&[0xf9, 7, 251]),
+            Ok(Mouse {
+                buttons: 1,
+                dx: 7,
+                dy: -5
+            })
+        );
         assert_eq!(Mouse::decode(&[0, 0]), Err(Error::Malformed));
     }
 }
