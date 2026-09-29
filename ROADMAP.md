@@ -569,7 +569,7 @@ coordination remain later work.
 - [x] /dev
 - [x] pipes
 - [x] TTY
-- [ ] Rust init
+- [x] Rust init
 - [ ] Rust shell
 - [ ] Core utilities: cat, echo, ls, pwd, cd, mkdir, cp, mv, rm, ps, kill
 
@@ -607,6 +607,22 @@ line-discipline markers.
 This checks the **bounded TTY foundation** only. It does not yet provide
 termios, job control, sessions/process groups, signals, scheduler-blocking
 wakeups, UTF-8 editing, a userspace shell, or PID 1 terminal ownership.
+
+**Verified M6 compiled Rust init runtime (PR #162):**
+[Actions run 36494885774](https://github.com/mixutin/Vibrix/actions/runs/36494885774)
+passed the full exact-head repository matrix on implementation head
+`1a06caa7f9499e966f15f2e0077bed767992da8e`. The build produces the real
+`no_std` `vibrix-init` ELF at the fixed lower-half userspace layout, the
+production userspace ELF loader validates and stages that exact binary into the
+private process CR3 with separated guarded mappings and final W^X permissions,
+and QEMU enters its compiled Rust entry at CPL3. The program reaches the real
+SYSCALL path, observes PID 1 through `getpid`, and terminates PID 1 through
+the real `exit(0)` syscall; CI requires independent kernel markers and COM1
+evidence for both transitions.
+
+This checks the bounded **Rust init runtime** item. It does not by itself
+provide an interactive userspace shell, core utilities, persistent root, USB
+storage, general multi-process scheduling or a full service manager.
 
 **Exit:** boot to an interactive Vibrix userspace shell.
 
