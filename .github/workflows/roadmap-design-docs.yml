@@ -1,0 +1,29 @@
+name: Roadmap design-document evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  design-docs:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate POSIX compatibility target
+        run: |
+          grep -Fq "POSIX.1-2024" docs/POSIX_COMPATIBILITY.md
+          grep -Fq "Vibrix does not claim POSIX conformance globally" docs/POSIX_COMPATIBILITY.md
+          grep -Fq "| Sockets | socket API | Planned |" docs/POSIX_COMPATIBILITY.md
+          grep -Fq "| Shell language |" docs/POSIX_COMPATIBILITY.md
+      - name: Validate KASLR threat-model design
+        run: |
+          grep -Fq "ADR 0026" docs/decisions/0026-kaslr-design.md
+          grep -Fq "probabilistic hardening layer" docs/decisions/0026-kaslr-design.md
+          grep -Fq "address disclosure" docs/decisions/0026-kaslr-design.md
+          grep -Fq "does not implement KASLR" docs/decisions/0026-kaslr-design.md
