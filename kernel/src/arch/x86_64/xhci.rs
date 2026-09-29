@@ -106,7 +106,6 @@ pub enum InitError {
     ))]
     NotHidBootKeyboard,
     NotHidBootMouse,
-    NotMassStorage,
     Storage(vibrix_kernel::usb_storage::Error),
     Bot(vibrix_kernel::usb_mass_bulk::Error),
     Scsi(vibrix_kernel::scsi::Error),
@@ -1421,10 +1420,11 @@ pub unsafe fn probe_hid_boot_mouse(info: &BootInfo) -> Result<UsbHidMouseSummary
 /// device is expected to be a disposable/evidence target; the probe restores the
 /// original tested block before disabling the slot.
 #[cfg(all(target_os = "none", feature = "usb-storage-probe"))]
+#[allow(dead_code)] // all-features Clippy enables mutually exclusive USB evidence profiles together
 pub unsafe fn probe_mass_storage(info: &BootInfo) -> Result<UsbStorageSummary, InitError> {
     unsafe { enumerate_first_device_inner(info, false, None, true) }?
         .4
-        .ok_or(InitError::NotMassStorage)
+        .ok_or(InitError::Storage(vibrix_kernel::usb_storage::Error::Missing))
 }
 
 #[cfg(test)]
