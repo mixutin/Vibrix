@@ -135,6 +135,55 @@ pub fn parse(bytes: &[u8]) -> Result<BootPartitionPath, Error> {
     Ok(result)
 }
 
+/// Return true only when `parent` is exactly the device path of the whole
+/// device containing `child`'s hard-drive partition node.
+///
+/// Both paths must end with End Entire nodes. The parent path's non-end bytes
+/// must exactly equal the child's bytes immediately preceding the single
+/// hard-drive media node. This lets firmware Block I/O enumeration associate a
+/// LogicalPartition=false whole-disk handle without relying on enumeration
+/// order, USB address, or a label.
+pub fn parent_matches(child: &[u8], parent: &[u8]) -> Result<bool, Error> {
+    fn end_offset(bytes: &[u8]) -> Result<usize, Error> {
+        let mut offset = 0usize;
+        while offset < bytes.len() {
+            if bytes.len() - offset < 4 {
+                return Err(Error::Truncated);
+            }
+            let len = usize::from(u16_at(bytes, offset + 2));
+            if len < 4 || len > bytes.len() - offset {
+                return Err(Error::InvalidNodeLength);
+            }
+            if bytes[offset] == DEVICE_PATH_END_TYPE
+                && bytes[offset + 1] == DEVICE_PATH_END_ENTIRE_SUBTYPE
+            {
+                if len != 4 || offset + len != bytes.len() {
+                    return Err(Error::MissingEnd);
+                }
+                return Ok(offset);
+            }
+            offset += len;
+        }
+        Err(Error::MissingEnd)
+    }
+
+    let child_end = end_offset(child)?;
+    let parent_end = end_offset(parent)?;
+    let mut offset = 0usize;
+    let mut hard_drive_offset = None;
+    while offset < child_end {
+        let len = usize::from(u16_at(child, offset + 2));
+        if child[offset] == MEDIA_TYPE && child[offset + 1] == HARD_DRIVE_SUBTYPE {
+            if hard_drive_offset.replace(offset).is_some() {
+                return Err(Error::MultipleHardDriveNodes);
+            }
+        }
+        offset += len;
+    }
+    let hard_drive_offset = hard_drive_offset.ok_or(Error::MissingHardDriveNode)?;
+    Ok(parent_end == hard_drive_offset && parent[..parent_end] == child[..hard_drive_offset])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,4 +250,31 @@ mod tests {
         zero_guid[6 + 24..6 + 40].fill(0);
         assert_eq!(parse(&zero_guid), Err(Error::EmptyPartitionGuid));
     }
+    #[test]
+    fn exact_parent_path_matches_and_near_misses_fail() {
+        let child = path(true, GPT_SIGNATURE_TYPE);
+        // Whole-disk path ends immediately before the hard-drive node.
+        let mut parent = child[..6].to_vec();
+        parent.extend_from_slice(&[
+            DEVICE_PATH_END_TYPE,
+            DEVICE_PATH_END_ENTIRE_SUBTYPE,
+            4,
+            0,
+        ]);
+        assert_eq!(parent_matches(&child, &parent), Ok(true));
+
+        let mut wrong_parent = parent.clone();
+        wrong_parent[4] ^= 1;
+        assert_eq!(parent_matches(&child, &wrong_parent), Ok(false));
+
+        let mut too_long = child[..48].to_vec();
+        too_long.extend_from_slice(&[
+            DEVICE_PATH_END_TYPE,
+            DEVICE_PATH_END_ENTIRE_SUBTYPE,
+            4,
+            0,
+        ]);
+        assert_eq!(parent_matches(&child, &too_long), Ok(false));
+    }
+
 }
