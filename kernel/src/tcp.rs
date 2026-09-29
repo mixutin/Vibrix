@@ -1357,10 +1357,7 @@ mod tests {
         queue.insert(100, 102, b"cd").unwrap();
         assert_eq!(queue.contiguous_len(100), 0);
         assert_eq!(queue.contiguous_len(102), 4);
-        assert_eq!(
-            queue.insert(100, 103, b"XX"),
-            Err(Error::ReassemblyOverlap)
-        );
+        assert_eq!(queue.insert(100, 103, b"XX"), Err(Error::ReassemblyOverlap));
 
         let mut short = [0xa5; 3];
         assert_eq!(
