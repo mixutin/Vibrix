@@ -916,39 +916,6 @@ pub(super) fn self_test() -> Result<(), Error> {
         return Err(Error::Sequence);
     }
 
-    let fin_len = client.close(&mut wire)?;
-    let fin = parse(local.address, remote.address, &wire[..fin_len])?;
-    if !fin.fin() || client.state() != State::FinWait1 {
-        return Err(Error::State);
-    }
-    let peer_ack_len = synthetic_peer(
-        remote,
-        local,
-        client.receive_next(),
-        client.send_next(),
-        FLAG_ACK,
-        &[],
-        &mut wire,
-    )?;
-    client.accept_ack_only(&wire[..peer_ack_len])?;
-    if client.state() != State::FinWait2 {
-        return Err(Error::State);
-    }
-
-    let peer_fin_len = synthetic_peer(
-        remote,
-        local,
-        client.receive_next(),
-        client.send_next(),
-        FLAG_FIN | FLAG_ACK,
-        &[],
-        &mut wire,
-    )?;
-    client.accept_fin(&wire[..peer_fin_len], &mut reply)?;
-    if client.state() != State::TimeWait {
-        return Err(Error::State);
-    }
-
     let mut reassembly = ReassemblyQueue::new();
     let future_sequence = client.receive_next().wrapping_add(2);
     let future_len = synthetic_peer(
@@ -986,6 +953,39 @@ pub(super) fn self_test() -> Result<(), Error> {
     )?;
     if assembled != 4 || &received[..4] != b"ABCD" {
         return Err(Error::Invariant);
+    }
+
+    let fin_len = client.close(&mut wire)?;
+    let fin = parse(local.address, remote.address, &wire[..fin_len])?;
+    if !fin.fin() || client.state() != State::FinWait1 {
+        return Err(Error::State);
+    }
+    let peer_ack_len = synthetic_peer(
+        remote,
+        local,
+        client.receive_next(),
+        client.send_next(),
+        FLAG_ACK,
+        &[],
+        &mut wire,
+    )?;
+    client.accept_ack_only(&wire[..peer_ack_len])?;
+    if client.state() != State::FinWait2 {
+        return Err(Error::State);
+    }
+
+    let peer_fin_len = synthetic_peer(
+        remote,
+        local,
+        client.receive_next(),
+        client.send_next(),
+        FLAG_FIN | FLAG_ACK,
+        &[],
+        &mut wire,
+    )?;
+    client.accept_fin(&wire[..peer_fin_len], &mut reply)?;
+    if client.state() != State::TimeWait {
+        return Err(Error::State);
     }
 
     let listener = Listener::new(Endpoint {
