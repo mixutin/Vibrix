@@ -35,4 +35,5 @@ jobs:
           VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
           grep -Fq "VIBRIX: kernel page fault diagnostic" build/qemu/debugcon.log
           grep -Fq "VIBRIX: kernel fault context captured" build/qemu/debugcon.log
-          tr -d '\r' < build/qemu/serial.log | grep -Eq 'kernel #PF cr2=0x10000000000 rip=0x[0-9a-f]+ cs=0x[0-9a-f]+ rflags=0x[0-9a-f]+ rsp=0x[0-9a-f]+ ss=0x[0-9a-f]+ error=0x[0-9a-f]+ present=false write=false user=false reserved=false exec=false'
+          tr -d '\r' < build/qemu/serial.log | grep -Eq 'kernel #PF cr2=0x10000000000 rip=0x[0-9a-f]+ error=0x[0-9a-f]+ present=false write=false user=false reserved=false exec=false'
+          tr -d '\r' < build/qemu/serial.log | grep -Eq 'kernel #PF context rip=0x[0-9a-f]+ cs=0x[0-9a-f]+ rflags=0x[0-9a-f]+ rsp=0x[0-9a-f]+ ss=0x[0-9a-f]+ error=0x[0-9a-f]+'
