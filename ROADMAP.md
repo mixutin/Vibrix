@@ -1359,7 +1359,7 @@ weakening the default system.
 - [x] Privacy-reviewed `vibrix doctor --bundle` support bundle
 - [ ] Verbose boot mode while normal boot remains clean
 - [x] Hardware compatibility/quirk reporting
-- [ ] Optional anonymized compatibility reports only with explicit opt-in
+- [x] Optional anonymized compatibility reports only with explicit opt-in
 
 **Verified M18 structured kernel logging and filtering (PR #219):**
 [Actions run 36591286297](https://github.com/mixutin/Vibrix/actions/runs/36591286297)
@@ -1453,6 +1453,17 @@ health requires those subsystems to exist.
 **Exit:** common boot, driver, storage, update and network failures can be
 diagnosed from Vibrix itself with useful logs and an exportable support bundle.
 
+**Verified M18 explicit-opt-in anonymized compatibility report (PR #257):**
+the exact-head repository matrix passed before merge. Native Ring 3 requires
+`vibrix compat-report --anonymized` explicitly, emits a bounded local text
+report with coarse support/limitation states, performs no upload, and excludes
+device identifiers, serials, network addresses, PIDs, paths, file contents and
+history.
+
+This checks only the **optional anonymized compatibility report with explicit
+opt-in** item. It does not create telemetry, remote submission, or an automatic
+reporting service.
+
 ## M19 — Isolation and security workstation
 
 This extends the security roadmap; it does not replace the security gates that
@@ -1537,7 +1548,17 @@ inspect system state and perform routine maintenance without another OS.
 - [ ] privilege-separated SSH server
 - [ ] network services disabled by default unless explicitly enabled
 - [ ] per-service user, filesystem and network sandbox policy
-- [ ] packet-filter ruleset validation before activation
+- [x] packet-filter ruleset validation before activation
+
+**Verified M22 packet-filter ruleset activation validation (PR #266):**
+the exact-head repository matrix passed before merge. The fixed-capacity control
+plane rejects malformed prefixes, invalid port ranges, invalid protocol/port
+combinations, empty rulesets and capacity overflow before publication, and a
+failed validation leaves the previously active generation unchanged.
+
+This checks **packet-filter ruleset validation before activation** only. It does
+not claim that packet filtering, NAT, forwarding, or a firewall dataplane is
+implemented yet.
 
 **Exit:** Vibrix can act as a defensible workstation or small server with
 auditable network configuration and no surprise listening services.
@@ -1557,8 +1578,18 @@ auditable network configuration and no surprise listening services.
 - [ ] PIE/ASLR for base-system executables
 - [ ] kernel address randomization design and threat model
 - [ ] RELRO-like relocation hardening when dynamic linking exists
-- [ ] exploit-mitigation regression suite
+- [x] exploit-mitigation regression suite
 - [ ] fuzz and hostile-input tests for every privileged daemon/parser
+
+**Verified M23 exploit-mitigation regression suite (PR #261):**
+the exact-head repository matrix passed before merge. The dedicated suite
+regresses mitigations Vibrix already implements: userspace ELF W^X admission,
+guarded user stacks, fail-closed secure-random policy, a real supervisor
+write-protection page fault, and a real CPL3 stack-guard page fault.
+
+This checks the current **exploit-mitigation regression suite** item. It does not
+claim unimplemented mitigations such as userspace ASLR, KASLR execution,
+compiler canaries, RELRO, IOMMU enforcement, or broad fuzzing.
 
 OpenBSD documents monotonic syscall restriction with `pledge(2)` and
 path visibility restriction with `unveil(2)`. Vibrix may adopt comparable
