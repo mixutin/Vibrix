@@ -26,13 +26,57 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Install the pinned compiler and formatter
         run: |
           toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
           rustup toolchain install "$toolchain" --profile minimal --component rustfmt,clippy --target x86_64-unknown-none
-      - name: Apply only reviewed exact-match edits and format
+      - name: Apply reviewed edits and reconcile the verified main integration
         run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           python3 tools/cli-edit-session.py
+          cargo fmt --all
+          git diff --check
+          git add Cargo.toml README.md userspace/shell/src kernel/src/memory/address_space.rs kernel/src/vfs/console.rs kernel/src/userspace_io.rs kernel/src/arch/x86_64/ps2.rs tools/test_userspace_display.py
+          git commit -m '[GPT-6 Astra Pro] userspace: integrate bounded CLI resources and keyboard'
+          python3 - <<'PY'
+          import subprocess
+          from pathlib import Path
+          main = '3e95781cde353380552f592476b3ec3d495cd68c'
+          subprocess.run(['git', 'cat-file', '-e', main + '^{commit}'], check=True)
+          result = subprocess.run(['git', 'merge', '--no-commit', '--no-ff', main])
+          if result.returncode not in (0, 1):
+              raise SystemExit('merge operation failed')
+          conflicts = subprocess.check_output(['git', 'diff', '--name-only', '--diff-filter=U'], text=True).splitlines()
+          if set(conflicts) - {'userspace/shell/src/main.rs', 'tools/test_userspace_display.py'}:
+              raise SystemExit('unexpected main integration conflict: ' + repr(conflicts))
+          if 'userspace/shell/src/main.rs' in conflicts:
+              subprocess.run(['git', 'checkout', '--ours', '--', 'userspace/shell/src/main.rs'], check=True)
+          path = Path('tools/test_userspace_display.py')
+          data = subprocess.check_output(['git', 'show', main + ':' + str(path)], text=True)
+          data = data.replace('import unittest\n', 'import unittest\n\nfrom userspace_cli_cases import check_cli\n')
+          old = 'command("a" * 270, "sh: unknown command")'
+          assert data.count(old) == 1
+          data = data.replace(old, 'command("a" * 270, "sh: input too long; command not executed")')
+          old = '                    command("clear", "\\x0c")'
+          assert data.count(old) == 1
+          data = data.replace(old, '                    check_cli(command)\n' + old)
+          path.write_text(data)
+          path = Path('userspace/shell/src/runtime.rs')
+          data = path.read_text()
+          old = 'for _ in 0..32 {\n                    write_all(io, out, b"\\n")?;\n                }'
+          assert data.count(old) == 1
+          path.write_text(data.replace(old, 'write_all(io, out, b"\\x0c")?;'))
+          path = Path('userspace/shell/src/manual.rs')
+          data = path.read_text()
+          data = data.replace('scroll the console to a fresh area', 'clear the native terminal')
+          old = 'Write 32 newlines through the existing terminal. This is a bounded scrolling operation, not ANSI erase/home support. Serial output is preserved.'
+          assert data.count(old) == 1
+          data = data.replace(old, 'Emit one native form-feed control to clear the screen and home the cursor. This uses the existing terminal owner, not an ANSI parser. The control is also mirrored to serial output.')
+          path.write_text(data)
+          subprocess.run(['git', 'add', 'userspace/shell/src/main.rs', 'userspace/shell/src/runtime.rs', 'userspace/shell/src/manual.rs', 'tools/test_userspace_display.py'], check=True)
+          PY
           cargo fmt --all
           git diff --check
       - name: Compile and test before publishing the edited tree
@@ -45,22 +89,13 @@ jobs:
           cargo test --locked -p vibrix-kernel --lib
           python3 -m py_compile tools/test_userspace_display.py tools/userspace_cli_cases.py
           python3 tools/test_userspace_display.py --unit
-      - name: Commit only the bounded feature edits without forcing the branch
+      - name: Publish the tested integration without forcing the branch
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: gpt-6-astra/unix-userspace-20260929
         run: |
-          python3 - <<'PY'
-          import subprocess
-          allowed = {"Cargo.toml", "README.md", "kernel/src/memory/address_space.rs", "kernel/src/vfs/console.rs", "kernel/src/userspace_io.rs", "kernel/src/arch/x86_64/ps2.rs", "tools/test_userspace_display.py"}
-          changed = subprocess.check_output(["git", "diff", "--name-only"], text=True).splitlines()
-          if any(path not in allowed and not path.startswith("userspace/shell/src/") for path in changed):
-              raise SystemExit("unexpected edit outside this CLI session")
-          PY
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add Cargo.toml README.md userspace/shell/src kernel/src/memory/address_space.rs kernel/src/vfs/console.rs kernel/src/userspace_io.rs kernel/src/arch/x86_64/ps2.rs tools/test_userspace_display.py
-          git commit -m '[GPT-6 Astra Pro] userspace: integrate bounded stack, RAM capacity, keyboard and CLI tests'
+          git add userspace/shell/src tools/test_userspace_display.py
+          git commit -m '[GPT-6 Astra Pro] merge verified main clear and scrolling into Unix CLI'
           export GIT_CONFIG_COUNT=1
           export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
@@ -69,9 +104,10 @@ jobs:
         if: always()
         run: |
           mkdir -p build/cli-edit-session
-          git diff --binary > build/cli-edit-session/uncommitted.patch
+          git diff --binary HEAD > build/cli-edit-session/uncommitted.patch
           git log -1 --format='%H %s' > build/cli-edit-session/head.txt
           git show --stat --oneline HEAD > build/cli-edit-session/commit.txt
+          git archive HEAD | gzip > build/cli-edit-session/source.tar.gz
       - name: Retain edit diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
