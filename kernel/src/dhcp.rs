@@ -566,7 +566,7 @@ fn server_reply_fixture(
     lease_seconds: Option<u32>,
     output: &mut [u8],
 ) -> Result<usize, Error> {
-    const CAPACITY: usize = OPTIONS_OFFSET + 3 + 6 + 6 + 6 + 6 + 6 + 6 + 1;
+    const CAPACITY: usize = OPTIONS_OFFSET + 3 + 7 * 6 + 1;
     if output.len() < CAPACITY {
         return Err(Error::OutputTooSmall);
     }
