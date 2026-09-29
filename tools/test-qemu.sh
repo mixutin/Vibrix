@@ -25,7 +25,7 @@ cp -- "$OVMF_VARS" "$QEMU_DIR/OVMF_VARS.test.fd"
 
 # Opt-in *real QEMU keyboard injection*, never manufactured kernel log text.
 MONITOR=none
-if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" ]]; then
+if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" || "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" == "1" ]]; then
   MONITOR_SOCKET="$QEMU_DIR/keyboard-monitor.sock"
   rm -f "$MONITOR_SOCKET"
   MONITOR="unix:$MONITOR_SOCKET,server=on,wait=off"
@@ -72,12 +72,16 @@ log = pathlib.Path(sys.argv[1])
 monitor = sys.argv[2]
 deadline = time.monotonic() + 9
 while time.monotonic() < deadline:
-    marker = "VIBRIX: kernel console prompt ready" if sys.argv[3] == "1" or sys.argv[4] == "1" else "VIBRIX: kernel PS2 polling ready"
+    marker = "VIBRIX: userspace TTY read waiting for keyboard" if sys.argv[5] == "1" else ("VIBRIX: kernel console prompt ready" if sys.argv[3] == "1" or sys.argv[4] == "1" else "VIBRIX: kernel PS2 polling ready")
     if log.exists() and marker in log.read_text(errors="replace"):
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
                 client.connect(monitor)
-                if sys.argv[4] == "1":
+                if sys.argv[5] == "1":
+                    commands = ["help", "echo hi", "exit"]
+                    special = {" ": "spc", "\\n": "ret"}
+                    keys = tuple(special.get(ch, ch) for ch in "\\n".join(commands) + "\\n")
+                elif sys.argv[4] == "1":
                     commands = ["write /tmp/note hello", "cat /tmp/note", "ls /dev",
                                 "pipe", "rm /tmp/note", "cat /tmp/note", "reboot"]
                     special = {" ": "spc", "/": "slash", "\n": "ret"}
@@ -113,6 +117,8 @@ set +e
 QEMU_TIMEOUT=12s
 if [[ "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" ]]; then
   QEMU_TIMEOUT=40s
+elif [[ "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" == "1" ]]; then
+  QEMU_TIMEOUT=25s
 fi
 timeout "$QEMU_TIMEOUT" qemu-system-x86_64 "${ARGS[@]}"
 RC=$?
