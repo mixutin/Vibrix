@@ -439,6 +439,17 @@ jobs:
           # Restore the ordinary development image before later tests that
           # intentionally reuse build/qemu with VIBRIX_SKIP_BUILD=1.
           VIBRIX_KERNEL_FEATURES=qemu-debugcon bash tools/build-qemu.sh
+      - name: QEMU xHCI address device and read USB descriptor
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,usb-enum-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_QEMU_USB_ENUM_PROBE=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel USB device addressed and descriptor read" build/qemu/debugcon.log
+          grep -Eq 'kernel USB device: port=[1-9][0-9]* slot=[1-9][0-9]* speed=[1-9][0-9]* vid=[0-9a-f]{4} pid=[0-9a-f]{4} class=[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2} mps0=[1-9][0-9]*' build/qemu/serial.log
+          if grep -Eq 'vid=0000|pid=0000' build/qemu/serial.log; then
+            echo "USB descriptor proof returned a zero VID/PID" >&2
+            exit 1
+          fi
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon bash tools/build-qemu.sh
       - name: QEMU real keyboard injection after ExitBootServices
         env:
           VIBRIX_SKIP_BUILD: "1"

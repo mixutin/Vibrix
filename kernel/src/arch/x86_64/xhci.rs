@@ -16,6 +16,7 @@ const IA32_PAT: u32 = 0x277;
 const CAPLENGTH: usize = 0x00;
 const HCSPARAMS1: usize = 0x04;
 const HCSPARAMS2: usize = 0x08;
+const HCCPARAMS1: usize = 0x10;
 const DBOFF: usize = 0x14;
 const RTSOFF: usize = 0x18;
 
@@ -30,6 +31,32 @@ const USBCMD_RUN: u32 = 1 << 0;
 const USBCMD_HCRST: u32 = 1 << 1;
 const USBSTS_HCH: u32 = 1 << 0;
 const USBSTS_CNR: u32 = 1 << 11;
+
+const PORTSC_BASE: usize = 0x400;
+const PORTSC_STRIDE: usize = 0x10;
+const PORTSC_CCS: u32 = 1 << 0;
+const PORTSC_PED: u32 = 1 << 1;
+const PORTSC_PR: u32 = 1 << 4;
+const PORTSC_PP: u32 = 1 << 9;
+const PORTSC_SPEED_SHIFT: u32 = 10;
+const PORTSC_SPEED_MASK: u32 = 0xf << PORTSC_SPEED_SHIFT;
+const PORTSC_RW1C: u32 = 0x7f << 17;
+
+const TRB_BYTES: usize = 16;
+const TRB_CYCLE: u32 = 1;
+const TRB_IOC: u32 = 1 << 5;
+const TRB_IDT: u32 = 1 << 6;
+const TRB_DIR_IN: u32 = 1 << 16;
+const TRB_TYPE_SHIFT: u32 = 10;
+const TRB_TYPE_ENABLE_SLOT: u32 = 9;
+const TRB_TYPE_ADDRESS_DEVICE: u32 = 11;
+const TRB_TYPE_SETUP_STAGE: u32 = 2;
+const TRB_TYPE_DATA_STAGE: u32 = 3;
+const TRB_TYPE_STATUS_STAGE: u32 = 4;
+const TRB_TYPE_TRANSFER_EVENT: u32 = 32;
+const TRB_TYPE_COMMAND_COMPLETION: u32 = 33;
+const COMPLETION_SUCCESS: u8 = 1;
+const COMPLETION_SHORT_PACKET: u8 = 13;
 
 const IMAN: usize = 0x00;
 const ERSTSZ: usize = 0x08;
@@ -56,6 +83,15 @@ pub enum InitError {
     ResetTimeout,
     ReadyTimeout,
     RunTimeout,
+    NoConnectedDevice,
+    PortResetTimeout,
+    UnsupportedContextSize,
+    InvalidControllerState,
+    CommandTimeout,
+    CommandFailed(u8),
+    TransferTimeout,
+    TransferFailed(u8),
+    DescriptorMalformed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,6 +106,18 @@ pub struct Summary {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UsbDeviceSummary {
+    pub port: u8,
+    pub slot_id: u8,
+    pub speed_id: u8,
+    pub vendor_id: u16,
+    pub product_id: u16,
+    pub class: u8,
+    pub subclass: u8,
+    pub protocol: u8,
+    pub max_packet_size0: u8,
+}
+
 pub struct Capability {
     pub cap_length: u8,
     pub version: u16,
@@ -116,6 +164,49 @@ pub fn parse_capability(
         doorbell_offset,
         runtime_offset,
     })
+}
+
+fn trb_control(kind: u32) -> u32 {
+    TRB_CYCLE | (kind << TRB_TYPE_SHIFT)
+}
+
+fn trb_type(control: u32) -> u32 {
+    (control >> TRB_TYPE_SHIFT) & 0x3f
+}
+
+fn completion_code(status: u32) -> u8 {
+    (status >> 24) as u8
+}
+
+fn event_slot_id(control: u32) -> u8 {
+    (control >> 24) as u8
+}
+
+fn port_speed(portsc: u32) -> u8 {
+    ((portsc & PORTSC_SPEED_MASK) >> PORTSC_SPEED_SHIFT) as u8
+}
+
+fn endpoint0_packet_size(speed_id: u8) -> Option<u16> {
+    match speed_id {
+        // Full- and low-speed devices begin enumeration with 8-byte EP0.
+        1 | 2 => Some(8),
+        // High-speed control endpoints use 64-byte max packets.
+        3 => Some(64),
+        // SuperSpeed and SuperSpeedPlus device contexts encode 512 bytes.
+        4 | 5 => Some(512),
+        _ => None,
+    }
+}
+
+fn setup_get_device_descriptor() -> [u32; 4] {
+    // bmRequestType=IN|standard|device, bRequest=GET_DESCRIPTOR,
+    // wValue=DEVICE<<8 | index0, wIndex=0, wLength=18.
+    [
+        0x0100_0680,
+        18u32 << 16,
+        8,
+        trb_control(TRB_TYPE_SETUP_STAGE) | TRB_IDT | (3 << 16),
+    ]
 }
 
 #[cfg(target_os = "none")]
@@ -184,6 +275,11 @@ unsafe fn unmap_ram(vm: &mut Window, slot: usize) -> Result<(), InitError> {
 }
 
 #[cfg(target_os = "none")]
+unsafe fn read8(base: usize, offset: usize) -> u8 {
+    unsafe { core::ptr::read_volatile((base + offset) as *const u8) }
+}
+
+#[cfg(target_os = "none")]
 unsafe fn read32(base: usize, offset: usize) -> u32 {
     unsafe { core::ptr::read_volatile((base + offset) as *const u32) }
 }
@@ -212,6 +308,101 @@ fn wait_until(mut predicate: impl FnMut() -> bool) -> bool {
         core::hint::spin_loop();
     }
     false
+}
+
+#[cfg(target_os = "none")]
+unsafe fn write_trb(base: usize, index: usize, words: [u32; 4]) {
+    let offset = index * TRB_BYTES;
+    unsafe {
+        write32(base, offset, words[0]);
+        write32(base, offset + 4, words[1]);
+        write32(base, offset + 8, words[2]);
+        write32(base, offset + 12, words[3]);
+    }
+}
+
+#[cfg(target_os = "none")]
+unsafe fn wait_for_event_type(
+    event_base: usize,
+    event_physical: u64,
+    runtime_base: usize,
+    event_index: &mut usize,
+    event_cycle: &mut bool,
+    wanted_type: u32,
+) -> Option<[u32; 4]> {
+    for _ in 0..WAIT_SPINS {
+        let offset = *event_index * TRB_BYTES;
+        let control = unsafe { read32(event_base, offset + 12) };
+        let ready = (control & TRB_CYCLE != 0) == *event_cycle;
+        if !ready {
+            core::hint::spin_loop();
+            continue;
+        }
+
+        let event = unsafe {
+            [
+                read32(event_base, offset),
+                read32(event_base, offset + 4),
+                read32(event_base, offset + 8),
+                control,
+            ]
+        };
+        *event_index += 1;
+        if *event_index == EVENT_RING_TRBS as usize {
+            *event_index = 0;
+            *event_cycle = !*event_cycle;
+        }
+        let next = event_physical + (*event_index * TRB_BYTES) as u64;
+        // EHB=1 acknowledges any pending event-handler-busy state while
+        // publishing the next dequeue pointer.
+        unsafe { write64(runtime_base, ERDP, next | (1 << 3)) };
+
+        if trb_type(event[3]) == wanted_type {
+            return Some(event);
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "none")]
+struct RingCursor {
+    command_base: usize,
+    command_index: usize,
+    doorbell_base: usize,
+    event_base: usize,
+    event_physical: u64,
+    runtime_base: usize,
+    event_index: usize,
+    event_cycle: bool,
+}
+
+#[cfg(target_os = "none")]
+impl RingCursor {
+    unsafe fn submit_command(&mut self, words: [u32; 4]) -> Result<[u32; 4], InitError> {
+        if self.command_index >= 32 {
+            return Err(InitError::InvalidControllerState);
+        }
+        unsafe { write_trb(self.command_base, self.command_index, words) };
+        self.command_index += 1;
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
+        unsafe { write32(self.doorbell_base, 0, 0) };
+        let event = unsafe {
+            wait_for_event_type(
+                self.event_base,
+                self.event_physical,
+                self.runtime_base,
+                &mut self.event_index,
+                &mut self.event_cycle,
+                TRB_TYPE_COMMAND_COMPLETION,
+            )
+        }
+        .ok_or(InitError::CommandTimeout)?;
+        let code = completion_code(event[2]);
+        if code != COMPLETION_SUCCESS {
+            return Err(InitError::CommandFailed(code));
+        }
+        Ok(event)
+    }
 }
 
 /// Reset and start one PCI-discovered xHCI controller with a minimal command
@@ -383,9 +574,332 @@ pub unsafe fn initialize(info: &BootInfo) -> Result<Summary, InitError> {
     })
 }
 
+/// Enumerate one directly attached root-port USB device and read enough of
+/// its standard device descriptor to prove real xHCI command and control
+/// transfers. Hub traversal is intentionally outside this bounded milestone.
+///
+/// # Safety
+/// Same single-BSP/IF=0 ownership contract as `initialize`. This function
+/// resets and exclusively owns the first PCI-discovered xHCI controller for the
+/// duration of the probe and allocates DMA frames that remain kernel-owned.
+#[cfg(target_os = "none")]
+pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary, InitError> {
+    let initialized = unsafe { initialize(info) }?;
+
+    let mut found = None;
+    let _ = unsafe {
+        pci::discover_legacy_segment_zero(|device| {
+            if found.is_none() && device.is_xhci() {
+                found = Some(device);
+            }
+        })
+    };
+    let device = found.ok_or(InitError::NotFound)?;
+    let bar = unsafe { read_bar0(device) }?;
+    if bar != initialized.bar {
+        return Err(InitError::InvalidControllerState);
+    }
+
+    let mmio_page = bar & !(PAGE - 1);
+    let bar_offset = usize::try_from(bar - mmio_page).map_err(|_| InitError::InvalidBar)?;
+    if !unsafe { memory::external_mmio_page_is_safe(mmio_page) } {
+        return Err(InitError::UnsafeMmio);
+    }
+
+    let mut vm = unsafe { memory::virtual_memory::runtime::from_boot_info(info) }
+        .map_err(|_| InitError::Mapping)?;
+    let cap_virtual =
+        unsafe { vm.map_mmio_writable(0, mmio_page) }.map_err(|_| InitError::Mapping)?;
+    let cap_base = usize::try_from(cap_virtual)
+        .map_err(|_| InitError::Mapping)?
+        .checked_add(bar_offset)
+        .ok_or(InitError::Mapping)?;
+
+    let cap_header = unsafe { read32(cap_base, CAPLENGTH) };
+    let cap_length = (cap_header & 0xff) as u8;
+    let version = (cap_header >> 16) as u16;
+    let hcs1 = unsafe { read32(cap_base, HCSPARAMS1) };
+    let hcs2 = unsafe { read32(cap_base, HCSPARAMS2) };
+    let hcc1 = unsafe { read32(cap_base, HCCPARAMS1) };
+    let capability = parse_capability(
+        cap_length,
+        version,
+        hcs1,
+        hcs2,
+        unsafe { read32(cap_base, DBOFF) },
+        unsafe { read32(cap_base, RTSOFF) },
+    )?;
+    // CSZ=1 selects 64-byte contexts. The first enumeration proof deliberately
+    // implements only the mandatory 32-byte layout used by QEMU q35.
+    if hcc1 & (1 << 2) != 0 {
+        return Err(InitError::UnsupportedContextSize);
+    }
+    let op_base = cap_base + usize::from(capability.cap_length);
+
+    let runtime_physical = bar
+        .checked_add(u64::from(capability.runtime_offset))
+        .and_then(|value| value.checked_add(INTERRUPTER_ZERO as u64))
+        .ok_or(InitError::InvalidCapabilityHeader)?;
+    let runtime_page = runtime_physical & !(PAGE - 1);
+    let runtime_offset =
+        usize::try_from(runtime_physical - runtime_page).map_err(|_| InitError::Mapping)?;
+    if !unsafe { memory::external_mmio_page_is_safe(runtime_page) } {
+        return Err(InitError::UnsafeMmio);
+    }
+    let runtime_virtual =
+        unsafe { vm.map_mmio_writable(2, runtime_page) }.map_err(|_| InitError::Mapping)?;
+    let runtime_base = usize::try_from(runtime_virtual)
+        .map_err(|_| InitError::Mapping)?
+        .checked_add(runtime_offset)
+        .ok_or(InitError::Mapping)?;
+
+    let doorbell_physical = bar
+        .checked_add(u64::from(capability.doorbell_offset))
+        .ok_or(InitError::InvalidCapabilityHeader)?;
+    let doorbell_page = doorbell_physical & !(PAGE - 1);
+    let doorbell_offset =
+        usize::try_from(doorbell_physical - doorbell_page).map_err(|_| InitError::Mapping)?;
+    if !unsafe { memory::external_mmio_page_is_safe(doorbell_page) } {
+        return Err(InitError::UnsafeMmio);
+    }
+    let doorbell_virtual =
+        unsafe { vm.map_mmio_writable(3, doorbell_page) }.map_err(|_| InitError::Mapping)?;
+    let doorbell_base = usize::try_from(doorbell_virtual)
+        .map_err(|_| InitError::Mapping)?
+        .checked_add(doorbell_offset)
+        .ok_or(InitError::Mapping)?;
+
+    let dcbaa = unsafe { read64(op_base, DCBAAP) } & !0x3f;
+    let command_ring = unsafe { read64(op_base, CRCR) } & !0x3f;
+    let erst = unsafe { read64(runtime_base, ERSTBA) } & !0x3f;
+    if dcbaa == 0 || command_ring == 0 || erst == 0 {
+        return Err(InitError::InvalidControllerState);
+    }
+
+    let erst_virtual = unsafe { vm.map(1, erst, true) }.map_err(|_| InitError::Mapping)?;
+    let erst_base = usize::try_from(erst_virtual).map_err(|_| InitError::Mapping)?;
+    let event_ring = unsafe { read64(erst_base, 0) } & !0x3f;
+    unsafe { vm.unmap(1) }.map_err(|_| InitError::Mapping)?;
+    if event_ring == 0 {
+        return Err(InitError::InvalidControllerState);
+    }
+
+    let command_virtual =
+        unsafe { vm.map(4, command_ring, true) }.map_err(|_| InitError::Mapping)?;
+    let command_base = usize::try_from(command_virtual).map_err(|_| InitError::Mapping)?;
+    let event_virtual = unsafe { vm.map(5, event_ring, true) }.map_err(|_| InitError::Mapping)?;
+    let event_base = usize::try_from(event_virtual).map_err(|_| InitError::Mapping)?;
+    let dcbaa_virtual = unsafe { vm.map(6, dcbaa, true) }.map_err(|_| InitError::Mapping)?;
+    let dcbaa_base = usize::try_from(dcbaa_virtual).map_err(|_| InitError::Mapping)?;
+
+    let mut selected = None;
+    for port in 1..=capability.max_ports {
+        let offset = PORTSC_BASE + (usize::from(port) - 1) * PORTSC_STRIDE;
+        let portsc = unsafe { read32(op_base, offset) };
+        if portsc & PORTSC_CCS != 0 {
+            selected = Some((port, offset, portsc));
+            break;
+        }
+    }
+    let (port, port_offset, initial_portsc) = selected.ok_or(InitError::NoConnectedDevice)?;
+
+    // Clear no RW1C status bits while requesting a normal USB2-style port
+    // reset. QEMU's directly attached keyboard is full-speed and follows this
+    // path; hub and SuperSpeed warm-reset handling remain later work.
+    let reset = (initial_portsc & PORTSC_PP) | PORTSC_PR;
+    unsafe { write32(op_base, port_offset, reset) };
+    if !wait_until(|| {
+        let value = unsafe { read32(op_base, port_offset) };
+        value & PORTSC_CCS != 0 && value & PORTSC_PR == 0 && value & PORTSC_PED != 0
+    }) {
+        return Err(InitError::PortResetTimeout);
+    }
+    let portsc = unsafe { read32(op_base, port_offset) };
+    // Acknowledge reset/change status without disturbing live port state.
+    unsafe {
+        write32(
+            op_base,
+            port_offset,
+            (portsc & PORTSC_PP) | (portsc & PORTSC_RW1C),
+        )
+    };
+    let speed_id = port_speed(portsc);
+    let max_packet_size = endpoint0_packet_size(speed_id).ok_or(InitError::DescriptorMalformed)?;
+
+    let mut rings = RingCursor {
+        command_base,
+        command_index: 0,
+        doorbell_base,
+        event_base,
+        event_physical: event_ring,
+        runtime_base,
+        event_index: 0,
+        event_cycle: true,
+    };
+    let enable_event =
+        unsafe { rings.submit_command([0, 0, 0, trb_control(TRB_TYPE_ENABLE_SLOT)]) }?;
+    let slot_id = event_slot_id(enable_event[3]);
+    if slot_id == 0 || slot_id > capability.max_slots.min(8) {
+        return Err(InitError::InvalidControllerState);
+    }
+
+    let device_context = unsafe { memory::allocate_frame() }.ok_or(InitError::OutOfFrames)?;
+    let input_context = unsafe { memory::allocate_frame() }.ok_or(InitError::OutOfFrames)?;
+    let transfer_ring = unsafe { memory::allocate_frame() }.ok_or(InitError::OutOfFrames)?;
+    let descriptor_buffer = unsafe { memory::allocate_frame() }.ok_or(InitError::OutOfFrames)?;
+
+    unsafe { zero_frame(&mut vm, 7, device_context) }?;
+    unsafe { unmap_ram(&mut vm, 7) }?;
+    let input_virtual = unsafe { zero_frame(&mut vm, 7, input_context) }?;
+    let input_base = usize::try_from(input_virtual).map_err(|_| InitError::Mapping)?;
+    let transfer_virtual = unsafe { zero_frame(&mut vm, 8, transfer_ring) }?;
+    let transfer_base = usize::try_from(transfer_virtual).map_err(|_| InitError::Mapping)?;
+    let descriptor_virtual = unsafe { zero_frame(&mut vm, 9, descriptor_buffer) }?;
+    let descriptor_base = usize::try_from(descriptor_virtual).map_err(|_| InitError::Mapping)?;
+
+    unsafe { write64(dcbaa_base, usize::from(slot_id) * 8, device_context) };
+
+    // 32-byte input context: input-control, slot, endpoint-0.
+    unsafe {
+        write32(input_base, 4, 0x3); // add slot context + endpoint context 0
+        write32(
+            input_base,
+            32,
+            (u32::from(speed_id) << 20) | (1 << 27), // Context Entries=1
+        );
+        write32(input_base, 36, u32::from(port) << 16);
+        write32(
+            input_base,
+            64 + 4,
+            (3 << 1) | (4 << 3) | (u32::from(max_packet_size) << 16),
+        );
+        write64(input_base, 64 + 8, transfer_ring | 1); // DCS=1
+        write32(input_base, 64 + 16, 8); // average TRB length
+    }
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
+
+    let address_event = unsafe {
+        rings.submit_command([
+            input_context as u32,
+            (input_context >> 32) as u32,
+            0,
+            trb_control(TRB_TYPE_ADDRESS_DEVICE) | (u32::from(slot_id) << 24),
+        ])
+    }?;
+    if event_slot_id(address_event[3]) != slot_id {
+        return Err(InitError::InvalidControllerState);
+    }
+    unsafe { unmap_ram(&mut vm, 7) }?;
+
+    unsafe {
+        write_trb(transfer_base, 0, setup_get_device_descriptor());
+        write_trb(
+            transfer_base,
+            1,
+            [
+                descriptor_buffer as u32,
+                (descriptor_buffer >> 32) as u32,
+                18,
+                trb_control(TRB_TYPE_DATA_STAGE) | TRB_DIR_IN,
+            ],
+        );
+        write_trb(
+            transfer_base,
+            2,
+            [0, 0, 0, trb_control(TRB_TYPE_STATUS_STAGE) | TRB_IOC],
+        );
+    }
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
+    // Doorbell index is the slot ID; target 1 selects default control endpoint.
+    unsafe { write32(doorbell_base, usize::from(slot_id) * 4, 1) };
+
+    let transfer_event = unsafe {
+        wait_for_event_type(
+            event_base,
+            event_ring,
+            runtime_base,
+            &mut rings.event_index,
+            &mut rings.event_cycle,
+            TRB_TYPE_TRANSFER_EVENT,
+        )
+    }
+    .ok_or(InitError::TransferTimeout)?;
+    let code = completion_code(transfer_event[2]);
+    if code != COMPLETION_SUCCESS && code != COMPLETION_SHORT_PACKET {
+        return Err(InitError::TransferFailed(code));
+    }
+    if event_slot_id(transfer_event[3]) != slot_id || ((transfer_event[3] >> 16) & 0x1f) != 1 {
+        return Err(InitError::InvalidControllerState);
+    }
+    let remaining = transfer_event[2] & 0x00ff_ffff;
+    if remaining > 18 || 18 - remaining < 12 {
+        return Err(InitError::DescriptorMalformed);
+    }
+
+    let length = unsafe { read8(descriptor_base, 0) };
+    let descriptor_type = unsafe { read8(descriptor_base, 1) };
+    if length < 18 || descriptor_type != 1 {
+        return Err(InitError::DescriptorMalformed);
+    }
+    let class = unsafe { read8(descriptor_base, 4) };
+    let subclass = unsafe { read8(descriptor_base, 5) };
+    let protocol = unsafe { read8(descriptor_base, 6) };
+    let max_packet_size0 = unsafe { read8(descriptor_base, 7) };
+    let vendor_id = u16::from_le_bytes([unsafe { read8(descriptor_base, 8) }, unsafe {
+        read8(descriptor_base, 9)
+    }]);
+    let product_id = u16::from_le_bytes([unsafe { read8(descriptor_base, 10) }, unsafe {
+        read8(descriptor_base, 11)
+    }]);
+
+    unsafe { vm.unmap(9) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(8) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(6) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(5) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(4) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(3) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(2) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(0) }.map_err(|_| InitError::Mapping)?;
+
+    Ok(UsbDeviceSummary {
+        port,
+        slot_id,
+        speed_id,
+        vendor_id,
+        product_id,
+        class,
+        subclass,
+        protocol,
+        max_packet_size0,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn usb_enumeration_helpers_encode_architectural_fields() {
+        assert_eq!(
+            trb_type(trb_control(TRB_TYPE_ENABLE_SLOT)),
+            TRB_TYPE_ENABLE_SLOT
+        );
+        assert_eq!(completion_code(1 << 24), COMPLETION_SUCCESS);
+        assert_eq!(event_slot_id(7 << 24), 7);
+        assert_eq!(port_speed(3 << PORTSC_SPEED_SHIFT), 3);
+        assert_eq!(endpoint0_packet_size(1), Some(8));
+        assert_eq!(endpoint0_packet_size(3), Some(64));
+        assert_eq!(endpoint0_packet_size(4), Some(512));
+        assert_eq!(endpoint0_packet_size(0), None);
+
+        let setup = setup_get_device_descriptor();
+        assert_eq!(setup[0], 0x0100_0680);
+        assert_eq!(setup[1], 18 << 16);
+        assert_eq!(setup[2], 8);
+        assert_eq!(trb_type(setup[3]), TRB_TYPE_SETUP_STAGE);
+        assert_ne!(setup[3] & TRB_IDT, 0);
+        assert_eq!((setup[3] >> 16) & 0x3, 3);
+    }
 
     #[test]
     fn parses_capability_and_masks_array_offsets() {
