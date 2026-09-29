@@ -28,10 +28,8 @@ unsafe impl<T> Sync for StaticCell<T> {}
 
 static ROOT: StaticCell<MaybeUninit<BootstrapRoot>> =
     StaticCell(UnsafeCell::new(MaybeUninit::uninit()));
-static DEVICES: StaticCell<MaybeUninit<DevFs>> =
-    StaticCell(UnsafeCell::new(MaybeUninit::uninit()));
-static FILES: StaticCell<Option<BootstrapFiles<'static>>> =
-    StaticCell(UnsafeCell::new(None));
+static DEVICES: StaticCell<MaybeUninit<DevFs>> = StaticCell(UnsafeCell::new(MaybeUninit::uninit()));
+static FILES: StaticCell<Option<BootstrapFiles<'static>>> = StaticCell(UnsafeCell::new(None));
 static KEYS: StaticCell<ps2::SetOne> = StaticCell(UnsafeCell::new(ps2::SetOne::new()));
 static READY: AtomicBool = AtomicBool::new(false);
 static INPUT_WAIT_REPORTED: AtomicBool = AtomicBool::new(false);
