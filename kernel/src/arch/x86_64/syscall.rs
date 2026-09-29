@@ -340,11 +340,8 @@ mod native {
                     let count = core::cmp::min(length, buffer.len() as u64) as usize;
                     match crate::userspace_io::read(fd, &mut buffer[..count]) {
                         Ok(read) => {
-                            if crate::memory::address_space::copy_to_user(
-                                address,
-                                &buffer[..read],
-                            )
-                            .is_err()
+                            if crate::memory::address_space::copy_to_user(address, &buffer[..read])
+                                .is_err()
                             {
                                 abi::encode_error(abi::Errno::BadAddress)
                             } else {
@@ -372,11 +369,8 @@ mod native {
                     };
                     let mut buffer = [0u8; 256];
                     let count = core::cmp::min(length, buffer.len() as u64) as usize;
-                    if crate::memory::address_space::copy_from_user(
-                        address,
-                        &mut buffer[..count],
-                    )
-                    .is_err()
+                    if crate::memory::address_space::copy_from_user(address, &mut buffer[..count])
+                        .is_err()
                     {
                         return abi::encode_error(abi::Errno::BadAddress);
                     }
