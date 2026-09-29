@@ -47,7 +47,7 @@ records = [record for record in records if record]
 assert len(records) == expected, "CPU entry count mismatch"
 assert len({record[1] for record in records}) == expected, "duplicate CPU UIDs"
 assert len({record[2] for record in records}) == expected, "duplicate APIC IDs"
-bsp = [re.fullmatch(r"kernel per-CPU BSP: uid=(\\d+) apic=(\\d+) slots=(\\d+)", line) for line in serial]
+bsp = [re.fullmatch(r"kernel per-CPU BSP: uid=(\d+) apic=(\d+) slots=(\d+)", line) for line in serial]
 bsp = [record for record in bsp if record]
 assert len(bsp) == 1, "expected exactly one BSP per-CPU record"
 assert int(bsp[0][3]) == expected, "per-CPU slot count mismatch"
