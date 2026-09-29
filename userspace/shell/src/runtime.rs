@@ -715,10 +715,16 @@ fn show_help(io: &mut dyn System, fd: u64, name: Option<&[u8]>) -> Result<()> {
 
 fn show_manual(io: &mut dyn System, fd: u64, name: &[u8]) -> Result<()> {
     if name == b"shell" {
+        if fd == 1 {
+            write_all(io, fd, b"\x0c")?;
+        }
         write_all(io, fd, manual::SHELL_MANUAL)?;
         return Ok(());
     }
     let page = manual::lookup(name).ok_or(Error::Message(b"no manual entry; try apropos"))?;
+    if fd == 1 {
+        write_all(io, fd, b"\x0c")?;
+    }
     for part in [
         page.name,
         b"(1) - Vibrix userspace\n\nNAME\n  ",

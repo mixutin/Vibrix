@@ -106,10 +106,29 @@ def vnc_connect(port: int) -> socket.socket:
         raise
 
 
+def key_sequence(keysym: int) -> tuple[tuple[int, int], ...]:
+    # Real RFB KeyEvents, with explicit US-layout physical modifiers.
+    # QEMU maps bare '>' to an unshifted dot and '<' to an ISO key.
+    # Use Shift plus the standard US punctuation key, not guest input
+    # injection. RFC 6143 7.5.4 defines press/release and Shift keysyms.
+    shifted = "!@#$%^&*()_+{}:\"~|<>?"
+    plain = "1234567890-=[];'`\\,./"
+    character = chr(keysym)
+    if character in shifted:
+        base = ord(plain[shifted.index(character)])
+    elif ord("A") <= keysym <= ord("Z"):
+        # Keep the uppercase keysym so QEMU's Caps Lock synchronizer
+        # sees the same case as the explicitly held Shift modifier.
+        base = keysym
+    else:
+        return ((1, keysym), (0, keysym))
+    return ((1, 0xFFE1), (1, base), (0, base), (0, 0xFFE1))
+
+
 def key(client: socket.socket, keysym: int) -> None:
-    # Actual RFB KeyEvent -> virtual PS/2 -> kernel TTY -> userspace read.
-    for down in (1, 0):
-        client.sendall(struct.pack(">BBHI", 4, down, 0, keysym))
+    # Actual RFB -> virtual PS/2 -> kernel TTY -> Ring-3 read.
+    for down, symbol in key_sequence(keysym):
+        client.sendall(struct.pack(">BBHI", 4, down, 0, symbol))
         time.sleep(0.08)
 
 
@@ -256,6 +275,8 @@ def integration() -> None:
                     command("cp /welcome copy")
                     command("cat copy", "Vibrix bootstrap filesystem: files live in RAM until reboot.")
                     check_cli(command)
+                    command("man echo", "\nSYNOPSIS\n")
+                    await_text(qmp, "display-manual.ppm", [("echo", 0)])
                     command("clear", "\x0c")
                     # Form feed is the bounded native clear operation: one
                     # redraw, cursor home, no ANSI parser or repeated scrolling.
@@ -291,7 +312,7 @@ def integration() -> None:
                 print(json.dumps(evidence, indent=2))
                 print("PASS: automatic Ring-3 shell, vfetch and real VNC keyboard editing")
                 print("PASS: aliases, argument errors, full-line recovery and RAM file commands")
-                print("PASS: cleared cells, scrolling, command response and prompt are guest pixels")
+                print("PASS: manuals, cleared cells, scrolling, command response and prompt are guest pixels")
             except BaseException:
                 if qmp is not None:
                     try:
@@ -314,6 +335,30 @@ def integration() -> None:
                     path = OUTPUT / name
                     if path.exists():
                         print(f"--- {name} ---\n{path.read_text(errors='replace')}")
+
+
+class KeyEventTests(unittest.TestCase):
+    def test_redirection_uses_balanced_standard_us_shift_chords(self):
+        for character, base in ((">", "."), ("<", ","), ('"', "'"), ("!", "1")):
+            self.assertEqual(key_sequence(ord(character)),
+                             ((1, 0xFFE1), (1, ord(base)), (0, ord(base)), (0, 0xFFE1)))
+
+    def test_uppercase_preserves_case_for_qemu_lock_sync(self):
+        self.assertEqual(key_sequence(ord("A")),
+                         ((1, 0xFFE1), (1, ord("A")), (0, ord("A")), (0, 0xFFE1)))
+
+    def test_plain_and_edit_keys_are_not_shifted(self):
+        for symbol in (ord("a"), ord("."), ord("'"), 0xFF08, 0xFF0D):
+            self.assertEqual(key_sequence(symbol), ((1, symbol), (0, symbol)))
+
+    def test_wire_events_use_the_production_sequence(self):
+        from unittest.mock import Mock, patch
+        client = Mock()
+        with patch("time.sleep"):
+            key(client, ord(">"))
+        actual = [struct.unpack(">BBHI", call.args[0]) for call in client.sendall.call_args_list]
+        self.assertEqual(actual, [(4, 1, 0, 0xFFE1), (4, 1, 0, ord(".")),
+                                  (4, 0, 0, ord(".")), (4, 0, 0, 0xFFE1)])
 
 
 class PixelOracleTests(unittest.TestCase):

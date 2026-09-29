@@ -408,3 +408,31 @@ fn all_text_commands_and_bounded_history_are_wired_to_dispatch() {
     assert_eq!(io.run(&mut shell, b"history"), 0);
     assert_eq!(io.stdout.iter().filter(|&&byte| byte == b'\n').count(), 4);
 }
+
+#[test]
+fn manuals_fit_a_fresh_terminal_without_controls_in_redirected_files() {
+    let mut io = Memory::new();
+    let mut shell = Shell::new();
+    for name in MANUALS
+        .iter()
+        .map(|page| page.name)
+        .chain(core::iter::once(&b"shell"[..]))
+    {
+        let mut command = Vec::from(&b"man "[..]);
+        command.extend_from_slice(name);
+        assert_eq!(io.run(&mut shell, &command), 0);
+        assert!(io.stdout.starts_with(b"\x0c"));
+        assert!(io.stdout.iter().filter(|&&byte| byte == b'\n').count() <= 29);
+        assert!(
+            io.stdout
+                .split(|&byte| byte == b'\n')
+                .all(|line| line.len() <= 80)
+        );
+    }
+    assert_eq!(io.run(&mut shell, b"man echo > /tmp/page"), 0);
+    assert!(io.stdout.is_empty());
+    assert!(io.data(b"/tmp/page").starts_with(b"echo(1)"));
+    assert!(!io.data(b"/tmp/page").contains(&12));
+    assert_eq!(io.run(&mut shell, b"man notacommand"), 1);
+    assert!(io.stdout.is_empty());
+}

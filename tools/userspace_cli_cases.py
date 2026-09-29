@@ -10,6 +10,8 @@ def check_cli(command: Callable[[str, str], str]) -> None:
             raise AssertionError(f"command failed in guest: {line!r}: {reply!r}")
         return reply
 
+    success("echo \"Shift < > !\"", "\nShift < > !\n")
+    command("cat /dev/zero", "operation requires a regular file")
     success("help grep", "Usage: grep")
     success("man grep", "\nSYNOPSIS\n")
     success("man shell", "No pipes, append")

@@ -32,7 +32,7 @@ man -k directory
 which cat fastfetch
 ```
 
-`help` is a compact command index. `help COMMAND` and the sole `--help` argument print usage without executing that command, even for `rm`, `kill` and `exit`. This help shortcut also ignores redirections rather than creating or truncating a file. `man` pages contain NAME, SYNOPSIS, DESCRIPTION, EXAMPLES, EXIT STATUS and LIMITS. Descriptions are wrapped for the native terminal. Pages are embedded in the shell; they do not depend on downloaded content or a `/usr/share/man` filesystem.
+`help` is a compact command index. `help COMMAND` and the sole `--help` argument print usage without executing that command, even for `rm`, `kill` and `exit`. This help shortcut also ignores redirections rather than creating or truncating a file. `man` pages contain NAME, SYNOPSIS, DESCRIPTION, EXAMPLES, EXIT STATUS and LIMITS. Descriptions are wrapped for the native terminal. Each manual opens on a fresh screen and fits within its 30 rows; redirected manual output contains no screen-clear control. Pages are embedded in the shell; they do not depend on downloaded content or a `/usr/share/man` filesystem.
 
 `userspace/shell/src/manual.rs` is the single command catalogue used by lookup, help, aliases and manuals. Tests enumerate every entry to prevent undocumented commands or destructive help paths.
 
