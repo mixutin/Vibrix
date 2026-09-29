@@ -13,6 +13,7 @@ pub mod process;
 pub mod process_syscalls;
 pub mod secure_random;
 pub mod update_policy;
+pub mod usb_hid;
 pub mod user_image;
 pub mod user_stack;
 pub mod vfs;

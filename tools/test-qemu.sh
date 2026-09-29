@@ -115,13 +115,16 @@ while time.monotonic() < deadline:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
                 client.connect(monitor)
                 if sys.argv[8] == "1":
-                    client.sendall(b"mouse_move 20 0\n")
-                    time.sleep(0.4)
+                    for command in (b"mouse_button 1\n", b"mouse_move 7 -5\n", b"mouse_button 0\n"):
+                        client.sendall(command)
+                        time.sleep(0.25)
                     break
                 elif sys.argv[7] == "1":
-                    # Hold one real virtual key so the bounded HID GET_REPORT
-                    # polling window cannot race HMP/file-marker latency.
-                    keys = ("h 2000",)
+                    # Interrupt-IN must deliver press, modifiers, and release.
+                    for command in (b"sendkey h 100\n", b"sendkey shift-b 100\n"):
+                        client.sendall(command)
+                        time.sleep(0.3)
+                    break
                 elif sys.argv[6] == "1":
                     commands = [
                         "pwd",

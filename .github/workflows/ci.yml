@@ -473,20 +473,25 @@ jobs:
           grep -Fq "VIBRIX: kernel USB hub downstream port reset and enabled" build/qemu/debugcon.log
           grep -Eq 'kernel USB hub: root_port=[1-9][0-9]* slot=[1-9][0-9]* ports=[1-9][0-9]* child_port=[1-9][0-9]* child_status=0x[0-9a-f]{4} pwr_good_units=[0-9]+' build/qemu/serial.log
           VIBRIX_KERNEL_FEATURES=qemu-debugcon bash tools/build-qemu.sh
-      - name: QEMU USB HID boot keyboard class input
+      - name: Test production USB HID descriptors and boot reports
+        run: |
+          cargo test --locked -p vibrix-kernel --lib usb_hid::
+      - name: QEMU USB HID keyboard interrupt input
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,usb-hid-keyboard-probe bash tools/build-qemu.sh
           VIBRIX_SKIP_BUILD=1 VIBRIX_QEMU_USB_HID_KEYBOARD_PROBE=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
           grep -Fq "VIBRIX: kernel USB HID keyboard ready" build/qemu/debugcon.log
           grep -Fq "VIBRIX: kernel USB HID keyboard input observed" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: USB keyboard interrupt press modifiers release verified" build/qemu/debugcon.log
           tr -d '\r' < build/qemu/serial.log | grep -Eq '^kernel USB HID keyboard: root_port=[1-9][0-9]* slot=[1-9][0-9]* interface=[0-9]+ endpoint=0x8[0-9a-f] mps=[1-9][0-9]* interval=[1-9][0-9]* modifiers=0x[0-9a-f]{2} usage=0x0b$'
           VIBRIX_KERNEL_FEATURES=qemu-debugcon bash tools/build-qemu.sh
-      - name: QEMU USB HID boot mouse class input
+      - name: QEMU USB HID mouse interrupt input
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,usb-hid-mouse-probe bash tools/build-qemu.sh
           VIBRIX_SKIP_BUILD=1 VIBRIX_QEMU_USB_HID_MOUSE_PROBE=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
           grep -Fq "VIBRIX: kernel USB HID mouse ready" build/qemu/debugcon.log
           grep -Fq "VIBRIX: kernel USB HID mouse motion observed" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: USB mouse interrupt motion buttons release verified" build/qemu/debugcon.log
           grep -Eq '^kernel USB HID mouse: root_port=[1-9][0-9]* slot=[1-9][0-9]* interface=[0-9]+ endpoint=0x8[0-9a-f] mps=[1-9][0-9]* interval=[1-9][0-9]* buttons=0x[0-9a-f]{2} x=-?[0-9]+ y=-?[0-9]+' build/qemu/serial.log
           if grep -Fq " x=0 y=0" build/qemu/serial.log; then
             echo "USB HID mouse proof observed no motion" >&2
