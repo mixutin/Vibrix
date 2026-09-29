@@ -80,7 +80,7 @@ fn fill_with(
 }
 
 #[cfg(target_os = "none")]
-fn rdseed_supported() -> bool {
+pub fn supported() -> bool {
     use core::arch::x86_64::__cpuid_count;
 
     let root = __cpuid_count(0, 0);
@@ -120,7 +120,7 @@ pub fn fill(output: &mut [u8]) -> Result<(), Error> {
     if output.len() > MAX_REQUEST_BYTES {
         return Err(Error::RequestTooLarge);
     }
-    if !rdseed_supported() {
+    if !supported() {
         return Err(Error::Unsupported);
     }
 
@@ -134,6 +134,11 @@ pub fn fill(output: &mut [u8]) -> Result<(), Error> {
         PREVIOUS_VALID.store(true, Ordering::Release);
     }
     Ok(())
+}
+
+#[cfg(not(target_os = "none"))]
+pub const fn supported() -> bool {
+    false
 }
 
 #[cfg(not(target_os = "none"))]
@@ -209,6 +214,7 @@ mod tests {
 
     #[test]
     fn host_public_api_never_invents_entropy() {
+        assert!(!supported());
         let mut output = [0x44; 8];
         assert_eq!(fill(&mut output), Err(Error::Unsupported));
         assert_eq!(output, [0x44; 8]);
