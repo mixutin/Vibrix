@@ -165,6 +165,49 @@ pub fn parse_capability(
     })
 }
 
+fn trb_control(kind: u32) -> u32 {
+    TRB_CYCLE | (kind << TRB_TYPE_SHIFT)
+}
+
+fn trb_type(control: u32) -> u32 {
+    (control >> TRB_TYPE_SHIFT) & 0x3f
+}
+
+fn completion_code(status: u32) -> u8 {
+    (status >> 24) as u8
+}
+
+fn event_slot_id(control: u32) -> u8 {
+    (control >> 24) as u8
+}
+
+fn port_speed(portsc: u32) -> u8 {
+    ((portsc & PORTSC_SPEED_MASK) >> PORTSC_SPEED_SHIFT) as u8
+}
+
+fn endpoint0_packet_size(speed_id: u8) -> Option<u16> {
+    match speed_id {
+        // Full- and low-speed devices begin enumeration with 8-byte EP0.
+        1 | 2 => Some(8),
+        // High-speed control endpoints use 64-byte max packets.
+        3 => Some(64),
+        // SuperSpeed and SuperSpeedPlus device contexts encode 512 bytes.
+        4 | 5 => Some(512),
+        _ => None,
+    }
+}
+
+fn setup_get_device_descriptor() -> [u32; 4] {
+    // bmRequestType=IN|standard|device, bRequest=GET_DESCRIPTOR,
+    // wValue=DEVICE<<8 | index0, wIndex=0, wLength=18.
+    [
+        0x0100_0680,
+        18u32 << 16,
+        8,
+        trb_control(TRB_TYPE_SETUP_STAGE) | TRB_IDT | (3 << 16),
+    ]
+}
+
 #[cfg(target_os = "none")]
 unsafe fn rdmsr(msr: u32) -> u64 {
     let low: u32;
