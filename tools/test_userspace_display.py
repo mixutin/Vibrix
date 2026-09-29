@@ -267,6 +267,17 @@ def integration() -> None:
                         "display-final.ppm",
                         [("vibrix$ echo vnc", 0), ("vnc", 1), ("vibrix$ ", 2)],
                     )
+                    # Move the prompt to the last row, then force two real
+                    # scrolls. A top-of-screen response cannot satisfy this.
+                    for _ in range(27):
+                        command("")
+                    await_text(qmp, "display-bottom.ppm", [("vibrix$ ", 29)])
+                    command("echo vnc", "\nvnc\n")
+                    await_text(
+                        qmp,
+                        "display-scroll.ppm",
+                        [("vibrix$ echo vnc", 27), ("vnc", 28), ("vibrix$ ", 29)],
+                    )
                 evidence = {
                     "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                     "result": "passed",
