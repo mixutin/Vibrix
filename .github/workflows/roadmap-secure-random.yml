@@ -1,0 +1,32 @@
+name: Secure random evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  secure-random:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Test secure-random policy on host and bare-metal target
+        run: |
+          rustfmt --edition 2024 --check kernel/src/secure_random.rs kernel/src/lib.rs
+          cargo test --locked -p vibrix-kernel --lib secure_random::
+          cargo clippy --locked -p vibrix-kernel --lib --target x86_64-unknown-none -- -D warnings
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+      - name: Exercise real RDSEED after ExitBootServices
+        run: |
+          ./tools/test-qemu.sh
+          tr -d '\r' < build/qemu/debugcon.log | grep -Fx 'VIBRIX: kernel secure random RDSEED verified'
+          tr -d '\r' < build/qemu/serial.log | grep -Fx 'VIBRIX: kernel secure random RDSEED verified'
