@@ -1,0 +1,34 @@
+name: Architecture-independent driver boundary
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  driver-boundary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install repository toolchain and AArch64 target
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt,clippy --target x86_64-unknown-none,aarch64-unknown-none
+      - name: Test shared driver policy on host and x86 kernel library
+        run: |
+          cargo fmt --all -- --check
+          cargo test --locked -p vibrix-kernel --lib device::
+          cargo clippy --locked -p vibrix-kernel --lib --target x86_64-unknown-none -- -D warnings
+      - name: Compile exact driver policy in a no_std AArch64 harness
+        run: |
+          rustc --edition 2024 --crate-type lib --target aarch64-unknown-none host-tests/driver_boundary_target.rs -o /tmp/libdriver_boundary.rlib
+          test -s /tmp/libdriver_boundary.rlib
+      - name: Reject architecture mechanism leakage into shared boundary
+        run: |
+          ! grep -Eq 'core::arch|asm!|arch::x86_64|arch::aarch64|read_volatile|write_volatile|invlpg|cpuid' kernel/src/device.rs
