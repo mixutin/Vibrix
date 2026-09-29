@@ -1,8 +1,17 @@
 //! Allocation-free synchronous Ethernet-frame interface and RAM loopback.
 //! Frames exclude preamble/FCS; no network, DMA, PCI or interrupt access occurs.
 
+#[path = "internet_checksum.rs"]
+mod internet_checksum;
+
 #[path = "ethernet.rs"]
 pub mod ethernet;
+
+#[path = "ipv4.rs"]
+pub mod ipv4;
+
+#[path = "icmp.rs"]
+pub mod icmp;
 
 pub const ETHERNET_HEADER: usize = 14;
 pub const MTU: usize = 1500;
@@ -174,6 +183,10 @@ impl NetworkInterface for Loopback {
     }
 }
 
+pub fn ipv4_icmp_self_test() -> Result<(), Error> {
+    icmp::self_test().map_err(|_| Error::Io)
+}
+
 pub fn self_test() -> Result<(), Error> {
     let address = MacAddress::new([2, 0, 0, 0, 0, 1])?;
     arp::self_test().map_err(|_| Error::Io)?;
@@ -218,6 +231,11 @@ mod tests {
     #[test]
     fn production_trait_round_trip() {
         assert_eq!(self_test(), Ok(()));
+    }
+
+    #[test]
+    fn production_ipv4_icmp_echo_path() {
+        assert_eq!(ipv4_icmp_self_test(), Ok(()));
     }
 
     #[test]
