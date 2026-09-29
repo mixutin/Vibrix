@@ -7,6 +7,7 @@ pub mod block;
 pub mod config_policy;
 pub mod cpu_topology;
 pub mod nic;
+pub mod per_cpu;
 pub mod process;
 pub mod process_syscalls;
 pub mod update_policy;

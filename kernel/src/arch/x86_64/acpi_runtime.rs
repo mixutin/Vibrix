@@ -212,6 +212,7 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
     let mut mcfg_allocations = 0usize;
     let mut selected_ecam = None;
     let mut selected_apic = None;
+    let mut selected_topology = None;
     for &physical in &root_addresses[..count] {
         // SAFETY: the previous mapping is completely retired; all addresses
         // are untrusted numbers until checked against ACPI-type map entries.
@@ -229,7 +230,7 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
                         }
                         count += 1;
                     }
-                    return Ok((count, bus_zero, None));
+                    return Ok((count, bus_zero, None, None));
                 }
                 if &table.signature == b"APIC" {
                     let topology = vibrix_kernel::cpu_topology::Topology::from_madt(table.bytes())
@@ -277,9 +278,10 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
                             timer_active_low,
                             timer_level_triggered,
                         )),
+                        Some(topology),
                     ));
                 }
-                Ok((0usize, None, None))
+                Ok((0usize, None, None, None))
             })
         }?;
         mcfg_allocations = mcfg_allocations
@@ -292,6 +294,11 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
         }
         if let Some(apic) = result.2
             && selected_apic.replace(apic).is_some()
+        {
+            return Err(ReadError::MultipleApic);
+        }
+        if let Some(topology) = result.3
+            && selected_topology.replace(topology).is_some()
         {
             return Err(ReadError::MultipleApic);
         }
@@ -337,6 +344,17 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
     if ecam.devices == 0 {
         return Err(ReadError::MissingEcam);
     }
+    let topology = selected_topology.ok_or(ReadError::MissingApic)?;
+    // SAFETY: this is the sole BSP before AP startup; the complete root-table
+    // scan, MADT parser and all later ACPI/ECAM validation have succeeded.
+    unsafe { vibrix_kernel::per_cpu::initialize_from_topology(&topology) }
+        .map_err(|_| ReadError::Acpi(AcpiError::InvalidEntry))?;
+    crate::println!(
+        "kernel per-CPU table: slots={} published=true",
+        topology.processors().len()
+    );
+    crate::println!("VIBRIX: kernel per-CPU topology published");
+    crate::debugcon::write("VIBRIX: kernel per-CPU topology published\r\n");
     Ok(Discovery {
         allocations: mcfg_allocations,
         ecam,
