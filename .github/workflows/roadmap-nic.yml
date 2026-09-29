@@ -21,6 +21,7 @@ jobs:
             kernel/src/internet_checksum.rs \
             kernel/src/ethernet.rs \
             kernel/src/arp.rs \
+            kernel/src/arp_runtime.rs \
             kernel/src/ipv4.rs \
             kernel/src/icmp.rs \
             kernel/src/udp.rs \
@@ -41,3 +42,5 @@ jobs:
           tr -d '\r' < build/qemu/serial.log | grep -Fx 'VIBRIX: kernel IPv4 ICMP echo verified'
           tr -d '\r' < build/qemu/debugcon.log | grep -Fx 'VIBRIX: kernel UDP datagram verified'
           tr -d '\r' < build/qemu/serial.log | grep -Fx 'VIBRIX: kernel UDP datagram verified'
+          tr -d '\r' < build/qemu/debugcon.log | grep -Fx 'VIBRIX: kernel Ethernet ARP responder verified'
+          tr -d '\r' < build/qemu/serial.log | grep -Fx 'VIBRIX: kernel Ethernet ARP responder verified'
