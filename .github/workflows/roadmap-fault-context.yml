@@ -24,7 +24,7 @@ jobs:
         run: |
           cargo fmt --all -- --check
           rustfmt --edition 2024 --check kernel/src/arch/x86_64/idt.rs
-          cargo clippy --locked -p vibrix-kernel --target x86_64-unknown-none --features qemu-debugcon,page-fault-probe -- -D warnings
+          cargo clippy --locked -p vibrix-kernel --all-features --target x86_64-unknown-none -- -D warnings
       - name: Install QEMU and OVMF
         run: |
           sudo apt-get update
