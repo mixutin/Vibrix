@@ -1,8 +1,8 @@
-//! Feature-gated single-BSP userspace stdio owner.
+//! Single-BSP userspace stdio owner for the shell and diagnostic profiles.
 //!
-//! This binds ABI descriptors 0/1/2 to the existing /dev/tty VFS node. It is
-//! deliberately bounded bootstrap plumbing: one process, one CPU, no IRQ-side
-//! VFS access, and no descriptor inheritance yet.
+//! ABI descriptors 0/1/2 bind to /dev/tty. The interactive userspace profile
+//! mirrors the TTY drain and accepted key edits to the supervisor framebuffer.
+//! One process, one CPU, no IRQ-side VFS access or descriptor inheritance.
 
 use core::{
     cell::UnsafeCell,
@@ -20,9 +20,9 @@ use crate::arch::x86_64::{ps2, serial, syscall::abi};
 
 struct StaticCell<T>(UnsafeCell<T>);
 
-// SAFETY: this entire module is enabled only for the single-BSP userspace I/O
-// proof. Initialization occurs once before entering CPL3; all later access is
-// from the same CPU with syscall FMASK keeping IF clear.
+// SAFETY: only the BSP is started. Initialization occurs once before CPL3;
+// later access is from the same CPU with syscall FMASK keeping IF clear.
+// Neither interrupts nor the framebuffer frontend borrow the VFS state.
 unsafe impl<T> Sync for StaticCell<T> {}
 
 // A static initializer is evaluated at compile time. Constructing the RAM
@@ -99,7 +99,7 @@ fn with_files<T>(operation: impl FnOnce(&mut BootstrapFiles<'static>) -> Result<
         return Err(Error::BadDescriptor);
     }
     // SAFETY: single BSP, syscall entry has IF masked, and no reentrant VFS
-    // caller exists in this bounded proof. The mutable borrow never escapes.
+    // caller exists. The mutable borrow never escapes this operation.
     let files = unsafe { (*FILES.0.get()).as_mut().ok_or(Error::BadDescriptor)? };
     operation(files)
 }
@@ -156,11 +156,17 @@ pub fn read(fd: usize, buffer: &mut [u8]) -> Result<usize> {
                 if !INPUT_WAIT_REPORTED.swap(true, Ordering::SeqCst) {
                     crate::debugcon::write("VIBRIX: userspace TTY read waiting for keyboard\r\n");
                 }
-                // SAFETY: this proof owns the sole post-UEFI i8042 consumer.
+                // SAFETY: this owner is the sole post-UEFI i8042 consumer.
                 if let Some(scan) = unsafe { ps2::poll_scancode() } {
                     // SAFETY: same single-BSP ownership as FILES.
                     if let Some(ascii) = unsafe { &mut *KEYS.0.get() }.feed(scan) {
+                        #[cfg(feature = "userspace-shell")]
+                        if !frontend::input_fits(ascii) {
+                            continue;
+                        }
                         with_files(|files| files.device_input("/dev/tty", ascii))?;
+                        #[cfg(feature = "userspace-shell")]
+                        frontend::echo(ascii);
                     }
                 } else {
                     core::hint::spin_loop();
@@ -179,9 +185,62 @@ pub fn write(fd: usize, buffer: &[u8]) -> Result<usize> {
         if n == 0 {
             break;
         }
-        // Userspace output is bytes, not trusted UTF-8. COM1 already exposes
-        // a byte-oriented bounded writer.
+        // Only drained TTY bytes reach the display, not writes to RAM files.
+        // The syscall layer has already copied this data into kernel memory.
+        #[cfg(feature = "userspace-shell")]
+        crate::framebuffer::terminal::write(&drained[..n]);
         serial::write_bytes(&drained[..n]).map_err(|_| Error::BackendContract)?;
     }
     Ok(count)
+}
+
+#[cfg(feature = "userspace-shell")]
+mod frontend {
+    use crate::{arch::x86_64::serial, framebuffer::terminal};
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    static LINE_BYTES: AtomicUsize = AtomicUsize::new(0);
+
+    pub fn input_fits(byte: u8) -> bool {
+        // Reserve the last byte of the existing 256-byte canonical TTY buffer
+        // for Enter. Otherwise a full input line cannot ever be committed.
+        !matches!(byte, b'\t' | 0x20..=0x7e) || LINE_BYTES.load(Ordering::SeqCst) < 255
+    }
+
+    fn erase() {
+        terminal::write(b"\x08");
+        let _ = serial::write_bytes(b"\x08 \x08");
+    }
+
+    pub fn echo(byte: u8) {
+        // Called only after successful device_input, so rejected input never
+        // appears on screen. Count input bytes, not prompt characters.
+        match byte {
+            b'\r' | b'\n' => {
+                LINE_BYTES.store(0, Ordering::SeqCst);
+                // The current shell writes the dispatch newline itself.
+            }
+            8 | 127 => {
+                if LINE_BYTES.load(Ordering::SeqCst) > 0 {
+                    LINE_BYTES.fetch_sub(1, Ordering::SeqCst);
+                    erase();
+                }
+            }
+            0x15 => {
+                let count = LINE_BYTES.swap(0, Ordering::SeqCst);
+                for _ in 0..count {
+                    erase();
+                }
+            }
+            b'\t' | 0x20..=0x7e => {
+                LINE_BYTES.fetch_add(1, Ordering::SeqCst);
+                // Echo a typed tab as one cell so canonical backspace and
+                // Ctrl-U always erase exactly the accepted input, not prompt.
+                let bytes = [if byte == b'\t' { b' ' } else { byte }];
+                terminal::write(&bytes);
+                let _ = serial::write_bytes(&bytes);
+            }
+            _ => {}
+        }
+    }
 }
