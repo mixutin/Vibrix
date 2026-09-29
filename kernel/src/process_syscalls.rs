@@ -126,10 +126,7 @@ pub fn dispatch<const N: usize>(
             })
         }
         abi::Syscall::GetResGid => {
-            let credentials = table
-                .get(current)
-                .ok_or(abi::Errno::NotFound)?
-                .credentials;
+            let credentials = table.get(current).ok_or(abi::Errno::NotFound)?.credentials;
             Ok(Action::CredentialInfo {
                 real: credentials.real_gid.get(),
                 effective: credentials.effective_gid.get(),
