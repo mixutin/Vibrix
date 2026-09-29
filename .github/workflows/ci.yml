@@ -546,6 +546,14 @@ jobs:
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel address space probe: kernel_cr3="
           tr -d '\r' < build/qemu/serial.log | grep -Fq " rip=0x400000 rsp=0x800000"
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel address space trap: expected_cr3="
+      - name: QEMU userspace stack lower-guard fault proof
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,user-stack-guard-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel userspace stack guard write armed" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel page fault diagnostic" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel #PF cr2=0x7fefff"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "present=false write=true user=true reserved=false exec=false"
       - name: QEMU validated ELF load into private userspace CR3
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,elf-load-probe bash tools/build-qemu.sh

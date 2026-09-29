@@ -645,6 +645,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                 probe.user_rip,
                 probe.user_rsp
             );
+            #[cfg(feature = "user-stack-guard-probe")]
+            debugcon::write("VIBRIX: kernel userspace stack guard write armed\r\n");
             // SAFETY: activate_probe staged and validated the private mappings.
             // enter_probe moves to a higher-half kernel stack before loading
             // the private CR3, then immediately enters CPL3.
