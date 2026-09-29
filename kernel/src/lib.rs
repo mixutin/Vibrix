@@ -12,6 +12,7 @@ pub mod nic;
 pub mod per_cpu;
 pub mod process;
 pub mod process_syscalls;
+pub mod routing;
 #[path = "../../shared/scsi.rs"]
 pub mod scsi;
 pub mod secure_random;
@@ -59,6 +60,8 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel DNS A resolver verified");
     nic::tcp_self_test().expect("TCP transport self-test failed");
     report("VIBRIX: kernel TCP active-open foundation verified");
+    routing::self_test().expect("IPv4 routing policy self-test failed");
+    report("VIBRIX: kernel IPv4 routing policy verified");
     process::self_test().expect("process lifecycle self-test failed");
     report("VIBRIX: kernel process lifecycle verified");
     config_policy::self_test().expect("portable configuration policy self-test failed");
