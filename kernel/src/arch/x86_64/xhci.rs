@@ -1,9 +1,8 @@
 //! Bounded native xHCI controller initialization for the early single-BSP kernel.
 //!
-//! This module intentionally stops before USB device enumeration. It proves
-//! that one PCI-discovered xHCI controller can be reset, supplied with the
-//! mandatory host-controller data structures, and transitioned to Running
-//! after ExitBootServices.
+//! This module owns the bounded early xHCI proof path: controller startup,
+ //! one directly attached device, and USB2 hub class control/port management.
+ //! HID and mass-storage endpoint drivers remain later milestones.
 
 use crate::{BootInfo, memory};
 use core::arch::{asm, x86_64::__cpuid_count};
@@ -1161,6 +1160,25 @@ mod tests {
         assert_eq!(trb_type(setup[3]), TRB_TYPE_SETUP_STAGE);
         assert_ne!(setup[3] & TRB_IDT, 0);
         assert_eq!((setup[3] >> 16) & 0x3, 3);
+
+        let hub = setup_get_hub_descriptor();
+        assert_eq!(hub[0], 0x2900_06a0);
+        assert_eq!(hub[1], 9 << 16);
+        assert_eq!((hub[3] >> 16) & 0x3, 3);
+
+        let power = setup_set_port_feature(2, 8);
+        assert_eq!(power[0], 0x0008_0323);
+        assert_eq!(power[1], 2);
+        assert_eq!((power[3] >> 16) & 0x3, 0);
+
+        let reset = setup_set_port_feature(3, 4);
+        assert_eq!(reset[0], 0x0004_0323);
+        assert_eq!(reset[1], 3);
+
+        let status = setup_get_port_status(4);
+        assert_eq!(status[0], 0x0000_00a3);
+        assert_eq!(status[1], (4 << 16) | 4);
+        assert_eq!((status[3] >> 16) & 0x3, 3);
     }
 
     #[test]
