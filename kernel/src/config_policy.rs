@@ -1,11 +1,15 @@
 //! Portable preference policy v1. No storage access or hardware selection.
 
+#[path = "config_encoding.rs"]
+mod encoding;
+
 pub const MAX_CONFIG_BYTES: usize = 1024;
 pub const MAX_CONFIG_LINES: usize = 32;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Error {
     TooLarge,
+    OutputTooSmall,
     Encoding,
     Syntax,
     Version,
@@ -161,6 +165,7 @@ pub fn self_test() -> Result<(), Error> {
     {
         return Err(Error::Value);
     }
+    encoding::self_test()?;
     Ok(())
 }
 
