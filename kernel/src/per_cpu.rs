@@ -7,7 +7,7 @@
 //! synchronization beyond the single-BSP bootstrap.
 
 use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use crate::cpu_topology::{Availability, MAX_PROCESSORS, Topology};
 
@@ -75,6 +75,7 @@ unsafe impl Sync for PublishedTable {}
 static TABLE: PublishedTable = PublishedTable(UnsafeCell::new(Table::EMPTY));
 static READY: AtomicBool = AtomicBool::new(false);
 static BSP_SLOT: AtomicUsize = AtomicUsize::new(UNBOUND);
+static ONLINE_MASK: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Error {
@@ -82,6 +83,9 @@ pub enum Error {
     NotInitialized,
     BspNotEnabled,
     BspAlreadyBound,
+    ApNotEnabled,
+    ApIsBsp,
+    ApAlreadyOnline,
 }
 
 /// Publish one kernel-owned copy of the validated firmware processor inventory.
@@ -123,7 +127,40 @@ pub fn bind_bsp(apic_id: u32) -> Result<CpuSlot, Error> {
     BSP_SLOT
         .compare_exchange(UNBOUND, index, Ordering::AcqRel, Ordering::Acquire)
         .map_err(|_| Error::BspAlreadyBound)?;
+    ONLINE_MASK.fetch_or(1u64 << index, Ordering::Release);
     Ok(table.slots[index])
+}
+
+/// Bind one executing application processor to its published enabled slot.
+///
+/// This function does not initialize descriptor tables, interrupts or a
+/// scheduler on the AP. AP startup calls it exactly once after entering the
+/// kernel address space, then parks the processor until later SMP milestones.
+pub fn bind_ap(apic_id: u32) -> Result<CpuSlot, Error> {
+    let table = published().ok_or(Error::NotInitialized)?;
+    let index = table.enabled_index(apic_id).ok_or(Error::ApNotEnabled)?;
+    if BSP_SLOT.load(Ordering::Acquire) == index {
+        return Err(Error::ApIsBsp);
+    }
+    let bit = 1u64 << index;
+    if ONLINE_MASK.fetch_or(bit, Ordering::AcqRel) & bit != 0 {
+        return Err(Error::ApAlreadyOnline);
+    }
+    Ok(table.slots[index])
+}
+
+pub fn online_count() -> usize {
+    ONLINE_MASK.load(Ordering::Acquire).count_ones() as usize
+}
+
+pub fn is_online(apic_id: u32) -> bool {
+    let Some(table) = published() else {
+        return false;
+    };
+    let Some(index) = table.enabled_index(apic_id) else {
+        return false;
+    };
+    ONLINE_MASK.load(Ordering::Acquire) & (1u64 << index) != 0
 }
 
 pub fn slots() -> &'static [CpuSlot] {
