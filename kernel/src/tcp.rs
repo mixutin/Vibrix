@@ -147,9 +147,7 @@ impl CongestionControl {
             return;
         }
         if self.cwnd < self.ssthresh {
-            self.cwnd = self
-                .cwnd
-                .saturating_add(newly_acked.min(self.smss));
+            self.cwnd = self.cwnd.saturating_add(newly_acked.min(self.smss));
             return;
         }
 
@@ -168,9 +166,7 @@ impl CongestionControl {
 
     pub fn on_three_duplicate_acks(&mut self, flight_size: u32) {
         self.ssthresh = (flight_size / 2).max(self.smss.saturating_mul(2));
-        self.cwnd = self
-            .ssthresh
-            .saturating_add(self.smss.saturating_mul(3));
+        self.cwnd = self.ssthresh.saturating_add(self.smss.saturating_mul(3));
         self.avoidance_acked = 0;
     }
 
