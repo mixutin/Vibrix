@@ -353,6 +353,7 @@ pub unsafe fn inspect(info: &BootInfo, rsdp: &Rsdp) -> Result<Discovery, ReadErr
         "kernel per-CPU table: slots={} published=true",
         topology.processors().len()
     );
+    crate::println!("VIBRIX: kernel per-CPU topology published");
     crate::debugcon::write("VIBRIX: kernel per-CPU topology published\r\n");
     Ok(Discovery {
         allocations: mcfg_allocations,
