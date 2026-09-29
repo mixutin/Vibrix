@@ -1,0 +1,82 @@
+name: CLI edit session
+
+on:
+  push:
+    branches: [gpt-6-astra/unix-userspace-20260929]
+    paths:
+      - tools/cli-edit-session.py
+      - .github/workflows/cli-edit-session.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cli-edit-session
+  cancel-in-progress: false
+
+jobs:
+  edit:
+    if: github.repository == 'mixutin/Vibrix' && github.ref == 'refs/heads/gpt-6-astra/unix-userspace-20260929'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the exact development head without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned compiler and formatter
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt,clippy --target x86_64-unknown-none
+      - name: Apply only reviewed exact-match edits and format
+        run: |
+          python3 tools/cli-edit-session.py
+          cargo fmt --all
+          git diff --check
+      - name: Compile and test before publishing the edited tree
+        run: |
+          cargo test --locked -p vibrix-shell --lib
+          cargo clippy --locked -p vibrix-shell --target x86_64-unknown-none -- -D warnings
+          cargo clippy --locked -p vibrix-shell --lib --tests -- -D warnings
+          rustc --edition=2024 --test kernel/src/arch/x86_64/ps2.rs -o "$RUNNER_TEMP/ps2-tests"
+          "$RUNNER_TEMP/ps2-tests"
+          cargo test --locked -p vibrix-kernel --lib
+          python3 -m py_compile tools/test_userspace_display.py tools/userspace_cli_cases.py
+          python3 tools/test_userspace_display.py --unit
+      - name: Commit only the bounded feature edits without forcing the branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: gpt-6-astra/unix-userspace-20260929
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          allowed = {"Cargo.toml", "README.md", "kernel/src/memory/address_space.rs", "kernel/src/vfs/console.rs", "kernel/src/userspace_io.rs", "kernel/src/arch/x86_64/ps2.rs", "tools/test_userspace_display.py"}
+          changed = subprocess.check_output(["git", "diff", "--name-only"], text=True).splitlines()
+          if any(path not in allowed and not path.startswith("userspace/shell/src/") for path in changed):
+              raise SystemExit("unexpected edit outside this CLI session")
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Cargo.toml README.md userspace/shell/src kernel/src/memory/address_space.rs kernel/src/vfs/console.rs kernel/src/userspace_io.rs kernel/src/arch/x86_64/ps2.rs tools/test_userspace_display.py
+          git commit -m '[GPT-6 Astra Pro] userspace: integrate bounded stack, RAM capacity, keyboard and CLI tests'
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git push origin "HEAD:refs/heads/$BRANCH"
+      - name: Preserve the reviewed diff for this edit session
+        if: always()
+        run: |
+          mkdir -p build/cli-edit-session
+          git diff --binary > build/cli-edit-session/uncommitted.patch
+          git log -1 --format='%H %s' > build/cli-edit-session/head.txt
+          git show --stat --oneline HEAD > build/cli-edit-session/commit.txt
+      - name: Retain edit diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cli-edit-session-${{ github.run_id }}
+          path: build/cli-edit-session/
+          retention-days: 1
+          if-no-files-found: warn
