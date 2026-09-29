@@ -48,6 +48,7 @@ impl From<Error> for InitError {
 }
 
 pub fn init() -> core::result::Result<(), InitError> {
+    crate::debugcon::write("VIBRIX: userspace stdio initialization entered\r\n");
     if READY.load(Ordering::SeqCst) {
         return Err(InitError::AlreadyInitialized);
     }
@@ -67,6 +68,7 @@ pub fn init() -> core::result::Result<(), InitError> {
             &mut *slot.as_mut_ptr()
         };
         let mut files = bootstrap(root, devices)?;
+        crate::debugcon::write("VIBRIX: userspace stdio bootstrap VFS ready\r\n");
 
         let stdin = files.open("/dev/tty", Open::READ)?;
         let write_only = Open {
@@ -79,6 +81,7 @@ pub fn init() -> core::result::Result<(), InitError> {
         if (stdin, stdout, stderr) != (0, 1, 2) {
             return Err(InitError::DescriptorLayout);
         }
+        crate::debugcon::write("VIBRIX: userspace stdio descriptors ready\r\n");
 
         // SAFETY: no userspace syscall can access FILES before READY remains
         // published true at function return on this single CPU.
@@ -88,6 +91,7 @@ pub fn init() -> core::result::Result<(), InitError> {
 
     if result.is_ok() {
         READY.store(true, Ordering::SeqCst);
+        crate::debugcon::write("VIBRIX: userspace stdio initialization complete\r\n");
     }
     result
 }
