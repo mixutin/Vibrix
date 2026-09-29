@@ -44,6 +44,7 @@ const PORTSC_RW1C: u32 = 0x7f << 17;
 
 const TRB_BYTES: usize = 16;
 const TRB_CYCLE: u32 = 1;
+const TRB_IOC: u32 = 1 << 5;
 const TRB_IDT: u32 = 1 << 6;
 const TRB_DIR_IN: u32 = 1 << 16;
 const TRB_TYPE_SHIFT: u32 = 10;
