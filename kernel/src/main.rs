@@ -167,6 +167,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     // memory, enable bus mastering or identify the persistent boot USB.
     let mut shown = 0usize;
     let mut device_model = device::DiscoverySummary::default();
+    let mut compatibility = device::CompatibilitySummary::default();
     let mut driver_binder = device::Binder::new();
     let mut bind_failures = 0u32;
     let pci = unsafe {
@@ -184,6 +185,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                 subclass: device.subclass,
                 programming_interface: device.programming_interface,
             });
+            compatibility.observe(identity);
             if device_model.observe(identity).is_some()
                 && driver_binder.bind_identity(identity).is_err()
             {
@@ -237,6 +239,14 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         driver_diagnostics.healthy()
     );
     debugcon::write("VIBRIX: kernel driver diagnostics ready\r\n");
+    crate::println!(
+        "Vibrix hardware compatibility: discovered={} driver_candidates={} missing_driver={} known_limitations={}",
+        compatibility.discovered,
+        compatibility.driver_candidates,
+        compatibility.missing_driver,
+        compatibility.limited_by_known_quirk
+    );
+    debugcon::write("VIBRIX: kernel hardware compatibility report ready\r\n");
     #[cfg(all(
         feature = "xhci-init-probe",
         not(feature = "usb-enum-probe"),
