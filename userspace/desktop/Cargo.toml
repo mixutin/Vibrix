@@ -18,3 +18,4 @@ bench = false
 [dependencies]
 vibrix-syscall = { path = "../syscall", version = "=0.0.1" }
 vibrix-shell = { path = "../shell", version = "=0.0.1" }
+vibrix-ui = { path = "../ui", version = "=0.0.1" }
