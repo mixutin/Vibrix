@@ -93,6 +93,8 @@ pub enum InitError {
     DescriptorMalformed,
     NotHub,
     NoDownstreamDevice,
+    NotHidBootKeyboard,
+    HidReportTimeout,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -127,6 +129,27 @@ pub struct UsbHubSummary {
     pub child_port: u8,
     pub child_status: u16,
     pub power_good_units: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UsbHidKeyboardSummary {
+    pub root_port: u8,
+    pub slot_id: u8,
+    pub interface: u8,
+    pub endpoint_address: u8,
+    pub endpoint_max_packet: u16,
+    pub interval: u8,
+    pub modifiers: u8,
+    pub usage: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct HidKeyboardInterface {
+    configuration: u8,
+    interface: u8,
+    endpoint_address: u8,
+    endpoint_max_packet: u16,
+    interval: u8,
 }
 
 pub struct Capability {
@@ -230,9 +253,88 @@ fn setup_get_device_descriptor() -> [u32; 4] {
     setup_packet(0x80, 0x06, 0x0100, 0, 18, 3)
 }
 
-fn setup_get_configuration_descriptor() -> [u32; 4] {
-    // IN | standard | device, GET_DESCRIPTOR(Configuration), nine-byte header.
-    setup_packet(0x80, 0x06, 0x0200, 0, 9, 3)
+fn setup_get_configuration_descriptor(length: u16) -> [u32; 4] {
+    // IN | standard | device, GET_DESCRIPTOR(Configuration).
+    setup_packet(0x80, 0x06, 0x0200, 0, length, 3)
+}
+
+fn setup_hid_set_protocol(interface: u8) -> [u32; 4] {
+    // OUT | class | interface, SET_PROTOCOL(Boot), no data stage.
+    setup_packet(0x21, 0x0b, 0, u16::from(interface), 0, 0)
+}
+
+fn setup_hid_set_idle(interface: u8) -> [u32; 4] {
+    // OUT | class | interface, SET_IDLE(duration=0, report-id=0).
+    setup_packet(0x21, 0x0a, 0, u16::from(interface), 0, 0)
+}
+
+fn setup_hid_get_input_report(interface: u8) -> [u32; 4] {
+    // IN | class | interface, GET_REPORT(Input, report-id=0), 8-byte boot report.
+    setup_packet(0xa1, 0x01, 0x0100, u16::from(interface), 8, 3)
+}
+
+fn parse_hid_boot_keyboard_configuration(bytes: &[u8]) -> Result<HidKeyboardInterface, InitError> {
+    if bytes.len() < 9 || bytes[0] < 9 || bytes[1] != 0x02 {
+        return Err(InitError::DescriptorMalformed);
+    }
+    let total = usize::from(u16::from_le_bytes([bytes[2], bytes[3]]));
+    if total < 9 || total > bytes.len() || bytes[5] == 0 {
+        return Err(InitError::DescriptorMalformed);
+    }
+
+    let mut offset = usize::from(bytes[0]);
+    let mut keyboard_interface = None;
+    while offset < total {
+        if offset + 2 > total {
+            return Err(InitError::DescriptorMalformed);
+        }
+        let length = usize::from(bytes[offset]);
+        let kind = bytes[offset + 1];
+        if length < 2 || offset + length > total {
+            return Err(InitError::DescriptorMalformed);
+        }
+
+        if kind == 0x04 {
+            if length < 9 {
+                return Err(InitError::DescriptorMalformed);
+            }
+            keyboard_interface = if bytes[offset + 5] == 0x03
+                && bytes[offset + 6] == 0x01
+                && bytes[offset + 7] == 0x01
+            {
+                Some(bytes[offset + 2])
+            } else {
+                None
+            };
+        } else if kind == 0x05
+            && let Some(interface) = keyboard_interface
+        {
+            if length < 7 {
+                return Err(InitError::DescriptorMalformed);
+            }
+            let endpoint_address = bytes[offset + 2];
+            let attributes = bytes[offset + 3] & 0x03;
+            let endpoint_max_packet =
+                u16::from_le_bytes([bytes[offset + 4], bytes[offset + 5]]) & 0x07ff;
+            let interval = bytes[offset + 6];
+            if endpoint_address & 0x80 != 0
+                && attributes == 0x03
+                && endpoint_max_packet >= 8
+                && interval != 0
+            {
+                return Ok(HidKeyboardInterface {
+                    configuration: bytes[5],
+                    interface,
+                    endpoint_address,
+                    endpoint_max_packet,
+                    interval,
+                });
+            }
+        }
+        offset += length;
+    }
+
+    Err(InitError::NotHidBootKeyboard)
 }
 
 fn setup_set_configuration(configuration: u8) -> [u32; 4] {
@@ -739,7 +841,15 @@ pub unsafe fn initialize(info: &BootInfo) -> Result<Summary, InitError> {
 unsafe fn enumerate_first_device_inner(
     info: &BootInfo,
     inspect_hub: bool,
-) -> Result<(UsbDeviceSummary, Option<UsbHubSummary>), InitError> {
+    hid_expected_usage: Option<u8>,
+) -> Result<
+    (
+        UsbDeviceSummary,
+        Option<UsbHubSummary>,
+        Option<UsbHidKeyboardSummary>,
+    ),
+    InitError,
+> {
     let initialized = unsafe { initialize(info) }?;
 
     let mut found = None;
@@ -1000,7 +1110,7 @@ unsafe fn enumerate_first_device_inner(
                 transfer_base,
                 &mut transfer_index,
                 slot_id,
-                setup_get_configuration_descriptor(),
+                setup_get_configuration_descriptor(9),
                 descriptor_buffer,
                 9,
             )
@@ -1140,6 +1250,119 @@ unsafe fn enumerate_first_device_inner(
         None
     };
 
+    let hid_summary = if let Some(expected_usage) = hid_expected_usage {
+        let header_bytes = unsafe {
+            rings.control_in(
+                transfer_base,
+                &mut transfer_index,
+                slot_id,
+                setup_get_configuration_descriptor(9),
+                descriptor_buffer,
+                9,
+            )
+        }?;
+        if header_bytes < 9
+            || unsafe { read8(descriptor_base, 0) } < 9
+            || unsafe { read8(descriptor_base, 1) } != 0x02
+        {
+            return Err(InitError::DescriptorMalformed);
+        }
+        let total_length = u16::from_le_bytes([unsafe { read8(descriptor_base, 2) }, unsafe {
+            read8(descriptor_base, 3)
+        }]);
+        if !(9..=256).contains(&total_length) {
+            return Err(InitError::DescriptorMalformed);
+        }
+        let config_bytes = unsafe {
+            rings.control_in(
+                transfer_base,
+                &mut transfer_index,
+                slot_id,
+                setup_get_configuration_descriptor(total_length),
+                descriptor_buffer,
+                u32::from(total_length),
+            )
+        }?;
+        if config_bytes < u32::from(total_length) {
+            return Err(InitError::DescriptorMalformed);
+        }
+        let mut configuration = [0u8; 256];
+        for (offset, byte) in configuration
+            .iter_mut()
+            .enumerate()
+            .take(usize::from(total_length))
+        {
+            *byte = unsafe { read8(descriptor_base, offset) };
+        }
+        let keyboard =
+            parse_hid_boot_keyboard_configuration(&configuration[..usize::from(total_length)])?;
+
+        unsafe {
+            rings.control_no_data(
+                transfer_base,
+                &mut transfer_index,
+                slot_id,
+                setup_set_configuration(keyboard.configuration),
+            )?;
+            rings.control_no_data(
+                transfer_base,
+                &mut transfer_index,
+                slot_id,
+                setup_hid_set_protocol(keyboard.interface),
+            )?;
+            rings.control_no_data(
+                transfer_base,
+                &mut transfer_index,
+                slot_id,
+                setup_hid_set_idle(keyboard.interface),
+            )?;
+        }
+
+        crate::debugcon::write("VIBRIX: kernel USB HID keyboard ready\r\n");
+
+        let mut observed = None;
+        for _ in 0..64 {
+            let report_bytes = unsafe {
+                rings.control_in(
+                    transfer_base,
+                    &mut transfer_index,
+                    slot_id,
+                    setup_hid_get_input_report(keyboard.interface),
+                    descriptor_buffer,
+                    8,
+                )
+            }?;
+            if report_bytes >= 8 {
+                let modifiers = unsafe { read8(descriptor_base, 0) };
+                for index in 2..8 {
+                    let usage = unsafe { read8(descriptor_base, index) };
+                    if usage == expected_usage {
+                        observed = Some(UsbHidKeyboardSummary {
+                            root_port: port,
+                            slot_id,
+                            interface: keyboard.interface,
+                            endpoint_address: keyboard.endpoint_address,
+                            endpoint_max_packet: keyboard.endpoint_max_packet,
+                            interval: keyboard.interval,
+                            modifiers,
+                            usage,
+                        });
+                        break;
+                    }
+                }
+                if observed.is_some() {
+                    break;
+                }
+            }
+            for _ in 0..64_000 {
+                core::hint::spin_loop();
+            }
+        }
+        Some(observed.ok_or(InitError::HidReportTimeout)?)
+    } else {
+        None
+    };
+
     unsafe { vm.unmap(9) }.map_err(|_| InitError::Mapping)?;
     unsafe { vm.unmap(8) }.map_err(|_| InitError::Mapping)?;
     unsafe { vm.unmap(6) }.map_err(|_| InitError::Mapping)?;
@@ -1149,7 +1372,7 @@ unsafe fn enumerate_first_device_inner(
     unsafe { vm.unmap(2) }.map_err(|_| InitError::Mapping)?;
     unsafe { vm.unmap(0) }.map_err(|_| InitError::Mapping)?;
 
-    Ok((device_summary, hub_summary))
+    Ok((device_summary, hub_summary, hid_summary))
 }
 
 /// Enumerate one directly attached root-port USB device.
@@ -1162,18 +1385,38 @@ unsafe fn enumerate_first_device_inner(
     not(feature = "usb-hub-probe")
 ))]
 pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary, InitError> {
-    Ok(unsafe { enumerate_first_device_inner(info, false) }?.0)
+    Ok(unsafe { enumerate_first_device_inner(info, false, None) }?.0)
 }
 
 /// Address a directly attached USB2 hub and prove downstream port management.
 ///
 /// # Safety
 /// Same single-BSP/IF=0 exclusive-controller ownership as device enumeration.
-#[cfg(target_os = "none")]
+#[cfg(all(
+    target_os = "none",
+    feature = "usb-hub-probe",
+    not(feature = "usb-hid-keyboard-probe")
+))]
 pub unsafe fn inspect_first_hub(info: &BootInfo) -> Result<UsbHubSummary, InitError> {
-    unsafe { enumerate_first_device_inner(info, true) }?
+    unsafe { enumerate_first_device_inner(info, true, None) }?
         .1
         .ok_or(InitError::NotHub)
+}
+
+/// Configure one directly attached USB HID boot keyboard and observe one
+/// expected usage code through the class GET_REPORT path.
+///
+/// # Safety
+/// Same exclusive single-BSP xHCI ownership as device enumeration. The host
+/// must keep the device attached while this bounded probe is active.
+#[cfg(all(target_os = "none", feature = "usb-hid-keyboard-probe"))]
+pub unsafe fn probe_hid_boot_keyboard(
+    info: &BootInfo,
+    expected_usage: u8,
+) -> Result<UsbHidKeyboardSummary, InitError> {
+    unsafe { enumerate_first_device_inner(info, false, Some(expected_usage)) }?
+        .2
+        .ok_or(InitError::NotHidBootKeyboard)
 }
 
 #[cfg(test)]
@@ -1202,7 +1445,7 @@ mod tests {
         assert_ne!(setup[3] & TRB_IDT, 0);
         assert_eq!((setup[3] >> 16) & 0x3, 3);
 
-        let config = setup_get_configuration_descriptor();
+        let config = setup_get_configuration_descriptor(9);
         assert_eq!(config[0], 0x0200_0680);
         assert_eq!(config[1], 9 << 16);
         let set_config = setup_set_configuration(1);
@@ -1227,6 +1470,41 @@ mod tests {
         assert_eq!(status[0], 0x0000_00a3);
         assert_eq!(status[1], (4 << 16) | 4);
         assert_eq!((status[3] >> 16) & 0x3, 3);
+    }
+
+    #[test]
+    fn hid_setup_packets_and_boot_keyboard_parser_are_exact() {
+        let protocol = setup_hid_set_protocol(2);
+        assert_eq!(protocol[0], 0x0000_0b21);
+        assert_eq!(protocol[1], 2);
+        assert_eq!((protocol[3] >> 16) & 0x3, 0);
+
+        let idle = setup_hid_set_idle(2);
+        assert_eq!(idle[0], 0x0000_0a21);
+        assert_eq!(idle[1], 2);
+
+        let report = setup_hid_get_input_report(2);
+        assert_eq!(report[0], 0x0100_01a1);
+        assert_eq!(report[1], (8 << 16) | 2);
+        assert_eq!((report[3] >> 16) & 0x3, 3);
+
+        let descriptor = [
+            9, 2, 34, 0, 1, 1, 0, 0xa0, 50, 9, 4, 0, 0, 1, 3, 1, 1, 0, 9, 0x21, 0x11, 0x01, 0, 1,
+            0x22, 63, 0, 7, 5, 0x81, 0x03, 8, 0, 10,
+        ];
+        let keyboard = parse_hid_boot_keyboard_configuration(&descriptor).unwrap();
+        assert_eq!(keyboard.configuration, 1);
+        assert_eq!(keyboard.interface, 0);
+        assert_eq!(keyboard.endpoint_address, 0x81);
+        assert_eq!(keyboard.endpoint_max_packet, 8);
+        assert_eq!(keyboard.interval, 10);
+
+        let mut not_keyboard = descriptor;
+        not_keyboard[16] = 2;
+        assert_eq!(
+            parse_hid_boot_keyboard_configuration(&not_keyboard),
+            Err(InitError::NotHidBootKeyboard)
+        );
     }
 
     #[test]

@@ -25,7 +25,7 @@ cp -- "$OVMF_VARS" "$QEMU_DIR/OVMF_VARS.test.fd"
 
 # Opt-in *real QEMU keyboard injection*, never manufactured kernel log text.
 MONITOR=none
-if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" || "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CORE_UTILS_PROBE:-0}" == "1" ]]; then
+if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" || "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CORE_UTILS_PROBE:-0}" == "1" || "${VIBRIX_QEMU_USB_HID_KEYBOARD_PROBE:-0}" == "1" ]]; then
   MONITOR_SOCKET="$QEMU_DIR/keyboard-monitor.sock"
   rm -f "$MONITOR_SOCKET"
   MONITOR="unix:$MONITOR_SOCKET,server=on,wait=off"
@@ -49,7 +49,12 @@ ARGS=(
 
 # Optionally expose a virtual PCI xHCI controller to the *native kernel*.
 # This does not connect a persistent USB system disk or enable a USB driver.
-if [[ "${VIBRIX_QEMU_USB_HUB_PROBE:-0}" == "1" ]]; then
+if [[ "${VIBRIX_QEMU_USB_HID_KEYBOARD_PROBE:-0}" == "1" ]]; then
+  ARGS+=(
+    -device "qemu-xhci,id=vibrix-xhci"
+    -device "usb-kbd,bus=vibrix-xhci.0"
+  )
+elif [[ "${VIBRIX_QEMU_USB_HUB_PROBE:-0}" == "1" ]]; then
   ARGS+=(
     -device "qemu-xhci,id=vibrix-xhci"
     -device "usb-hub,id=vibrix-hub,bus=vibrix-xhci.0,port=1"
@@ -69,11 +74,11 @@ echo "[vibrix] OVMF VARS: $OVMF_VARS"
 echo "[vibrix] QEMU CPU: ${VIBRIX_QEMU_CPU:-max}"
 echo "[vibrix] QEMU RAM: ${VIBRIX_QEMU_RAM:-512M}"
 echo "[vibrix] running headless QEMU smoke test"
-if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" || "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CORE_UTILS_PROBE:-0}" == "1" ]]; then
+if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" || "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CORE_UTILS_PROBE:-0}" == "1" || "${VIBRIX_QEMU_USB_HID_KEYBOARD_PROBE:-0}" == "1" ]]; then
   # Connect through QEMU's HMP monitor and send an actual emulated key
   # only after the independent native kernel reports its poll loop ready.
   # Python is host test infrastructure, not part of the Vibrix runtime.
-  python3 - "$LOG" "$MONITOR_SOCKET" "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" "${VIBRIX_QEMU_FILES_PROBE:-0}" "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" "${VIBRIX_QEMU_CORE_UTILS_PROBE:-0}" <<'PY' &
+  python3 - "$LOG" "$MONITOR_SOCKET" "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" "${VIBRIX_QEMU_FILES_PROBE:-0}" "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" "${VIBRIX_QEMU_CORE_UTILS_PROBE:-0}" "${VIBRIX_QEMU_USB_HID_KEYBOARD_PROBE:-0}" <<'PY' &
 import pathlib
 import socket
 import sys
@@ -83,12 +88,28 @@ log = pathlib.Path(sys.argv[1])
 monitor = sys.argv[2]
 deadline = time.monotonic() + 9
 while time.monotonic() < deadline:
-    marker = "VIBRIX: userspace TTY read waiting for keyboard" if sys.argv[5] == "1" or sys.argv[6] == "1" else ("VIBRIX: kernel console prompt ready" if sys.argv[3] == "1" or sys.argv[4] == "1" else "VIBRIX: kernel PS2 polling ready")
+    marker = (
+        "VIBRIX: kernel USB HID keyboard ready"
+        if sys.argv[7] == "1"
+        else (
+            "VIBRIX: userspace TTY read waiting for keyboard"
+            if sys.argv[5] == "1" or sys.argv[6] == "1"
+            else (
+                "VIBRIX: kernel console prompt ready"
+                if sys.argv[3] == "1" or sys.argv[4] == "1"
+                else "VIBRIX: kernel PS2 polling ready"
+            )
+        )
+    )
     if log.exists() and marker in log.read_text(errors="replace"):
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
                 client.connect(monitor)
-                if sys.argv[6] == "1":
+                if sys.argv[7] == "1":
+                    # Hold one real virtual key so the bounded HID GET_REPORT
+                    # polling window cannot race HMP/file-marker latency.
+                    keys = ("h 2000",)
+                elif sys.argv[6] == "1":
                     commands = [
                         "pwd",
                         "cat /welcome",
@@ -157,6 +178,8 @@ if [[ "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" ]]; then
 elif [[ "${VIBRIX_QEMU_CORE_UTILS_PROBE:-0}" == "1" ]]; then
   # The full command/failure transcript is paced at 0.18 seconds per key.
   QEMU_TIMEOUT=65s
+elif [[ "${VIBRIX_QEMU_USB_HID_KEYBOARD_PROBE:-0}" == "1" ]]; then
+  QEMU_TIMEOUT=20s
 elif [[ "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" == "1" ]]; then
   QEMU_TIMEOUT=25s
 fi
@@ -164,7 +187,7 @@ timeout "$QEMU_TIMEOUT" qemu-system-x86_64 "${ARGS[@]}"
 RC=$?
 set -e
 
-if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" || "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CORE_UTILS_PROBE:-0}" == "1" ]]; then
+if [[ "${VIBRIX_QEMU_KEYBOARD_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CONSOLE_PROBE:-0}" == "1" || "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" || "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" == "1" || "${VIBRIX_QEMU_CORE_UTILS_PROBE:-0}" == "1" || "${VIBRIX_QEMU_USB_HID_KEYBOARD_PROBE:-0}" == "1" ]]; then
   if ! wait "$KEYBOARD_PID"; then
     echo "[vibrix] QEMU native keyboard injection failed" >&2
     [[ -f "$LOG" ]] && cat "$LOG"
