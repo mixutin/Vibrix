@@ -76,14 +76,7 @@ impl<'a, C: Canvas> Painter<'a, C> {
         self.height
     }
 
-    pub fn fill(
-        &mut self,
-        x: u32,
-        y: u32,
-        width: u32,
-        height: u32,
-        color: u32,
-    ) -> Result<()> {
+    pub fn fill(&mut self, x: u32, y: u32, width: u32, height: u32, color: u32) -> Result<()> {
         let width = width.min(self.width.saturating_sub(x));
         let height = height.min(self.height.saturating_sub(y));
         if width == 0 || height == 0 {
