@@ -24,11 +24,11 @@ impl<T: Transport> DeviceCell<T> {
         Self(UnsafeCell::new(device))
     }
 
-    fn get_mut(&self) -> &mut BlockDevice<T> {
+    fn read_blocks(&self, lba: u64, output: &mut [u8]) -> core::result::Result<(), crate::block::Error> {
         // SAFETY: VibrixFs is owned exclusively by one VFS mount. The current
-        // VFS never calls a backend from interrupts or concurrently, and this
-        // cell is private so no second mutable transport reference can escape.
-        unsafe { &mut *self.0.get() }
+        // VFS never calls a backend from interrupts or concurrently, and the
+        // mutable transport reference remains inside this one operation.
+        unsafe { (&mut *self.0.get()).read_blocks(lba, output) }
     }
 }
 
@@ -112,7 +112,7 @@ impl<T: Transport> VibrixFs<T> {
         let lba = block
             .checked_mul(sectors_per_block)
             .ok_or(Error::BackendContract)?;
-        device.get_mut().read_blocks(lba, output).map_err(backend)
+        device.read_blocks(lba, output).map_err(backend)
     }
 
     fn read_block(&self, block: u64, output: &mut [u8; wire::BLOCK]) -> Result<()> {
