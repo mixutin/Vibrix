@@ -13,6 +13,9 @@ pub mod ipv4;
 #[path = "icmp.rs"]
 pub mod icmp;
 
+#[path = "udp.rs"]
+pub mod udp;
+
 pub const ETHERNET_HEADER: usize = 14;
 pub const MTU: usize = 1500;
 pub const MAX_FRAME: usize = ETHERNET_HEADER + MTU;
@@ -187,6 +190,10 @@ pub fn ipv4_icmp_self_test() -> Result<(), Error> {
     icmp::self_test().map_err(|_| Error::Io)
 }
 
+pub fn udp_self_test() -> Result<(), Error> {
+    udp::self_test().map_err(|_| Error::Io)
+}
+
 pub fn self_test() -> Result<(), Error> {
     let address = MacAddress::new([2, 0, 0, 0, 0, 1])?;
     arp::self_test().map_err(|_| Error::Io)?;
@@ -236,6 +243,11 @@ mod tests {
     #[test]
     fn production_ipv4_icmp_echo_path() {
         assert_eq!(ipv4_icmp_self_test(), Ok(()));
+    }
+
+    #[test]
+    fn production_udp_datagram_path() {
+        assert_eq!(udp_self_test(), Ok(()));
     }
 
     #[test]
