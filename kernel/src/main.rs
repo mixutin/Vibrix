@@ -221,7 +221,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         driver_binder.count_driver(device::DriverKind::Rtl8168),
         bind_failures
     );
-    #[cfg(feature = "xhci-init-probe")]
+    #[cfg(all(feature = "xhci-init-probe", not(feature = "usb-enum-probe")))]
     {
         // SAFETY: still single-BSP with IF=0. PCI discovery identified the
         // controller and all temporary MMIO/RAM scratch mappings are retired
@@ -241,6 +241,28 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             xhci.runtime_offset
         );
         debugcon::write("VIBRIX: kernel xHCI reset and running\r\n");
+    }
+
+    #[cfg(feature = "usb-enum-probe")]
+    {
+        // SAFETY: same bounded single-BSP ownership as xHCI init. The probe
+        // owns the directly attached QEMU USB device and retires all temporary
+        // mappings before ACPI/APIC runtime users begin.
+        let usb = unsafe { arch::x86_64::xhci::enumerate_first_device(&info) }
+            .unwrap_or_else(|error| panic!("USB enumeration failed: {:?}", error));
+        crate::println!(
+            "kernel USB device: port={} slot={} speed={} vid={:04x} pid={:04x} class={:02x}:{:02x}:{:02x} mps0={}",
+            usb.port,
+            usb.slot_id,
+            usb.speed_id,
+            usb.vendor_id,
+            usb.product_id,
+            usb.class,
+            usb.subclass,
+            usb.protocol,
+            usb.max_packet_size0
+        );
+        debugcon::write("VIBRIX: kernel USB device addressed and descriptor read\r\n");
     }
 
     if device_model.devices == pci.devices {
