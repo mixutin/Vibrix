@@ -713,7 +713,7 @@ pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary
     }
     let portsc = unsafe { read32(op_base, port_offset) };
     // Acknowledge reset/change status without disturbing live port state.
-    unsafe { write32(op_base, port_offset, portsc & PORTSC_RW1C) };
+    unsafe { write32(op_base, port_offset, (portsc & PORTSC_PP) | (portsc & PORTSC_RW1C)) };
     let speed_id = port_speed(portsc);
     let max_packet_size = endpoint0_packet_size(speed_id).ok_or(InitError::DescriptorMalformed)?;
 
