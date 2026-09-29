@@ -220,6 +220,11 @@ pub fn init() {
     COM1.init();
 }
 
+/// Write raw bytes to COM1 without interpreting userspace output as UTF-8.
+pub fn write_bytes(bytes: &[u8]) -> fmt::Result {
+    COM1.port().write_bytes(bytes)
+}
+
 /// Print a formatted string to the serial debug console.
 #[macro_export]
 macro_rules! print {
