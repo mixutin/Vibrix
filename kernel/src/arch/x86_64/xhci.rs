@@ -308,7 +308,7 @@ fn parse_hid_boot_configuration(
     }
 
     let mut offset = usize::from(bytes[0]);
-    let mut keyboard_interface = None;
+    let mut boot_interface = None;
     while offset < total {
         if offset + 2 > total {
             return Err(InitError::DescriptorMalformed);
@@ -1491,14 +1491,10 @@ pub unsafe fn probe_hid_boot_keyboard(
     expected_usage: u8,
 ) -> Result<UsbHidKeyboardSummary, InitError> {
     unsafe {
-        enumerate_first_device_inner(
-            info,
-            false,
-            Some(HidProbe::Keyboard { expected_usage }),
-        )
+        enumerate_first_device_inner(info, false, Some(HidProbe::Keyboard { expected_usage }))
     }?
     .2
-        .ok_or(InitError::NotHidBootKeyboard)
+    .ok_or(InitError::NotHidBootKeyboard)
 }
 
 /// Configure one directly attached USB HID boot mouse and observe non-zero
