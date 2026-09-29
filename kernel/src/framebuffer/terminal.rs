@@ -133,8 +133,8 @@ impl Terminal {
         if info.framebuffer_format > 1 || pixels.width > 8192 || pixels.height > 8192 {
             return Err(());
         }
-        let columns = (pixels.width.checked_sub(MARGIN * 2).ok_or(())? / CELL_WIDTH)
-            .min(MAX_COLUMNS);
+        let columns =
+            (pixels.width.checked_sub(MARGIN * 2).ok_or(())? / CELL_WIDTH).min(MAX_COLUMNS);
         let rows = (pixels.height.checked_sub(MARGIN * 2).ok_or(())? / CELL_HEIGHT).min(MAX_ROWS);
         if columns < 2 || rows < 2 {
             return Err(());
@@ -355,7 +355,10 @@ mod tests {
         assert_eq!(&terminal.cells[24..32], b"vibrix$ ");
         let stride = boot.framebuffer_stride as usize;
         assert_eq!(pixels[MARGIN * stride + MARGIN], FOREGROUND);
-        assert_eq!(pixels[(MARGIN + CELL_HEIGHT + 14) * stride + MARGIN + 8 * CELL_WIDTH], FOREGROUND);
+        assert_eq!(
+            pixels[(MARGIN + CELL_HEIGHT + 14) * stride + MARGIN + 8 * CELL_WIDTH],
+            FOREGROUND
+        );
         for row in 0..boot.framebuffer_height as usize {
             let end = row * stride + boot.framebuffer_width as usize;
             assert_eq!(&pixels[end..end + 3], &[0xaabb_ccdd; 3]);
