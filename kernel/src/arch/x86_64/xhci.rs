@@ -167,10 +167,17 @@ struct HidBootInterface {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum HidProbe {
-    Keyboard { expected_usage: u8 },
-    Mouse,
+struct HidProbe {
+    keyboard: bool,
+    expected_usage: u8,
 }
+
+type UsbProbeResult = (
+    UsbDeviceSummary,
+    Option<UsbHubSummary>,
+    Option<UsbHidKeyboardSummary>,
+    Option<UsbHidMouseSummary>,
+);
 
 pub struct Capability {
     pub cap_length: u8,
@@ -875,15 +882,7 @@ unsafe fn enumerate_first_device_inner(
     info: &BootInfo,
     inspect_hub: bool,
     hid_probe: Option<HidProbe>,
-) -> Result<
-    (
-        UsbDeviceSummary,
-        Option<UsbHubSummary>,
-        Option<UsbHidKeyboardSummary>,
-        Option<UsbHidMouseSummary>,
-    ),
-    InitError,
-> {
+) -> Result<UsbProbeResult, InitError> {
     let initialized = unsafe { initialize(info) }?;
 
     let mut found = None;
@@ -1331,9 +1330,10 @@ unsafe fn enumerate_first_device_inner(
             *byte = unsafe { read8(descriptor_base, offset) };
         }
         let config = &configuration[..usize::from(total_length)];
-        let interface = match probe {
-            HidProbe::Keyboard { .. } => parse_hid_boot_keyboard_configuration(config)?,
-            HidProbe::Mouse => parse_hid_boot_mouse_configuration(config)?,
+        let interface = if probe.keyboard {
+            parse_hid_boot_keyboard_configuration(config)?
+        } else {
+            parse_hid_boot_mouse_configuration(config)?
         };
 
         unsafe {
@@ -1357,15 +1357,12 @@ unsafe fn enumerate_first_device_inner(
             )?;
         }
 
-        let report_length = match probe {
-            HidProbe::Keyboard { .. } => {
-                crate::debugcon::write("VIBRIX: kernel USB HID keyboard ready\r\n");
-                8u16
-            }
-            HidProbe::Mouse => {
-                crate::debugcon::write("VIBRIX: kernel USB HID mouse ready\r\n");
-                3u16
-            }
+        let report_length = if probe.keyboard {
+            crate::debugcon::write("VIBRIX: kernel USB HID keyboard ready\r\n");
+            8u16
+        } else {
+            crate::debugcon::write("VIBRIX: kernel USB HID mouse ready\r\n");
+            3u16
         };
 
         let mut observed = false;
@@ -1381,47 +1378,43 @@ unsafe fn enumerate_first_device_inner(
                 )
             }?;
 
-            match probe {
-                HidProbe::Keyboard { expected_usage } if report_bytes >= 8 => {
-                    let modifiers = unsafe { read8(descriptor_base, 0) };
-                    for index in 2..8 {
-                        let usage = unsafe { read8(descriptor_base, index) };
-                        if usage == expected_usage {
-                            keyboard_summary = Some(UsbHidKeyboardSummary {
-                                root_port: port,
-                                slot_id,
-                                interface: interface.interface,
-                                endpoint_address: interface.endpoint_address,
-                                endpoint_max_packet: interface.endpoint_max_packet,
-                                interval: interface.interval,
-                                modifiers,
-                                usage,
-                            });
-                            observed = true;
-                            break;
-                        }
-                    }
-                }
-                HidProbe::Mouse if report_bytes >= 3 => {
-                    let buttons = unsafe { read8(descriptor_base, 0) };
-                    let x = unsafe { read8(descriptor_base, 1) } as i8;
-                    let y = unsafe { read8(descriptor_base, 2) } as i8;
-                    if x != 0 || y != 0 {
-                        mouse_summary = Some(UsbHidMouseSummary {
+            if probe.keyboard && report_bytes >= 8 {
+                let modifiers = unsafe { read8(descriptor_base, 0) };
+                for index in 2..8 {
+                    let usage = unsafe { read8(descriptor_base, index) };
+                    if usage == probe.expected_usage {
+                        keyboard_summary = Some(UsbHidKeyboardSummary {
                             root_port: port,
                             slot_id,
                             interface: interface.interface,
                             endpoint_address: interface.endpoint_address,
                             endpoint_max_packet: interface.endpoint_max_packet,
                             interval: interface.interval,
-                            buttons,
-                            x,
-                            y,
+                            modifiers,
+                            usage,
                         });
                         observed = true;
+                        break;
                     }
                 }
-                _ => {}
+            } else if !probe.keyboard && report_bytes >= 3 {
+                let buttons = unsafe { read8(descriptor_base, 0) };
+                let x = unsafe { read8(descriptor_base, 1) } as i8;
+                let y = unsafe { read8(descriptor_base, 2) } as i8;
+                if x != 0 || y != 0 {
+                    mouse_summary = Some(UsbHidMouseSummary {
+                        root_port: port,
+                        slot_id,
+                        interface: interface.interface,
+                        endpoint_address: interface.endpoint_address,
+                        endpoint_max_packet: interface.endpoint_max_packet,
+                        interval: interface.interval,
+                        buttons,
+                        x,
+                        y,
+                    });
+                    observed = true;
+                }
             }
             if observed {
                 break;
@@ -1481,17 +1474,20 @@ pub unsafe fn inspect_first_hub(info: &BootInfo) -> Result<UsbHubSummary, InitEr
 /// # Safety
 /// Same exclusive single-BSP xHCI ownership as device enumeration. The host
 /// must keep the device attached while this bounded probe is active.
-#[cfg(all(
-    target_os = "none",
-    feature = "usb-hid-keyboard-probe",
-    not(feature = "usb-hid-mouse-probe")
-))]
+#[cfg(all(target_os = "none", feature = "usb-hid-keyboard-probe"))]
 pub unsafe fn probe_hid_boot_keyboard(
     info: &BootInfo,
     expected_usage: u8,
 ) -> Result<UsbHidKeyboardSummary, InitError> {
     unsafe {
-        enumerate_first_device_inner(info, false, Some(HidProbe::Keyboard { expected_usage }))
+        enumerate_first_device_inner(
+            info,
+            false,
+            Some(HidProbe {
+                keyboard: true,
+                expected_usage,
+            }),
+        )
     }?
     .2
     .ok_or(InitError::NotHidBootKeyboard)
@@ -1505,7 +1501,16 @@ pub unsafe fn probe_hid_boot_keyboard(
 /// must keep the device attached while this bounded probe is active.
 #[cfg(all(target_os = "none", feature = "usb-hid-mouse-probe"))]
 pub unsafe fn probe_hid_boot_mouse(info: &BootInfo) -> Result<UsbHidMouseSummary, InitError> {
-    unsafe { enumerate_first_device_inner(info, false, Some(HidProbe::Mouse)) }?
+    unsafe {
+        enumerate_first_device_inner(
+            info,
+            false,
+            Some(HidProbe {
+                keyboard: false,
+                expected_usage: 0,
+            }),
+        )
+    }?
         .3
         .ok_or(InitError::NotHidBootMouse)
 }
