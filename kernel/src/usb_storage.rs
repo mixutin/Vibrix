@@ -190,7 +190,7 @@ mod tests {
     fn rejects_missing_wrong_and_duplicate_endpoints() {
         let mut missing = descriptor();
         missing[27] = 0x03;
-        assert_eq!(bulk_interface(&missing), Err(Error::Unsupported));
+        assert_eq!(bulk_interface(&missing), Err(Error::Ambiguous));
 
         let mut wrong_class = descriptor();
         wrong_class[14] = 0x03;
