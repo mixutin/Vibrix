@@ -20,6 +20,7 @@ def check_cli(command: Callable[[str, str], str]) -> None:
     success("vibrix status", "Vibrix status")
     success("vibrix status", "processes: total=")
     success("vibrix status", "root: bootstrap RAM mounted (volatile)")
+    success("vibrix doctor", "doctor: PASS (bootstrap checks only")
     success("write '/tmp/my note' 'hello world'")
     success("touch '/tmp/my note'")
     success("cat '/tmp/my note'", "\nhello world\n")
