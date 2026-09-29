@@ -227,7 +227,7 @@ impl DiagnosticSummary {
             missing_driver: discovery
                 .devices
                 .saturating_sub(discovery.driver_candidates),
-            binding_failures: binding_failures.saturating_add(
+            binding_failures: binding_failures.max(
                 discovery.driver_candidates.saturating_sub(bound),
             ),
         }
@@ -395,7 +395,7 @@ mod tests {
         let failed = DiagnosticSummary::new(discovery, &Binder::new(), 1);
         assert_eq!(failed.bound, 0);
         assert_eq!(failed.missing_driver, 1);
-        assert_eq!(failed.binding_failures, 2);
+        assert_eq!(failed.binding_failures, 1);
         assert!(!failed.healthy());
     }
 
