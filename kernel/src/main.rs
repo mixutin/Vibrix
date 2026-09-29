@@ -226,7 +226,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     #[cfg(all(
         feature = "xhci-init-probe",
         not(feature = "usb-enum-probe"),
-        not(feature = "usb-hub-probe")
+        not(feature = "usb-hub-probe"),
+        not(feature = "usb-hid-keyboard-probe")
     ))]
     {
         // SAFETY: still single-BSP with IF=0. PCI discovery identified the
@@ -249,7 +250,11 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         debugcon::write("VIBRIX: kernel xHCI reset and running\r\n");
     }
 
-    #[cfg(all(feature = "usb-enum-probe", not(feature = "usb-hub-probe")))]
+    #[cfg(all(
+        feature = "usb-enum-probe",
+        not(feature = "usb-hub-probe"),
+        not(feature = "usb-hid-keyboard-probe")
+    ))]
     {
         // SAFETY: bounded single-BSP enumeration probe owns the directly
         // attached QEMU device and retires its temporary mappings before the
@@ -271,7 +276,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         debugcon::write("VIBRIX: kernel USB device addressed and descriptor read\r\n");
     }
 
-    #[cfg(feature = "usb-hub-probe")]
+    #[cfg(all(feature = "usb-hub-probe", not(feature = "usb-hid-keyboard-probe")))]
     {
         // SAFETY: the bounded probe exclusively owns the QEMU xHCI controller,
         // addresses the root-attached USB2 hub and retires temporary mappings
@@ -288,6 +293,27 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             hub.power_good_units
         );
         debugcon::write("VIBRIX: kernel USB hub downstream port reset and enabled\r\n");
+    }
+
+    #[cfg(feature = "usb-hid-keyboard-probe")]
+    {
+        // SAFETY: the bounded probe owns the directly attached QEMU USB
+        // keyboard, configures HID Boot Protocol and observes a real class
+        // input report before releasing all temporary xHCI mappings.
+        let keyboard = unsafe { arch::x86_64::xhci::probe_hid_boot_keyboard(&info, 0x0b) }
+            .unwrap_or_else(|error| panic!("USB HID keyboard probe failed: {:?}", error));
+        crate::println!(
+            "kernel USB HID keyboard: root_port={} slot={} interface={} endpoint={:#04x} mps={} interval={} modifiers={:#04x} usage={:#04x}",
+            keyboard.root_port,
+            keyboard.slot_id,
+            keyboard.interface,
+            keyboard.endpoint_address,
+            keyboard.endpoint_max_packet,
+            keyboard.interval,
+            keyboard.modifiers,
+            keyboard.usage
+        );
+        debugcon::write("VIBRIX: kernel USB HID keyboard input observed\r\n");
     }
 
     if device_model.devices == pci.devices {
