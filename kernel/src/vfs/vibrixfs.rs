@@ -61,12 +61,12 @@ impl<T: Transport> VibrixFs<T> {
             return Err(Error::AccessDenied);
         }
         let sector = u64::from(device.geometry().sector_bytes());
-        if wire::BLOCK as u64 % sector != 0 {
+        if !(wire::BLOCK as u64).is_multiple_of(sector) {
             return Err(Error::BackendContract);
         }
         let sectors_per_block = wire::BLOCK as u64 / sector;
         let sectors = device.geometry().sectors();
-        if sectors % sectors_per_block != 0 {
+        if !sectors.is_multiple_of(sectors_per_block) {
             return Err(Error::BackendContract);
         }
         let partition_blocks = sectors / sectors_per_block;
