@@ -921,7 +921,17 @@ package state, native USB storage and flash-write policy remain separate.
 
 ## M11 — Security and multi-user
 - [ ] users/groups/credentials
+  - [ ] persistent user/group account database
+  - [ ] login/session authentication
+  - [ ] real/effective/saved-ID transition syscalls
+  - [ ] supplementary-group management policy
+  - [ ] set-user-ID/set-group-ID execution semantics
 - [ ] permissions
+  - [ ] enforce owner/group/other DAC during VFS path traversal
+  - [ ] enforce DAC on open/create/remove/rename
+  - [ ] chmod/chown policy and syscalls
+  - [ ] umask and default creation modes
+  - [ ] sticky-directory semantics
 - [ ] secure random
 - [ ] W^X
 - [ ] userspace ASLR
@@ -929,6 +939,13 @@ package state, native USB storage and flash-write policy remain separate.
 - [ ] IOMMU
 - [ ] secure updates
 - [ ] optional USB system encryption design
+
+**M11 credential groundwork:** [ADR 0024](docs/decisions/0024-credentials-and-dac.md)
+defines a fixed-capacity Unix-style credential object with real/effective/saved
+UIDs/GIDs, bounded supplementary groups, process inheritance and a fail-closed
+owner/group/other DAC evaluator. The implementation is intentionally a
+foundation only: no M11 top-level checkbox is complete until persistent
+accounts, credential transitions and VFS enforcement have exact-head evidence.
 
 ## M12 — SMP and performance
 - [x] CPU enumeration
@@ -1114,6 +1131,102 @@ day-to-day development environment.
 **Exit:** a developer can boot Vibrix, diagnose it, write software, build
 packages and produce a verifiable Vibrix release without depending on a
 different host operating system.
+
+## M21 — BSD-class base system and administration
+
+Long-term goal: make Vibrix usable as an independent security-focused Unix
+system in the same problem space as the BSDs. This is **not** a fork of OpenBSD,
+does not copy OpenBSD implementation code, and does not promise binary or source
+compatibility unless a later item explicitly says so.
+
+- [ ] signals with per-process masks and default/ignored/caught actions
+- [ ] process groups, sessions and controlling terminals
+- [ ] PTYs and termios-style terminal control
+- [ ] general multi-process exec/spawn and shell job control
+- [ ] symlinks, hard links and filesystem link-count semantics
+- [ ] mount table and persistent mount configuration
+- [ ] persistent account/group database and password-hash policy
+- [ ] getty/login/session lifecycle
+- [ ] least-privilege administrative command broker
+- [ ] service manager with enable/disable/start/stop/reload/status
+- [ ] ordered boot/service dependency policy
+- [ ] periodic job scheduler
+- [ ] sysctl-like runtime/query interface
+- [ ] complete base-system manual pages
+- [ ] coherent /etc-style system configuration with atomic updates
+- [ ] rescue/single-user administrative mode
+
+**Exit:** an administrator can boot, log in, manage users/services/filesystems,
+inspect system state and perform routine maintenance without another OS.
+
+## M22 — Network security and administration
+
+- [ ] IPv6 core, neighbor discovery and ICMPv6
+- [ ] routing table and route-selection policy
+- [ ] loopback and Unix-domain sockets
+- [ ] poll/select/event-notification API for network daemons
+- [ ] stateful packet filter with default-deny policy option
+- [ ] NAT and port redirection
+- [ ] anti-spoofing and fragment/resource limits
+- [ ] interface configuration utility
+- [ ] route and neighbor inspection utilities
+- [ ] resolver configuration and local caching resolver option
+- [ ] NTP client with clock-discipline policy
+- [ ] SSH client
+- [ ] privilege-separated SSH server
+- [ ] network services disabled by default unless explicitly enabled
+- [ ] per-service user, filesystem and network sandbox policy
+- [ ] packet-filter ruleset validation before activation
+
+**Exit:** Vibrix can act as a defensible workstation or small server with
+auditable network configuration and no surprise listening services.
+
+## M23 — Process hardening and sandboxing
+
+- [ ] monotonic process-operation promise API inspired by capability reduction
+- [ ] path visibility/access allow-list API
+- [ ] descriptor-rights restriction
+- [ ] no-new-privileges process flag
+- [ ] privilege-separated daemon patterns in the base system
+- [ ] chroot/service-jail style filesystem roots
+- [ ] immutable and append-only file flags
+- [ ] per-process CPU/memory/file/socket resource limits
+- [ ] core-dump policy that excludes secret material
+- [ ] stack canaries for supported userspace toolchains
+- [ ] PIE/ASLR for base-system executables
+- [ ] kernel address randomization design and threat model
+- [ ] RELRO-like relocation hardening when dynamic linking exists
+- [ ] exploit-mitigation regression suite
+- [ ] fuzz and hostile-input tests for every privileged daemon/parser
+
+OpenBSD documents monotonic syscall restriction with `pledge(2)` and
+path visibility restriction with `unveil(2)`. Vibrix may adopt comparable
+security goals, but the API and implementation must be independently designed
+for Vibrix rather than copied.
+
+**Exit:** ordinary applications and daemons can permanently discard ambient
+authority, and the base system uses those mechanisms by default where practical.
+
+## M24 — Unix compatibility and ports readiness
+
+- [ ] stable libc/system-call compatibility layer
+- [ ] documented POSIX compatibility target and conformance matrix
+- [ ] fork/exec or documented compatible process-creation semantics
+- [ ] signals, pthreads and thread-local errno
+- [ ] mmap/shared-memory primitives
+- [ ] file locking and advisory locks
+- [ ] event queue suitable for scalable servers
+- [ ] dynamic linker/loader design
+- [ ] shared-library ABI/versioning policy
+- [ ] pkg-config/build-tool compatibility layer
+- [ ] shell scripting sufficient for conventional build systems
+- [ ] ports recipes for representative editors, shells and servers
+- [ ] automated upstream-port patch tracking
+- [ ] manual-page sections and installed developer documentation
+- [ ] compatibility test suite against selected portable Unix software
+
+**Exit:** a documented subset of portable Unix software can be built, packaged,
+updated and operated on Vibrix without Linux emulation.
 
 ## Optional later storage support
 
