@@ -31,6 +31,13 @@ const LOADED_IMAGE_PROTOCOL_GUID: Guid = Guid {
     data4: [0x8e, 0x3f, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b],
 };
 
+const LOADED_IMAGE_DEVICE_PATH_PROTOCOL_GUID: Guid = Guid {
+    data1: 0xbc62157e,
+    data2: 0x3e33,
+    data3: 0x4fec,
+    data4: [0x99, 0x20, 0x2d, 0x3b, 0x36, 0xd7, 0x50, 0xdf],
+};
+
 const SIMPLE_FILE_SYSTEM_PROTOCOL_GUID: Guid = Guid {
     data1: 0x964e5b22,
     data2: 0x6459,
@@ -547,6 +554,72 @@ impl KernelFile {
     pub fn as_slice(&self) -> &[u8] {
         unsafe { slice::from_raw_parts(self.ptr, self.len) }
     }
+}
+
+
+const MAX_BOOT_DEVICE_PATH_BYTES: usize = 1024;
+
+/// Copy and validate the loaded image's firmware device path while Boot
+/// Services are live, returning only firmware-neutral GPT partition facts.
+///
+/// This helper is not yet a mandatory boot gate because legacy development
+/// profiles do not all boot from GPT USB media. The persistent-USB boot path
+/// will require it before ExitBootServices.
+///
+/// # Safety
+/// `image_handle` and `system_table` must be live UEFI objects. The Device
+/// Path protocol pointer must remain firmware-owned and readable during this
+/// call only; no pointer escapes.
+#[allow(dead_code)]
+pub unsafe fn loaded_image_boot_partition(
+    image_handle: Handle,
+    system_table: *mut SystemTable,
+) -> Result<crate::uefi_boot_path::BootPartitionPath, Status> {
+    if image_handle.is_null() || system_table.is_null() {
+        return Err(EFI_INVALID_PARAMETER);
+    }
+    let services = unsafe { (*system_table).boot_services };
+    if services.is_null() {
+        return Err(EFI_LOAD_ERROR);
+    }
+    let mut raw: *mut c_void = null_mut();
+    let status = unsafe {
+        ((*services).handle_protocol)(
+            image_handle,
+            &LOADED_IMAGE_DEVICE_PATH_PROTOCOL_GUID,
+            &mut raw,
+        )
+    };
+    if status != EFI_SUCCESS || raw.is_null() {
+        return Err(if status == EFI_SUCCESS { EFI_LOAD_ERROR } else { status });
+    }
+
+    let source = raw as *const u8;
+    let mut bytes = [0u8; MAX_BOOT_DEVICE_PATH_BYTES];
+    let mut offset = 0usize;
+    let mut nodes = 0usize;
+    loop {
+        if offset + 4 > bytes.len() || nodes >= 64 {
+            return Err(EFI_LOAD_ERROR);
+        }
+        // SAFETY: each next read is bounded by the maximum copied-path policy;
+        // firmware owns the protocol buffer for this call.
+        let header = unsafe { core::slice::from_raw_parts(source.add(offset), 4) };
+        let len = usize::from(u16::from_le_bytes([header[2], header[3]]));
+        if len < 4 || offset.checked_add(len).is_none_or(|end| end > bytes.len()) {
+            return Err(EFI_LOAD_ERROR);
+        }
+        let node = unsafe { core::slice::from_raw_parts(source.add(offset), len) };
+        bytes[offset..offset + len].copy_from_slice(node);
+        let end = node[0] == crate::uefi_boot_path::DEVICE_PATH_END_TYPE
+            && node[1] == crate::uefi_boot_path::DEVICE_PATH_END_ENTIRE_SUBTYPE;
+        offset += len;
+        nodes += 1;
+        if end {
+            break;
+        }
+    }
+    crate::uefi_boot_path::parse(&bytes[..offset]).map_err(|_| EFI_LOAD_ERROR)
 }
 
 /// Get the live loader PE/COFF image's mapped physical interval. The
