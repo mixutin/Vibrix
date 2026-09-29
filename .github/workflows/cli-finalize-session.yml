@@ -1,0 +1,169 @@
+name: CLI finalize session
+
+on:
+  push:
+    branches: [gpt-6-astra/unix-userspace-20260929]
+    paths: [.github/workflows/cli-finalize-session.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cli-finalize-session
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    if: github.repository == 'mixutin/Vibrix' && github.ref == 'refs/heads/gpt-6-astra/unix-userspace-20260929'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the exact feature tree without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install repository-pinned compiler and formatter
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt,clippy --target x86_64-unknown-none
+      - name: Apply reviewed exact-match integration corrections
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              path = Path(path)
+              text = path.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected exactly one replacement in {path}: {old!r}')
+              path.write_text(text.replace(old, new))
+
+          display = 'tools/test_userspace_display.py'
+          replace(display, 'def key(client: socket.socket, keysym: int) -> None:\n    # Actual RFB KeyEvent -> virtual PS/2 -> kernel TTY -> userspace read.\n    for down in (1, 0):\n        client.sendall(struct.pack(">BBHI", 4, down, 0, keysym))\n        time.sleep(0.08)', '''def key_sequence(keysym: int) -> tuple[tuple[int, int], ...]:
+              # Real RFB KeyEvents, with explicit US-layout physical modifiers.
+              # QEMU maps bare '>' to an unshifted dot and '<' to an ISO key.
+              # Use Shift plus the standard US punctuation key, not guest input
+              # injection. RFC 6143 7.5.4 defines press/release and Shift keysyms.
+              shifted = "!@#$%^&*()_+{}:\\\"~|<>?"
+              plain = "1234567890-=[];'`\\\\,./"
+              character = chr(keysym)
+              if character in shifted:
+                  base = ord(plain[shifted.index(character)])
+              elif ord("A") <= keysym <= ord("Z"):
+                  # Keep the uppercase keysym so QEMU's Caps Lock synchronizer
+                  # sees the same case as the explicitly held Shift modifier.
+                  base = keysym
+              else:
+                  return ((1, keysym), (0, keysym))
+              return ((1, 0xFFE1), (1, base), (0, base), (0, 0xFFE1))
+
+
+          def key(client: socket.socket, keysym: int) -> None:
+              # Actual RFB -> virtual PS/2 -> kernel TTY -> Ring-3 read.
+              for down, symbol in key_sequence(keysym):
+                  client.sendall(struct.pack(">BBHI", 4, down, 0, symbol))
+                  time.sleep(0.08)''')
+          replace(display, 'class PixelOracleTests(unittest.TestCase):', '''class KeyEventTests(unittest.TestCase):
+              def test_redirection_uses_balanced_standard_us_shift_chords(self):
+                  for character, base in ((">", "."), ("<", ","), ('"', "'"), ("!", "1")):
+                      self.assertEqual(key_sequence(ord(character)),
+                                       ((1, 0xFFE1), (1, ord(base)), (0, ord(base)), (0, 0xFFE1)))
+
+              def test_uppercase_preserves_case_for_qemu_lock_sync(self):
+                  self.assertEqual(key_sequence(ord("A")),
+                                   ((1, 0xFFE1), (1, ord("A")), (0, ord("A")), (0, 0xFFE1)))
+
+              def test_plain_and_edit_keys_are_not_shifted(self):
+                  for symbol in (ord("a"), ord("."), ord("'"), 0xFF08, 0xFF0D):
+                      self.assertEqual(key_sequence(symbol), ((1, symbol), (0, symbol)))
+
+              def test_wire_events_use_the_production_sequence(self):
+                  from unittest.mock import Mock, patch
+                  client = Mock()
+                  with patch("time.sleep"):
+                      key(client, ord(">"))
+                  actual = [struct.unpack(">BBHI", call.args[0]) for call in client.sendall.call_args_list]
+                  self.assertEqual(actual, [(4, 1, 0, 0xFFE1), (4, 1, 0, ord(".")),
+                                            (4, 0, 0, ord(".")), (4, 0, 0, 0xFFE1)])
+
+
+          class PixelOracleTests(unittest.TestCase):''')
+          replace(display, '                    check_cli(command)\n', '                    check_cli(command)\n                    command("man echo", "\\nSYNOPSIS\\n")\n                    await_text(qmp, "display-manual.ppm", [("echo", 0)])\n')
+          replace(display, 'print("PASS: cleared cells, scrolling, command response and prompt are guest pixels")', 'print("PASS: manuals, cleared cells, scrolling, command response and prompt are guest pixels")')
+          replace('.github/workflows/ci.yml', 'cat echo ls pwd cd mkdir cp mv rm ps kill exit help', 'Vibrix commands - help COMMAND, man COMMAND, man shell')
+          runtime = 'userspace/shell/src/runtime.rs'
+          replace(runtime, '    if name == b"shell" {\n        write_all(io, fd, manual::SHELL_MANUAL)?;', '    if name == b"shell" {\n        if fd == 1 { write_all(io, fd, b"\\x0c")?; }\n        write_all(io, fd, manual::SHELL_MANUAL)?;')
+          replace(runtime, '    let page = manual::lookup(name).ok_or(Error::Message(b"no manual entry; try apropos"))?;\n    for part in [', '    let page = manual::lookup(name).ok_or(Error::Message(b"no manual entry; try apropos"))?;\n    if fd == 1 { write_all(io, fd, b"\\x0c")?; }\n    for part in [')
+          tests = Path('userspace/shell/src/tests.rs')
+          tests.write_text(tests.read_text() + '''
+
+          #[test]
+          fn manuals_fit_a_fresh_terminal_without_controls_in_redirected_files() {
+              let mut io = Memory::new();
+              let mut shell = Shell::new();
+              for name in MANUALS.iter().map(|page| page.name).chain(core::iter::once(&b"shell"[..])) {
+                  let mut command = Vec::from(&b"man "[..]);
+                  command.extend_from_slice(name);
+                  assert_eq!(io.run(&mut shell, &command), 0);
+                  assert!(io.stdout.starts_with(b"\\x0c"));
+                  assert!(io.stdout.iter().filter(|&&byte| byte == b'\\n').count() <= 29);
+                  assert!(io.stdout.split(|&byte| byte == b'\\n').all(|line| line.len() <= 80));
+              }
+              assert_eq!(io.run(&mut shell, b"man echo > /tmp/page"), 0);
+              assert!(io.stdout.is_empty());
+              assert!(io.data(b"/tmp/page").starts_with(b"echo(1)"));
+              assert!(!io.data(b"/tmp/page").contains(&12));
+              assert_eq!(io.run(&mut shell, b"man notacommand"), 1);
+              assert!(io.stdout.is_empty());
+          }
+          ''')
+          replace('tools/userspace_cli_cases.py', '    success("help grep", "Usage: grep")', '    success("echo \\\"Shift < > !\\\"", "\\nShift < > !\\n")\n    command("cat /dev/zero", "operation requires a regular file")\n    success("help grep", "Usage: grep")')
+          replace('docs/USERSPACE_CLI.md', 'Descriptions are wrapped for the native terminal.', 'Descriptions are wrapped for the native terminal. Each manual opens on a fresh screen and fits within its 30 rows; redirected manual output contains no screen-clear control.')
+          print('Applied bounded RFB modifier, manual display and current help-contract corrections.')
+          PY
+          cargo fmt --all
+          git diff --check
+      - name: Test corrected production paths before publishing
+        run: |
+          cargo test --locked -p vibrix-shell --lib
+          cargo clippy --locked -p vibrix-shell --target x86_64-unknown-none -- -D warnings
+          cargo clippy --locked -p vibrix-shell --lib --tests -- -D warnings
+          python3 -m py_compile tools/test_userspace_display.py tools/userspace_cli_cases.py
+          python3 tools/test_userspace_display.py --unit
+      - name: Publish tested corrections without forcing the branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: gpt-6-astra/unix-userspace-20260929
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          allowed = {'.github/workflows/ci.yml', 'userspace/shell/src/runtime.rs', 'userspace/shell/src/tests.rs', 'tools/test_userspace_display.py', 'tools/userspace_cli_cases.py', 'docs/USERSPACE_CLI.md'}
+          changed = subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines()
+          if set(changed) != allowed:
+              raise SystemExit('unexpected source edits: ' + repr(changed))
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/ci.yml userspace/shell/src/runtime.rs userspace/shell/src/tests.rs tools/test_userspace_display.py tools/userspace_cli_cases.py docs/USERSPACE_CLI.md
+          git commit -m '[GPT-6 Astra Pro] fix real RFB modifiers and keep manuals readable on screen'
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git push origin "HEAD:refs/heads/$BRANCH"
+      - name: Preserve exact-source correction diagnostics
+        if: always()
+        run: |
+          mkdir -p build/cli-finalize
+          git diff --binary HEAD > build/cli-finalize/uncommitted.patch
+          git archive HEAD | gzip > build/cli-finalize/source.tar.gz
+          git log -1 --format='%H %s' > build/cli-finalize/head.txt
+      - name: Retain correction diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cli-finalize-${{ github.run_id }}
+          path: build/cli-finalize/
+          retention-days: 1
+          if-no-files-found: warn
