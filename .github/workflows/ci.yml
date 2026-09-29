@@ -304,6 +304,11 @@ jobs:
           rustfmt --edition 2024 --check kernel/src/memory/heap.rs
           rustc --edition=2024 --test kernel/src/memory/heap.rs -o "$RUNNER_TEMP/vibrix-heap-tests"
           "$RUNNER_TEMP/vibrix-heap-tests"
+      - name: Test structured kernel logging on host
+        run: |
+          rustfmt --edition 2024 --check kernel/src/klog.rs
+          rustc --edition=2024 -D warnings --test kernel/src/klog.rs -o "$RUNNER_TEMP/vibrix-klog-tests"
+          "$RUNNER_TEMP/vibrix-klog-tests"
       - name: Test production virtual mapping window on host
         run: |
           rustfmt --edition 2024 --check shared/vm_window.rs kernel/src/memory/virtual_memory.rs
@@ -432,6 +437,8 @@ jobs:
         run: |
           bash tools/test-qemu.sh
           grep -Fq "VIBRIX: kernel process lifecycle verified" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel structured log verified" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel structured log verified" build/qemu/serial.log
       - name: QEMU native PCI scan with virtual xHCI controller
         env:
           VIBRIX_SKIP_BUILD: "1"
