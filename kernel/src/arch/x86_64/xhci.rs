@@ -230,6 +230,16 @@ fn setup_get_device_descriptor() -> [u32; 4] {
     setup_packet(0x80, 0x06, 0x0100, 0, 18, 3)
 }
 
+fn setup_get_configuration_descriptor() -> [u32; 4] {
+    // IN | standard | device, GET_DESCRIPTOR(Configuration), nine-byte header.
+    setup_packet(0x80, 0x06, 0x0200, 0, 9, 3)
+}
+
+fn setup_set_configuration(configuration: u8) -> [u32; 4] {
+    // OUT | standard | device, SET_CONFIGURATION, no data stage.
+    setup_packet(0x00, 0x09, u16::from(configuration), 0, 0, 0)
+}
+
 fn setup_get_hub_descriptor() -> [u32; 4] {
     // IN | class | device, GET_DESCRIPTOR(Hub), bounded 9-byte USB2 header.
     setup_packet(0xa0, 0x06, 0x2900, 0, 9, 3)
@@ -985,6 +995,35 @@ unsafe fn enumerate_first_device_inner(
             return Err(InitError::NotHub);
         }
 
+        let configuration_bytes = unsafe {
+            rings.control_in(
+                transfer_base,
+                &mut transfer_index,
+                slot_id,
+                setup_get_configuration_descriptor(),
+                descriptor_buffer,
+                9,
+            )
+        }?;
+        if configuration_bytes < 9
+            || unsafe { read8(descriptor_base, 0) } < 9
+            || unsafe { read8(descriptor_base, 1) } != 0x02
+        {
+            return Err(InitError::DescriptorMalformed);
+        }
+        let configuration = unsafe { read8(descriptor_base, 5) };
+        if configuration == 0 {
+            return Err(InitError::DescriptorMalformed);
+        }
+        unsafe {
+            rings.control_no_data(
+                transfer_base,
+                &mut transfer_index,
+                slot_id,
+                setup_set_configuration(configuration),
+            )
+        }?;
+
         let hub_bytes = unsafe {
             rings.control_in(
                 transfer_base,
@@ -1164,6 +1203,13 @@ mod tests {
         assert_eq!(trb_type(setup[3]), TRB_TYPE_SETUP_STAGE);
         assert_ne!(setup[3] & TRB_IDT, 0);
         assert_eq!((setup[3] >> 16) & 0x3, 3);
+
+        let config = setup_get_configuration_descriptor();
+        assert_eq!(config[0], 0x0200_0680);
+        assert_eq!(config[1], 9 << 16);
+        let set_config = setup_set_configuration(1);
+        assert_eq!(set_config[0], 0x0001_0900);
+        assert_eq!(set_config[1], 0);
 
         let hub = setup_get_hub_descriptor();
         assert_eq!(hub[0], 0x2900_06a0);
