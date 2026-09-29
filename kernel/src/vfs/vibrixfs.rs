@@ -362,6 +362,7 @@ impl<T: Transport> Filesystem for VibrixFs<T> {
 mod tests {
     use super::*;
     use crate::block;
+    use std::{vec, vec::Vec};
 
     const ROOT_GUID: [u8; 16] = [0x42; 16];
 
