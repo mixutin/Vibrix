@@ -30,7 +30,7 @@ cargo rustc --locked -p vibrix-init --bin vibrix-init --target x86_64-unknown-no
   -C link-arg=-Tuserspace/linker.ld
 
 echo "[vibrix] building Rust shell userspace ELF"
-cargo rustc --locked -p vibrix-shell --bin vibrix-shell --target x86_64-unknown-none -- \
+cargo rustc --locked -p vibrix-shell --bin vibrix-sh --target x86_64-unknown-none -- \
   -C debuginfo=0 \
   -C relocation-model=static \
   -C link-arg=-no-pie \
