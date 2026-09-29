@@ -254,8 +254,12 @@ pub unsafe fn initialize(info: &BootInfo) -> Result<Summary, InitError> {
         .checked_add(bar_offset)
         .ok_or(InitError::Mapping)?;
 
-    let cap_length = unsafe { core::ptr::read_volatile((cap_base + CAPLENGTH) as *const u8) };
-    let version = unsafe { core::ptr::read_volatile((cap_base + HCIVERSION) as *const u16) };
+    // CAPLENGTH and HCIVERSION share the first aligned capability dword.
+    // Read it once at the controller's natural register width: some MMIO
+    // implementations do not preserve sub-dword reads consistently.
+    let cap_header = unsafe { read32(cap_base, CAPLENGTH) };
+    let cap_length = (cap_header & 0xff) as u8;
+    let version = (cap_header >> 16) as u16;
     let hcs1 = unsafe { read32(cap_base, HCSPARAMS1) };
     let hcs2 = unsafe { read32(cap_base, HCSPARAMS2) };
     let dboff = unsafe { read32(cap_base, DBOFF) };
