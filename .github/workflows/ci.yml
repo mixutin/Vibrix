@@ -450,6 +450,13 @@ jobs:
             exit 1
           fi
           VIBRIX_KERNEL_FEATURES=qemu-debugcon bash tools/build-qemu.sh
+      - name: QEMU USB2 hub descriptor and downstream port management
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,usb-hub-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_QEMU_USB_HUB_PROBE=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel USB hub downstream port reset and enabled" build/qemu/debugcon.log
+          grep -Eq 'kernel USB hub: root_port=[1-9][0-9]* slot=[1-9][0-9]* ports=[1-9][0-9]* child_port=[1-9][0-9]* child_status=0x[0-9a-f]{4} pwr_good_units=[0-9]+' build/qemu/serial.log
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon bash tools/build-qemu.sh
       - name: QEMU real keyboard injection after ExitBootServices
         env:
           VIBRIX_SKIP_BUILD: "1"
