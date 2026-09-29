@@ -288,9 +288,11 @@ mod native {
             PROCESS_READY.store(false, Ordering::SeqCst);
             return Err(InitError::VerificationFailed);
         }
-        table
-            .exit(child, 23)
-            .map_err(|_| InitError::VerificationFailed)?;
+        if !cfg!(feature = "core-utils-probe") {
+            table
+                .exit(child, 23)
+                .map_err(|_| InitError::VerificationFailed)?;
+        }
         Ok(())
     }
 
@@ -303,6 +305,15 @@ mod native {
                 abi::Errno::Busy
             }
             vibrix_kernel::vfs::Error::NotFound => abi::Errno::NotFound,
+            vibrix_kernel::vfs::Error::NoSpace => abi::Errno::NoMemory,
+            vibrix_kernel::vfs::Error::InvalidPath
+            | vibrix_kernel::vfs::Error::NameTooLong
+            | vibrix_kernel::vfs::Error::NotDirectory
+            | vibrix_kernel::vfs::Error::IsDirectory
+            | vibrix_kernel::vfs::Error::NotEmpty
+            | vibrix_kernel::vfs::Error::InvalidOffset => abi::Errno::InvalidArgument,
+            vibrix_kernel::vfs::Error::Exists => abi::Errno::Busy,
+            vibrix_kernel::vfs::Error::Unsupported => abi::Errno::NotSupported,
             _ => abi::Errno::Io,
         };
         abi::encode_error(errno)
