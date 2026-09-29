@@ -4,3 +4,6 @@
 mod cpu_topology;
 #[path = "../kernel/src/per_cpu.rs"]
 mod per_cpu;
+
+#[cfg(not(test))]
+fn main() {}
