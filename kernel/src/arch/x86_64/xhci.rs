@@ -1,8 +1,8 @@
 //! Bounded native xHCI controller initialization for the early single-BSP kernel.
 //!
 //! This module owns the bounded early xHCI proof path: controller startup,
- //! one directly attached device, and USB2 hub class control/port management.
- //! HID and mass-storage endpoint drivers remain later milestones.
+//! one directly attached device, and USB2 hub class control/port management.
+//! HID and mass-storage endpoint drivers remain later milestones.
 
 use crate::{BootInfo, memory};
 use core::arch::{asm, x86_64::__cpuid_count};
@@ -1074,10 +1074,9 @@ unsafe fn enumerate_first_device_inner(
             if status_bytes < 4 {
                 return Err(InitError::DescriptorMalformed);
             }
-            let status = u16::from_le_bytes([
-                unsafe { read8(descriptor_base, 0) },
-                unsafe { read8(descriptor_base, 1) },
-            ]);
+            let status = u16::from_le_bytes([unsafe { read8(descriptor_base, 0) }, unsafe {
+                read8(descriptor_base, 1)
+            }]);
             if status & 1 != 0 {
                 child = Some((downstream_port, status));
                 break;
@@ -1112,10 +1111,9 @@ unsafe fn enumerate_first_device_inner(
             if status_bytes < 4 {
                 return Err(InitError::DescriptorMalformed);
             }
-            child_status = u16::from_le_bytes([
-                unsafe { read8(descriptor_base, 0) },
-                unsafe { read8(descriptor_base, 1) },
-            ]);
+            child_status = u16::from_le_bytes([unsafe { read8(descriptor_base, 0) }, unsafe {
+                read8(descriptor_base, 1)
+            }]);
             let connected = child_status & (1 << 0) != 0;
             let enabled = child_status & (1 << 1) != 0;
             let reset = child_status & (1 << 4) != 0;
