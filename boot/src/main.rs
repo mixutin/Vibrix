@@ -4,6 +4,9 @@
 #[path = "../../shared/bootinfo.rs"]
 #[allow(dead_code)]
 mod bootinfo;
+#[path = "../../shared/uefi_boot_path.rs"]
+#[allow(dead_code)]
+mod uefi_boot_path;
 
 mod elf;
 mod loader;
