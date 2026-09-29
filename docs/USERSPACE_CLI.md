@@ -105,7 +105,7 @@ Every name below has a built-in `man NAME` page and `NAME --help` path. Options 
 | `ps` | Actual kernel PID, parent PID and running/zombie state. |
 | `kill` | `kill PID [STATUS]`: current bootstrap termination operation; default exit status 143, **not POSIX signal syntax**. |
 | `pid` | Current process ID from the kernel. |
-| `vibrix` | `vibrix status|doctor`: kernel-backed status plus read-only process/VFS/bootstrap-device diagnostics with explicit persistence/network/update limits. |
+| `vibrix` | `vibrix status | vibrix doctor [--bundle]`: kernel-backed status plus read-only process/VFS/bootstrap-device diagnostics with explicit persistence/network/update limits. `--bundle` emits a bounded aggregate text report and deliberately excludes file contents, PID lists, memory addresses, hardware identifiers, environment variables and shell history. |
 | `vfetch` | Original CPUID, privilege, PID and build summary; unavailable accounting is labelled unavailable. |
 | `uname` | `uname [-a|-s|-m|-r]`: identity, architecture or shell build version; `-r` is not a compatibility promise. |
 | `clear` | Emit native form feed to clear the existing terminal and home the cursor in one redraw. |
@@ -174,3 +174,19 @@ The implementation is original Rust, developed by **GPT-6 Astra Pro**, with no n
 - [Cargo profile overrides](https://doc.rust-lang.org/cargo/reference/profiles.html), for package-specific optimization without changing global safety checks.
 - [Microsoft keyboard input and Scan 1 make-code table](https://learn.microsoft.com/en-us/windows/win32/inputdev/about-keyboard-input), for the bounded original US-ASCII decoder.
 - Repository-owned syscall ABI, VFS, guarded address-space loader, TTY, framebuffer terminal and RFB/QMP pixel harness. No competing implementation of those owners was introduced.
+
+## Privacy-reviewed support bundle
+
+`vibrix doctor --bundle` reruns the same read-only bootstrap checks as
+`vibrix doctor` and prints a deterministic text envelope suitable for manual
+copy/export. The bundle contains architecture, shell build version, aggregate
+process-record count and pass/unavailable states only. It does **not** enumerate
+process IDs, paths beyond the fixed bootstrap probes, user file contents,
+environment variables, shell history, memory addresses, PCI/USB serial-like
+identifiers, network addresses or credentials.
+
+There is no automatic upload or network transmission. The operator must
+explicitly invoke `--bundle`; ordinary `vibrix doctor` output remains unchanged.
+The current bundle labels persistence, network-link, update and hardware-health
+state unavailable rather than inventing diagnostics that the userspace ABI does
+not expose yet.

@@ -516,6 +516,7 @@ impl Shell {
             Builtin::Vibrix => match args {
                 [b"status"] => render_vibrix_status(io, out)?,
                 [b"doctor"] => render_vibrix_doctor(io, out)?,
+                [b"doctor", b"--bundle"] => render_vibrix_doctor_bundle(io, out)?,
                 _ => return Err(Error::Usage),
             },
             Builtin::Fetch => {
@@ -778,7 +779,12 @@ fn search_manuals(io: &mut dyn System, fd: u64, word: &[u8]) -> Result<u8> {
     Ok(u8::from(!found))
 }
 
-fn render_vibrix_doctor(io: &mut dyn System, fd: u64) -> Result<()> {
+#[derive(Clone, Copy)]
+struct DoctorSnapshot {
+    process_count: u64,
+}
+
+fn collect_vibrix_doctor(io: &mut dyn System) -> Result<DoctorSnapshot> {
     let pid = io.getpid()?;
     let mut current_seen = false;
     let mut process_count = 0u64;
@@ -836,9 +842,14 @@ fn render_vibrix_doctor(io: &mut dyn System, fd: u64) -> Result<()> {
     }
     null_close?;
 
+    Ok(DoctorSnapshot { process_count })
+}
+
+fn render_vibrix_doctor(io: &mut dyn System, fd: u64) -> Result<()> {
+    let snapshot = collect_vibrix_doctor(io)?;
     write_all(io, fd, b"Vibrix doctor\n")?;
     write_all(io, fd, b"  process table: PASS (records=")?;
-    number(io, fd, process_count)?;
+    number(io, fd, snapshot.process_count)?;
     write_all(io, fd, b")\n")?;
     write_all(io, fd, b"  root mount: PASS\n")?;
     write_all(io, fd, b"  /dev mount: PASS\n")?;
@@ -849,6 +860,33 @@ fn render_vibrix_doctor(io: &mut dyn System, fd: u64) -> Result<()> {
         io,
         fd,
         b"doctor: PASS (bootstrap checks only; persistent USB, network link, updates and hardware health not tested)\n",
+    )?;
+    Ok(())
+}
+
+fn render_vibrix_doctor_bundle(io: &mut dyn System, fd: u64) -> Result<()> {
+    let snapshot = collect_vibrix_doctor(io)?;
+    write_all(io, fd, b"VIBRIX-SUPPORT-BUNDLE v1\n")?;
+    write_all(io, fd, b"privacy=bounded-anonymous\n")?;
+    write_all(io, fd, b"architecture=x86_64\n")?;
+    write_all(io, fd, b"shell_version=")?;
+    write_all(io, fd, env!("CARGO_PKG_VERSION").as_bytes())?;
+    write_all(io, fd, b"\nprocess_records=")?;
+    number(io, fd, snapshot.process_count)?;
+    write_all(
+        io,
+        fd,
+        b"\nroot_mount=pass\ndev_mount=pass\nwelcome_read=pass\ndev_zero=pass\ndev_null=pass\n",
+    )?;
+    write_all(
+        io,
+        fd,
+        b"persistence=unavailable\nnetwork_link=unavailable\nupdates=unavailable\nhardware_health=unavailable\n",
+    )?;
+    write_all(
+        io,
+        fd,
+        b"privacy_note=no-file-contents,no-pid-list,no-memory-addresses,no-hardware-identifiers,no-environment,no-history\nEND-VIBRIX-SUPPORT-BUNDLE\n",
     )?;
     Ok(())
 }
