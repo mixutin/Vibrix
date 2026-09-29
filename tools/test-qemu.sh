@@ -49,7 +49,18 @@ ARGS=(
 
 # Optionally expose a virtual PCI xHCI controller to the *native kernel*.
 # This does not connect a persistent USB system disk or enable a USB driver.
-if [[ "${VIBRIX_QEMU_USB_HID_MOUSE_PROBE:-0}" == "1" ]]; then
+if [[ "${VIBRIX_QEMU_USB_STORAGE_PROBE:-0}" == "1" ]]; then
+  STORAGE_IMAGE="${VIBRIX_QEMU_USB_STORAGE_IMAGE:-$QEMU_DIR/usb-storage.img}"
+  if [[ ! -f "$STORAGE_IMAGE" ]]; then
+    echo "[vibrix] USB storage probe image not found: $STORAGE_IMAGE" >&2
+    exit 2
+  fi
+  ARGS+=(
+    -drive "if=none,id=vibrix-usb-storage,format=raw,file=$STORAGE_IMAGE"
+    -device "qemu-xhci,id=vibrix-xhci"
+    -device "usb-storage,drive=vibrix-usb-storage,bus=vibrix-xhci.0"
+  )
+elif [[ "${VIBRIX_QEMU_USB_HID_MOUSE_PROBE:-0}" == "1" ]]; then
   ARGS+=(
     -device "qemu-xhci,id=vibrix-xhci"
     -device "usb-mouse,bus=vibrix-xhci.0"
