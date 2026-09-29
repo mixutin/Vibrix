@@ -422,7 +422,7 @@ mod tests {
             uid: 0,
             gid: 0,
             links: 2,
-            size: 80,
+            size: 72,
             allocated_blocks: 1,
             atime_sec: 1,
             atime_nsec: 0,
