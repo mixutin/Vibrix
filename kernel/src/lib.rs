@@ -7,6 +7,7 @@ pub mod block;
 pub mod config_policy;
 pub mod cpu_topology;
 pub mod credentials;
+pub mod device;
 pub mod klog;
 pub mod nic;
 pub mod per_cpu;
