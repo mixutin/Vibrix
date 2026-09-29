@@ -55,6 +55,7 @@ There is no idle sleep yet: the foreground loop polls and can consume a host CPU
 ## Evidence and reproduction
 
 ```bash
+cargo test --locked -p vibrix-ui --lib
 cargo test --locked -p vibrix-desktop --lib
 cargo test --locked -p vibrix-shell --lib
 cargo test --locked -p vibrix-syscall
@@ -76,4 +77,4 @@ The test deliberately sends a large pointer journey in bounded steps and acknowl
 
 [embedded-graphics 0.8.2](https://docs.rs/embedded-graphics/0.8.2/embedded_graphics/) is a relevant no_std, allocator-free alternative. This bounded slice reuses Vibrix's existing font and needs only fills and small blits, so it does not add a graphics framework merely to reimplement those two operations. The canvas trait leaves room for a reviewed renderer later. This is a scope decision, not a blanket external-library prohibition or a claim that custom code is inherently safer.
 
-The only new Cargo package is first-party `vibrix-desktop` 0.0.1, depending on exact local `vibrix-shell` and `vibrix-syscall` 0.0.1. No registry/Git/vendored dependency, font asset, runtime build script, proc macro or native C/C++ linkage was added. The lockfile includes this graph; standard dependency scans remain enabled without new source/license/advisory exceptions. Existing pinned checkout/artifact actions and distro QEMU/OVMF are reused as host-only tools.
+The desktop now also consumes first-party `vibrix-ui` 0.0.1 for shared checked drawing, glyph and widget primitives. `vibrix-ui` depends only on exact local `vibrix-syscall` 0.0.1; `vibrix-desktop` continues to depend on `vibrix-shell` and `vibrix-syscall`. No registry/Git/vendored dependency, font asset, runtime build script, proc macro or native C/C++ linkage was added. The lockfile includes this graph; standard dependency scans remain enabled without new source/license/advisory exceptions. Existing pinned checkout/artifact actions and distro QEMU/OVMF are reused as host-only tools.
