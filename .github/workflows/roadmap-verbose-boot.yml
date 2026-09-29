@@ -1,0 +1,40 @@
+name: Verbose boot evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  verbose-boot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install QEMU, OVMF and repository toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rust-src,rustfmt,clippy --target x86_64-unknown-uefi,x86_64-unknown-none
+      - name: Prove normal boot omits verbose diagnostics
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
+          cp build/qemu/serial.log build/qemu/normal-boot-serial.log
+          cp build/qemu/debugcon.log build/qemu/normal-boot-debugcon.log
+          ! grep -Fq 'Vibrix verbose boot:' build/qemu/normal-boot-serial.log
+          ! grep -Fq 'VIBRIX: verbose boot' build/qemu/normal-boot-debugcon.log
+      - name: Prove explicit verbose boot diagnostics
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,verbose-boot bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
+          grep -Fq 'Vibrix verbose boot: bootinfo' build/qemu/serial.log
+          grep -Fq 'Vibrix verbose boot: pci' build/qemu/serial.log
+          grep -Fq 'VIBRIX: verbose boot bootinfo reported' build/qemu/debugcon.log
+          grep -Fq 'VIBRIX: verbose boot PCI summary reported' build/qemu/debugcon.log
