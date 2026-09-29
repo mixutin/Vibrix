@@ -241,19 +241,24 @@ extern "x86-interrupt" fn page_fault_handler(frame: InterruptStackFrame, error_c
     let reason = PageFaultReason::from_error_code(error_code);
     crate::debugcon::write("VIBRIX: kernel page fault diagnostic\r\n");
     crate::println!(
-        "kernel #PF cr2={:#x} rip={:#x} cs={:#x} rflags={:#x} rsp={:#x} ss={:#x} error={:#x} present={} write={} user={} reserved={} exec={}",
+        "kernel #PF cr2={:#x} rip={:#x} error={:#x} present={} write={} user={} reserved={} exec={}",
         cr2,
         frame.instruction_pointer,
-        frame.code_segment,
-        frame.cpu_flags,
-        frame.stack_pointer,
-        frame.stack_segment,
         error_code,
         reason.protection,
         reason.write,
         reason.user,
         reason.reserved_bit,
         reason.instruction_fetch
+    );
+    crate::println!(
+        "kernel #PF context rip={:#x} cs={:#x} rflags={:#x} rsp={:#x} ss={:#x} error={:#x}",
+        frame.instruction_pointer,
+        frame.code_segment,
+        frame.cpu_flags,
+        frame.stack_pointer,
+        frame.stack_segment,
+        error_code
     );
     crate::debugcon::write("VIBRIX: kernel fault context captured\r\n");
     loop {
