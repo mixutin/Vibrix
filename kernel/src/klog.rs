@@ -7,12 +7,13 @@
 //! mutation. Capacity exhaustion is explicit.
 
 use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering};
 
 pub const KERNEL_LOG_CAPACITY: usize = 128;
+const ALL_SUBSYSTEMS: u8 = 0xff;
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Level {
     Trace = 0,
     Debug = 1,
@@ -32,6 +33,54 @@ pub enum Subsystem {
     Network = 5,
     Usb = 6,
     Security = 7,
+}
+
+impl Subsystem {
+    pub const fn bit(self) -> u8 {
+        1u8 << self as u8
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Filter {
+    pub minimum_level: Level,
+    pub subsystem_mask: u8,
+}
+
+impl Filter {
+    pub const ALL: Self = Self {
+        minimum_level: Level::Trace,
+        subsystem_mask: ALL_SUBSYSTEMS,
+    };
+
+    pub const fn new(minimum_level: Level, subsystem_mask: u8) -> Self {
+        Self {
+            minimum_level,
+            subsystem_mask,
+        }
+    }
+
+    pub const fn allows(self, level: Level, subsystem: Subsystem) -> bool {
+        level as u8 >= self.minimum_level as u8 && self.subsystem_mask & subsystem.bit() != 0
+    }
+
+    const fn packed(self) -> u16 {
+        ((self.minimum_level as u16) << 8) | self.subsystem_mask as u16
+    }
+
+    fn from_packed(value: u16) -> Self {
+        let minimum_level = match ((value >> 8) & 0xff) as u8 {
+            0 => Level::Trace,
+            1 => Level::Debug,
+            2 => Level::Info,
+            3 => Level::Warn,
+            _ => Level::Error,
+        };
+        Self {
+            minimum_level,
+            subsystem_mask: value as u8,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,6 +106,12 @@ impl Record {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Full;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LogError {
+    Filtered,
+    Full,
+}
 
 struct Slot {
     published: AtomicBool,
@@ -153,6 +208,15 @@ impl<const N: usize> Default for Buffer<N> {
 }
 
 pub static KERNEL_LOG: Buffer<KERNEL_LOG_CAPACITY> = Buffer::new();
+static FILTER: AtomicU16 = AtomicU16::new(Filter::ALL.packed());
+
+pub fn filter() -> Filter {
+    Filter::from_packed(FILTER.load(Ordering::Acquire))
+}
+
+pub fn configure_filter(value: Filter) {
+    FILTER.store(value.packed(), Ordering::Release);
+}
 
 pub fn log(
     level: Level,
@@ -160,21 +224,39 @@ pub fn log(
     event: u16,
     value0: u64,
     value1: u64,
-) -> Result<u64, Full> {
-    KERNEL_LOG.push(level, subsystem, event, value0, value1)
+) -> Result<u64, LogError> {
+    if !filter().allows(level, subsystem) {
+        return Err(LogError::Filtered);
+    }
+    KERNEL_LOG
+        .push(level, subsystem, event, value0, value1)
+        .map_err(|_| LogError::Full)
 }
 
 pub fn self_test() -> Result<(), &'static str> {
     const EVENT_SELF_TEST: u16 = 0x1801;
-    let sequence = log(Level::Info, Subsystem::Kernel, EVENT_SELF_TEST, 0x56, 0x4258)
-        .map_err(|_| "global structured log is unexpectedly full")?;
+    let original_filter = filter();
+    configure_filter(Filter::new(
+        Level::Warn,
+        Subsystem::Kernel.bit() | Subsystem::Security.bit(),
+    ));
+    let info_filtered = log(Level::Info, Subsystem::Kernel, EVENT_SELF_TEST, 0, 0)
+        == Err(LogError::Filtered);
+    let subsystem_filtered = log(Level::Error, Subsystem::Network, EVENT_SELF_TEST, 0, 0)
+        == Err(LogError::Filtered);
+    let accepted = log(Level::Error, Subsystem::Kernel, EVENT_SELF_TEST, 0x56, 0x4258);
+    configure_filter(original_filter);
+    if !info_filtered || !subsystem_filtered {
+        return Err("structured log filter policy accepted a rejected event");
+    }
+    let sequence = accepted.map_err(|_| "global structured log is unexpectedly full")?;
     let record = KERNEL_LOG
         .get(sequence)
         .ok_or("published structured record is not readable")?;
     if record
         != (Record {
             sequence,
-            level: Level::Info,
+            level: Level::Error,
             subsystem: Subsystem::Kernel,
             event: EVENT_SELF_TEST,
             value0: 0x56,
@@ -189,6 +271,19 @@ pub fn self_test() -> Result<(), &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filter_enforces_level_and_subsystem_mask() {
+        let filter = Filter::new(
+            Level::Warn,
+            Subsystem::Kernel.bit() | Subsystem::Security.bit(),
+        );
+        assert!(!filter.allows(Level::Info, Subsystem::Kernel));
+        assert!(filter.allows(Level::Warn, Subsystem::Kernel));
+        assert!(filter.allows(Level::Error, Subsystem::Security));
+        assert!(!filter.allows(Level::Error, Subsystem::Network));
+        assert!(Filter::ALL.allows(Level::Trace, Subsystem::Usb));
+    }
 
     #[test]
     fn records_keep_structure_and_monotonic_sequence() {
