@@ -1,4 +1,4 @@
-//! Minimal boot-time framebuffer proof independent of UEFI GOP calls.
+//! Boot-time framebuffer proof and optional userspace terminal frontend.
 //!
 //! The loader has already mapped the framebuffer BAR supervisor-writable,
 //! NX and uncached in the kernel's active hierarchy (ADR 0006).
@@ -12,6 +12,10 @@ use crate::bootinfo::BootInfo;
 mod bootinfo;
 #[cfg(test)]
 use bootinfo::BootInfo;
+
+#[cfg(any(feature = "userspace-shell", test))]
+#[path = "framebuffer/terminal.rs"]
+pub mod terminal;
 
 const BANNER_X: usize = 16;
 const BANNER_Y: usize = 16;
@@ -140,18 +144,18 @@ unsafe fn draw_text(
     Ok(())
 }
 
-/// Draw the existing minimal 48x16 marker, then (on a sufficiently large
-/// linear RGB/BGR GOP) a readable "VIBRIX / KERNEL LIVE" status card.
+/// Draw the existing minimal 48x16 marker and boot status card. The interactive
+/// userspace profile then transfers the retained mapping to the TTY renderer.
+/// Other profiles retain the original banner and diagnostic behavior.
 ///
-/// Returns `Ok(true)` if the legible banner was painted; `Ok(false)`
-/// means the old bounded marker was painted on a small/bitmask display.
-///
-/// No heap, firmware protocol, system call, external font or cache alias.
+/// Returns `Ok(true)` for a sufficiently large linear RGB/BGR GOP; `Ok(false)`
+/// retains the old bounded marker on a small/bitmask display (serial fallback).
 ///
 /// # Safety
 /// `framebuffer_base` must address the full loader-validated,
 /// identity-mapped writable MMIO region, and no other CPU/thread may
-/// concurrently access those pixels under the kernel page tables.
+/// concurrently access those pixels under the kernel page tables. For the
+/// userspace profile call once, pre-STI, and do not render here again afterward.
 pub unsafe fn draw_boot_marker(info: &BootInfo) -> Result<bool, ()> {
     let pixels = PixelSurface::new(info)?;
     let marker_width = pixels.width.min(48);
@@ -197,6 +201,13 @@ pub unsafe fn draw_boot_marker(info: &BootInfo) -> Result<bool, ()> {
     unsafe {
         draw_text(&pixels, b"VIBRIX", BANNER_X + 68, BANNER_Y + 12, 6)?;
         draw_text(&pixels, b"KERNEL LIVE", BANNER_X + 77, BANNER_Y + 72, 3)?;
+    }
+    #[cfg(all(feature = "userspace-shell", not(test)))]
+    {
+        // SAFETY: this is the final boot renderer call, before STI. The user
+        // address-space builder inherits these supervisor GOP mappings.
+        unsafe { terminal::init(info)? };
+        crate::debugcon::write("VIBRIX: framebuffer terminal initialized\r\n");
     }
     Ok(true)
 }
