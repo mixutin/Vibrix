@@ -398,6 +398,17 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                         apic.ioapic_max_redirection_entry
                     );
                     debugcon::write("VIBRIX: kernel LAPIC and IOAPIC registers read\r\n");
+                    let bsp = vibrix_kernel::per_cpu::bind_bsp(u32::from(apic.lapic_id))
+                        .unwrap_or_else(|error| {
+                            panic!("per-CPU BSP binding failed: {:?}", error)
+                        });
+                    crate::println!(
+                        "kernel per-CPU BSP: uid={} apic={} slots={}",
+                        bsp.firmware_uid,
+                        bsp.apic_id,
+                        vibrix_kernel::per_cpu::slots().len()
+                    );
+                    debugcon::write("VIBRIX: kernel per-CPU BSP bound\r\n");
                     timer_setup = Some((
                         discovery.lapic_physical,
                         discovery.ioapic_physical,
