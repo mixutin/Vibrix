@@ -128,6 +128,7 @@ impl Terminal {
     /// # Safety
     /// The complete validated GOP mapping must remain writable and exclusively
     /// owned until this terminal is dropped. No other renderer may use it.
+    /// Every subsequent pixel access must run under the captured kernel root.
     unsafe fn new(info: &BootInfo) -> Result<Self, ()> {
         let pixels = PixelSurface::new(info)?;
         if info.framebuffer_format > 1 || pixels.width > 8192 || pixels.height > 8192 {
@@ -156,8 +157,8 @@ impl Terminal {
     }
 
     fn pixel(&self, x: usize, y: usize, color: u32) -> Result<(), ()> {
-        // SAFETY: new() acquired the retained mapping for this object's entire
-        // lifetime. PixelSurface independently checks coordinates/byte bounds.
+        // SAFETY: new() acquired retained mapping ownership; runtime access
+        // uses the captured kernel CR3. PixelSurface checks coordinates/bytes.
         unsafe { self.pixels.pixel(x, y, color) }
     }
 
@@ -248,69 +249,8 @@ impl Terminal {
 }
 
 #[cfg(all(feature = "userspace-shell", not(test)))]
-mod runtime {
-    use super::{BootInfo, Terminal};
-    use core::{
-        cell::UnsafeCell,
-        sync::atomic::{AtomicBool, Ordering},
-    };
-
-    struct Console(UnsafeCell<Option<Terminal>>);
-    // SAFETY: initialization and rendering are exclusively serialized by BUSY.
-    // Only the BSP is started; IRQ/NMI/panic handlers never call this renderer.
-    unsafe impl Sync for Console {}
-
-    static CONSOLE: Console = Console(UnsafeCell::new(None));
-    static BUSY: AtomicBool = AtomicBool::new(false);
-    static STARTED: AtomicBool = AtomicBool::new(false);
-
-    fn interrupts_enabled() -> bool {
-        let flags: u64;
-        // SAFETY: read-only RFLAGS inspection, no device or memory mutation.
-        unsafe {
-            core::arch::asm!("pushfq", "pop {}", out(reg) flags, options(preserves_flags));
-        }
-        flags & (1 << 9) != 0
-    }
-
-    /// # Safety
-    /// Single-BSP boot, IF=0, and exclusive retained supervisor GOP mapping.
-    /// The private user CR3 must inherit this same supervisor mapping (the
-    /// current address_space::copy_kernel_root contract). No later renderer
-    /// may write through draw_boot_marker after ownership is published here.
-    pub unsafe fn init(info: &BootInfo) -> Result<(), ()> {
-        if interrupts_enabled() || STARTED.swap(true, Ordering::SeqCst) {
-            return Err(());
-        }
-        BUSY.store(true, Ordering::SeqCst);
-        // SAFETY: the caller supplies the permanent MMIO lifetime/ownership.
-        let terminal = unsafe { Terminal::new(info) };
-        let success = terminal.is_ok();
-        // SAFETY: pre-STI initialization, exclusively owning BUSY.
-        unsafe { *CONSOLE.0.get() = terminal.ok() };
-        BUSY.store(false, Ordering::SeqCst);
-        if success { Ok(()) } else { Err(()) }
-    }
-
-    /// Called only with kernel-owned bytes from the syscall TTY drain/echo.
-    /// Fail closed instead of spinning if called reentrantly or from IF=1.
-    /// Serial logging is independent and remains available on display failure.
-    pub fn write(bytes: &[u8]) {
-        if interrupts_enabled() || BUSY.swap(true, Ordering::SeqCst) {
-            return;
-        }
-        // SAFETY: BUSY grants one exclusive borrower. Every active userspace
-        // root inherits the retained supervisor GOP mapping; bytes are already
-        // copied into kernel memory, never dereferenced as userspace pointers.
-        let slot = unsafe { &mut *CONSOLE.0.get() };
-        if let Some(terminal) = slot.as_mut()
-            && terminal.write(bytes).is_err()
-        {
-            *slot = None;
-        }
-        BUSY.store(false, Ordering::SeqCst);
-    }
-}
+#[path = "terminal_runtime.rs"]
+mod runtime;
 
 #[cfg(all(feature = "userspace-shell", not(test)))]
 pub use runtime::{init, write};

@@ -65,10 +65,23 @@ this change does not claim a newly implemented physical Ctrl-U scan-code path.
 
 The loader supplies validated, supervisor-writable, NX, uncached GOP backing.
 The boot marker is the last temporary owner; before STI it initializes the
-terminal exactly once. `address_space::copy_kernel_root` already copies the
-supervisor GOP hierarchy into the private shell CR3 while replacing the user
-arena. No framebuffer pages are made user-accessible and no new root switch
-is necessary for output.
+terminal exactly once and captures the active kernel CR3. Importantly,
+`address_space::copy_kernel_root` replaces PML4 **slot zero** for the user arena.
+The low GOP identity mapping lies in that replaced slot on QEMU. It is not
+inherited merely because other supervisor mappings are shared. The first
+integration test exposed this as a supervisor page fault at `0x80014040` after
+the private CR3 was activated, before the first prompt completed.
+
+The runtime therefore uses a narrowly scoped page-table guard around rendering.
+With IF clear on the sole BSP, it saves the exact incoming CR3, temporarily
+activates the retained kernel root, accesses only higher-half kernel-owned
+bytes/stack/state and the validated GOP backing, then restores the original CR3
+before the syscall resumes. A drop guard also restores the root after a normal
+rendering error. No user-memory access, scheduling, or IRQ handler runs in this
+scope. The incoming user mappings and syscall return invariant are unchanged.
+No framebuffer pages are made user-accessible. This is a bounded development
+bridge, not a general graphics mapping API or an SMP-safe compositor. A future
+shared higher-half framebuffer mapping can remove the per-drain CR3 cost.
 
 Each pixel uses checked coordinates, stride and byte arithmetic against the
 validated backing size. Host tests include row-padding and tail sentinels.
@@ -104,12 +117,13 @@ before Enter, then the userspace command result and next prompt. It also checks
 the independent COM1 transcript. No OCR, fake guest marker or generated screen
 can satisfy the pixel assertions. Negative tests reject blank/truncated images.
 
-The `Userspace display` workflow retains `.ppm` screenshots and logs. Its
-result is separate from the canonical formatting, target, dependency and QEMU
-regression checks; all must pass on the tested head before integration. Passing
-host tests alone is not VNC evidence. Refer to the PR's exact-head Actions
-results for observed status, rather than treating this test specification as a
-claim that a run passed.
+The `Userspace display` workflow retains `.ppm` screenshots and logs. It builds
+and executes the actual single interactive profile, then uses the same strict
+all-feature Clippy policy as canonical CI, including the new frontend. Existing
+formatting, target, dependency and QEMU regression checks remain mandatory.
+All must pass on the tested head before integration. Passing host tests alone
+is not VNC evidence. Refer to the PR's exact-head Actions results for observed
+status, rather than treating this test specification as a passing-run claim.
 
 ## Remaining boundaries
 
@@ -126,8 +140,9 @@ Checked 2026-09-29: QEMU's [system invocation guide](https://www.qemu.org/docs/m
 (`-display`, `-vnc`, `-k`), its [QMP reference](https://www.qemu.org/docs/master/interop/qemu-qmp-ref.html)
 (`screendump`), and [RFC 6143](https://www.rfc-editor.org/rfc/rfc6143.html)
 sections 7.1, 7.3 and 7.5.4 (RFB initialization/key events). Kernel integration
-reuses the existing BootInfo/PixelSurface validation, supervisor PML4 inheritance
-and checked TTY/syscall copy-in/out rather than introducing a parallel ABI.
+reuses the existing BootInfo/PixelSurface validation and checked TTY/syscall
+copy-in/out. Inspection of the actual root-copy code and real fault logs, not
+an assumption about supervisor mapping inheritance, determines the CR3 guard.
 
 A QEMU serial-console display would not prove native guest framebuffer output.
 A full terminal/Unicode library would widen scope beyond this bounded frontend;

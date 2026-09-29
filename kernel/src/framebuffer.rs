@@ -204,8 +204,8 @@ pub unsafe fn draw_boot_marker(info: &BootInfo) -> Result<bool, ()> {
     }
     #[cfg(all(feature = "userspace-shell", not(test)))]
     {
-        // SAFETY: this is the final boot renderer call, before STI. The user
-        // address-space builder inherits these supervisor GOP mappings.
+        // SAFETY: final boot renderer call, pre-STI under the retained kernel
+        // root. The terminal captures that root for later syscall-side use.
         unsafe { terminal::init(info)? };
         crate::debugcon::write("VIBRIX: framebuffer terminal initialized\r\n");
     }

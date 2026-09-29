@@ -49,8 +49,10 @@ jobs:
           sudo apt-get install -y qemu-system-x86 ovmf
       - name: Prove default launch, real VNC typing and captured guest pixels
         run: python3 tools/test_userspace_display.py
-      - name: Lint the actual interactive userspace kernel profile
-        run: cargo clippy --locked -p vibrix-kernel --features userspace-shell --target x86_64-unknown-none -- -D warnings
+      - name: Lint integrated kernel including the interactive frontend
+        # Match the repository's strict all-feature Clippy policy; the actual
+        # single-profile build and execution are checked by the preceding step.
+        run: cargo clippy --locked -p vibrix-kernel --all-features --target x86_64-unknown-none -- -D warnings
       - name: Retain real QEMU screenshots and diagnostic logs
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
