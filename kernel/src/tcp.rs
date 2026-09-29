@@ -266,14 +266,11 @@ impl ReassemblyQueue {
             return Err(Error::ReceiveTooSmall);
         }
         let mut written = 0usize;
-        loop {
-            let Some(index) = self
-                .slots
-                .iter()
-                .position(|slot| slot.is_some_and(|segment| segment.sequence == receive_next))
-            else {
-                break;
-            };
+        while let Some(index) = self
+            .slots
+            .iter()
+            .position(|slot| slot.is_some_and(|segment| segment.sequence == receive_next))
+        {
             let segment = self.slots[index].take().expect("located queued segment");
             let len = usize::from(segment.len);
             output[written..written + len].copy_from_slice(&segment.payload[..len]);
