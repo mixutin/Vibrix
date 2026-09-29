@@ -227,7 +227,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         feature = "xhci-init-probe",
         not(feature = "usb-enum-probe"),
         not(feature = "usb-hub-probe"),
-        not(feature = "usb-hid-keyboard-probe")
+        not(feature = "usb-hid-keyboard-probe"),
+        not(feature = "usb-hid-mouse-probe")
     ))]
     {
         // SAFETY: still single-BSP with IF=0. PCI discovery identified the
@@ -276,7 +277,11 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         debugcon::write("VIBRIX: kernel USB device addressed and descriptor read\r\n");
     }
 
-    #[cfg(all(feature = "usb-hub-probe", not(feature = "usb-hid-keyboard-probe")))]
+    #[cfg(all(
+        feature = "usb-hub-probe",
+        not(feature = "usb-hid-keyboard-probe"),
+        not(feature = "usb-hid-mouse-probe")
+    ))]
     {
         // SAFETY: the bounded probe exclusively owns the QEMU xHCI controller,
         // addresses the root-attached USB2 hub and retires temporary mappings
@@ -295,7 +300,10 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         debugcon::write("VIBRIX: kernel USB hub downstream port reset and enabled\r\n");
     }
 
-    #[cfg(feature = "usb-hid-keyboard-probe")]
+    #[cfg(all(
+        feature = "usb-hid-keyboard-probe",
+        not(feature = "usb-hid-mouse-probe")
+    ))]
     {
         // SAFETY: the bounded probe owns the directly attached QEMU USB
         // keyboard, configures HID Boot Protocol and observes a real class
@@ -314,6 +322,28 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             keyboard.usage
         );
         debugcon::write("VIBRIX: kernel USB HID keyboard input observed\r\n");
+    }
+
+    #[cfg(feature = "usb-hid-mouse-probe")]
+    {
+        // SAFETY: the bounded probe owns the directly attached QEMU USB mouse,
+        // configures HID Boot Protocol and observes a real class input report
+        // before releasing all temporary xHCI mappings.
+        let mouse = unsafe { arch::x86_64::xhci::probe_hid_boot_mouse(&info) }
+            .unwrap_or_else(|error| panic!("USB HID mouse probe failed: {:?}", error));
+        crate::println!(
+            "kernel USB HID mouse: root_port={} slot={} interface={} endpoint={:#04x} mps={} interval={} buttons={:#04x} x={} y={}",
+            mouse.root_port,
+            mouse.slot_id,
+            mouse.interface,
+            mouse.endpoint_address,
+            mouse.endpoint_max_packet,
+            mouse.interval,
+            mouse.buttons,
+            mouse.x,
+            mouse.y
+        );
+        debugcon::write("VIBRIX: kernel USB HID mouse motion observed\r\n");
     }
 
     if device_model.devices == pci.devices {
