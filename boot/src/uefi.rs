@@ -443,6 +443,7 @@ pub unsafe fn discover_framebuffer(system_table: *mut SystemTable) -> Option<Fra
 }
 
 pub const ALLOCATE_ANY_PAGES: u32 = 0;
+pub const ALLOCATE_MAX_ADDRESS: u32 = 1;
 
 /// Allocate loader-owned physical pages that intentionally survive the firmware handoff.
 ///
@@ -461,6 +462,26 @@ pub unsafe fn allocate_loader_pages(
 
     let (allocate, free) = unsafe { page_services(system_table)? };
     unsafe { allocate_pages_with(allocate, free, pages) }
+}
+
+
+/// Allocate loader-owned pages whose entire extent is at or below `max_address`.
+///
+/// This exists for architectural structures such as the x86 SIPI trampoline,
+/// whose physical placement is constrained by the CPU rather than by Vibrix.
+///
+/// # Safety
+/// Same live Boot Services and ownership requirements as allocate_loader_pages.
+pub unsafe fn allocate_loader_pages_below(
+    system_table: *mut SystemTable,
+    pages: usize,
+    max_address: u64,
+) -> Result<u64, Status> {
+    if system_table.is_null() || pages == 0 {
+        return Err(EFI_INVALID_PARAMETER);
+    }
+    let (allocate, free) = unsafe { page_services(system_table)? };
+    unsafe { allocate_pages_below_with(allocate, free, pages, max_address) }
 }
 
 /// Release owned pages. On failure ownership remains with the caller; do not
@@ -517,6 +538,46 @@ pub(crate) unsafe fn allocate_pages_with(
     }
     if physical_address == 0 {
         // Release failure takes precedence over the allocation-policy error.
+        unsafe { free_pages_with(free, physical_address, pages)? };
+        return Err(EFI_LOAD_ERROR);
+    }
+    Ok(physical_address)
+}
+
+// SAFETY: callbacks obey UEFI ABI/allocation contracts and are still available.
+// The firmware must honor AllocateMaxAddress; this wrapper independently
+// validates the returned full page extent before publishing ownership.
+pub(crate) unsafe fn allocate_pages_below_with(
+    allocate: AllocatePages,
+    free: FreePages,
+    pages: usize,
+    max_address: u64,
+) -> Result<u64, Status> {
+    if pages == 0 || max_address < 4095 {
+        return Err(EFI_INVALID_PARAMETER);
+    }
+    let mut physical_address = max_address;
+    let status = allocate(
+        ALLOCATE_MAX_ADDRESS,
+        EFI_LOADER_DATA,
+        pages,
+        &mut physical_address,
+    );
+    if status != EFI_SUCCESS {
+        return Err(status);
+    }
+
+    let bytes = (pages as u64)
+        .checked_mul(4096)
+        .ok_or(EFI_INVALID_PARAMETER)?;
+    let valid = physical_address != 0
+        && physical_address.is_multiple_of(4096)
+        && physical_address
+            .checked_add(bytes - 1)
+            .is_some_and(|end| end <= max_address);
+    if !valid {
+        // Release failure takes precedence because ownership would otherwise
+        // be ambiguous across ExitBootServices.
         unsafe { free_pages_with(free, physical_address, pages)? };
         return Err(EFI_LOAD_ERROR);
     }
