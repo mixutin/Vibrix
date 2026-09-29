@@ -27,3 +27,10 @@ jobs:
           grep -Fq "probabilistic hardening layer" docs/decisions/0026-kaslr-design.md
           grep -Fq "address disclosure" docs/decisions/0026-kaslr-design.md
           grep -Fq "does not implement KASLR" docs/decisions/0026-kaslr-design.md
+      - name: Validate dynamic-linker and shared-library ABI policy
+        run: |
+          grep -Fq "PT_INTERP" docs/DYNAMIC_LINKING.md
+          grep -Fq "DT_NEEDED" docs/DYNAMIC_LINKING.md
+          grep -Fq "Text relocations are rejected" docs/DYNAMIC_LINKING.md
+          grep -Fq "incompatible ABI changes require a new SONAME major" docs/DYNAMIC_LINKING.md
+          grep -Fq "does not claim:" docs/DYNAMIC_LINKING.md
