@@ -1,16 +1,13 @@
 #![no_std]
 //! A native single-process desktop session, not a multi-process compositor.
 pub mod files;
-#[path = "../../../shared/font.rs"]
-pub mod font;
 pub mod render;
 pub mod system;
 use vibrix_syscall::display::{self, Rect};
 
 pub const MAX_COLUMNS: usize = 80;
 pub const MAX_ROWS: usize = 30;
-pub const CELL_WIDTH: u32 = 12;
-pub const CELL_HEIGHT: u32 = 16;
+pub use vibrix_ui::{CELL_HEIGHT, CELL_WIDTH};
 
 pub struct Terminal {
     pub cells: [u8; MAX_COLUMNS * MAX_ROWS],
@@ -257,12 +254,7 @@ impl Desktop {
 }
 
 pub fn task_button(height: u32, index: usize) -> Rect {
-    Rect {
-        x: 12 + index as u32 * 154,
-        y: height - 38,
-        width: 146,
-        height: 28,
-    }
+    vibrix_ui::task_button(height, index)
 }
 
 #[cfg(test)]

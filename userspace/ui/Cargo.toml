@@ -1,5 +1,5 @@
 [package]
-name = "vibrix-desktop"
+name = "vibrix-ui"
 version = "0.0.1"
 edition = "2024"
 publish = false
@@ -9,13 +9,5 @@ repository.workspace = true
 [lib]
 path = "src/lib.rs"
 
-[[bin]]
-name = "vibrix-desktop"
-path = "src/main.rs"
-test = false
-bench = false
-
 [dependencies]
 vibrix-syscall = { path = "../syscall", version = "=0.0.1" }
-vibrix-shell = { path = "../shell", version = "=0.0.1" }
-vibrix-ui = { path = "../ui", version = "=0.0.1" }
