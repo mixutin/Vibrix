@@ -273,9 +273,7 @@ fn setup_hid_get_input_report(interface: u8) -> [u32; 4] {
     setup_packet(0xa1, 0x01, 0x0100, u16::from(interface), 8, 3)
 }
 
-fn parse_hid_boot_keyboard_configuration(
-    bytes: &[u8],
-) -> Result<HidKeyboardInterface, InitError> {
+fn parse_hid_boot_keyboard_configuration(bytes: &[u8]) -> Result<HidKeyboardInterface, InitError> {
     if bytes.len() < 9 || bytes[0] < 9 || bytes[1] != 0x02 {
         return Err(InitError::DescriptorMalformed);
     }
@@ -1269,10 +1267,9 @@ unsafe fn enumerate_first_device_inner(
         {
             return Err(InitError::DescriptorMalformed);
         }
-        let total_length = u16::from_le_bytes([
-            unsafe { read8(descriptor_base, 2) },
-            unsafe { read8(descriptor_base, 3) },
-        ]);
+        let total_length = u16::from_le_bytes([unsafe { read8(descriptor_base, 2) }, unsafe {
+            read8(descriptor_base, 3)
+        }]);
         if !(9..=256).contains(&total_length) {
             return Err(InitError::DescriptorMalformed);
         }
@@ -1492,10 +1489,8 @@ mod tests {
         assert_eq!((report[3] >> 16) & 0x3, 3);
 
         let descriptor = [
-            9, 2, 34, 0, 1, 1, 0, 0xa0, 50,
-            9, 4, 0, 0, 1, 3, 1, 1, 0,
-            9, 0x21, 0x11, 0x01, 0, 1, 0x22, 63, 0,
-            7, 5, 0x81, 0x03, 8, 0, 10,
+            9, 2, 34, 0, 1, 1, 0, 0xa0, 50, 9, 4, 0, 0, 1, 3, 1, 1, 0, 9, 0x21, 0x11, 0x01, 0, 1,
+            0x22, 63, 0, 7, 5, 0x81, 0x03, 8, 0, 10,
         ];
         let keyboard = parse_hid_boot_keyboard_configuration(&descriptor).unwrap();
         assert_eq!(keyboard.configuration, 1);
