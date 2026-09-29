@@ -54,12 +54,15 @@ The M5/M6 baseline includes merged [shell runtime #176](https://github.com/mixut
 The shell is a compiled `no_std` userspace ELF. It reads fd 0 and writes fd 1/2 through the native syscall path and the VFS TTY. Its command set is:
 
 ```text
-help    echo    cat    ls    pwd    cd    mkdir    cp    mv    rm    ps    kill    exit
+help man apropos which    cat echo ls pwd cd mkdir touch write
+cp mv rm rmdir            head tail wc grep sort uniq nl hexdump
+basename dirname         ps kill pid vfetch uname clear
+true false status history exit
 ```
 
-The bounded utilities have real VFS/process backends. This does not imply external program spawning, shell pipelines/redirection, full signals/job control, atomic rename, recursive copy or POSIX conformance. Bootstrap files disappear at reboot.
+The bounded utilities have real VFS/process backends. This does not imply external program spawning, shell pipelines or append redirection, full signals/job control, atomic rename, recursive copy or POSIX conformance. Bootstrap files disappear at reboot. The userspace RAM root has 64 slots and a 1024-byte per-file limit. See the [userspace CLI guide](docs/USERSPACE_CLI.md) for quoting, input/output redirection, every command and its limits.
 
-The graphical frontend displays the actual shell's `vibrix$` output, echoes accepted keyboard input, and handles a cursor, wrapping, Backspace and scrolling. It is a small ASCII software terminal, not a graphical desktop or an ANSI/Unicode terminal emulator. The established PS/2 decoder remains a limited unshifted input subset. Serial/debug logging is retained independently. See [userspace display](docs/USERSPACE_DISPLAY.md) for safety, input and testing boundaries.
+The graphical frontend displays the actual shell's `vibrix$` output, echoes accepted keyboard input, and handles a cursor, wrapping, Backspace and scrolling. It is a small ASCII software terminal, not a graphical desktop or an ANSI/Unicode terminal emulator. The PS/2 decoder supports a bounded US-ASCII layout, Shift, Caps Lock, punctuation and Ctrl-U; this is not international or USB keyboard support. Serial/debug logging is retained independently. See [userspace display](docs/USERSPACE_DISPLAY.md) for safety, input and testing boundaries.
 
 The earlier M4.5 kernel development console is still useful for diagnostics, but is no longer the ordinary interactive launcher's default. Its `vibrix>` prompt and commands such as `mem`, `pci`, `acpi`, `uptime` and `reboot` are not the Ring 3 shell.
 

@@ -96,7 +96,11 @@ mod tests {
             assert!(!manual.usage.is_empty());
             assert!(!manual.description.is_empty());
             assert!(!manual.example.is_empty());
-            assert!(!MANUALS[..index].iter().any(|other| other.name == manual.name));
+            assert!(
+                !MANUALS[..index]
+                    .iter()
+                    .any(|other| other.name == manual.name)
+            );
         }
         assert_eq!(Builtin::parse(b"notacommand"), None);
         assert_eq!(Builtin::parse(b"CAT"), None);

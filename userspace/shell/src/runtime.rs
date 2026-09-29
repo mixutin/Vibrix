@@ -140,22 +140,48 @@ impl Shell {
                 if error == Error::Usage {
                     let _ = show_help(io, 2, Some(command.arg(0)));
                 }
-                if error == Error::Usage || kind == Builtin::Grep { 2 } else { 1 }
+                if error == Error::Usage || kind == Builtin::Grep {
+                    2
+                } else {
+                    1
+                }
             }
         };
         self.status
     }
 
     fn redirected(&mut self, io: &mut dyn System, command: &Command, kind: Builtin) -> Result<u8> {
-        let input_path = command.input().map(|arg| Path::resolve(&self.cwd, arg)).transpose()?;
-        let output_path = command.output().map(|arg| Path::resolve(&self.cwd, arg)).transpose()?;
+        let input_path = command
+            .input()
+            .map(|arg| Path::resolve(&self.cwd, arg))
+            .transpose()?;
+        let output_path = command
+            .output()
+            .map(|arg| Path::resolve(&self.cwd, arg))
+            .transpose()?;
         if let Some(output) = &output_path {
-            if input_path.as_ref().is_some_and(|input| same_path(input.bytes(), output.bytes())) {
+            if input_path
+                .as_ref()
+                .is_some_and(|input| same_path(input.bytes(), output.bytes()))
+            {
                 return Err(Error::Message(b"input and output refer to the same path"));
             }
             // Conservatively protect file operands before opening a truncating
             // redirect. Extra false-positive refusals are preferable to loss.
-            if matches!(kind, Builtin::Cat | Builtin::Cp | Builtin::Mv | Builtin::Head | Builtin::Tail | Builtin::Wc | Builtin::Grep | Builtin::Sort | Builtin::Uniq | Builtin::Nl | Builtin::Hexdump) {
+            if matches!(
+                kind,
+                Builtin::Cat
+                    | Builtin::Cp
+                    | Builtin::Mv
+                    | Builtin::Head
+                    | Builtin::Tail
+                    | Builtin::Wc
+                    | Builtin::Grep
+                    | Builtin::Sort
+                    | Builtin::Uniq
+                    | Builtin::Nl
+                    | Builtin::Hexdump
+            ) {
                 for arg in &command.argv()[1..command.argc] {
                     if let Ok(input) = Path::resolve(&self.cwd, arg)
                         && same_path(input.bytes(), output.bytes())
@@ -165,11 +191,23 @@ impl Shell {
                 }
             }
         }
-        let input = input_path.as_ref().map(|path| io.open(path.bytes(), abi::OPEN_READ)).transpose()?;
-        let output = match output_path.as_ref().map(|path| open_output(io, path.bytes())).transpose() {
+        let input = input_path
+            .as_ref()
+            .map(|path| {
+                require_regular(io, path.bytes())?;
+                io.open(path.bytes(), abi::OPEN_READ).map_err(Error::from)
+            })
+            .transpose()?;
+        let output = match output_path
+            .as_ref()
+            .map(|path| open_output(io, path.bytes()))
+            .transpose()
+        {
             Ok(fd) => fd,
             Err(error) => {
-                if let Some(fd) = input { let _ = io.close(fd); }
+                if let Some(fd) = input {
+                    let _ = io.close(fd);
+                }
                 return Err(error);
             }
         };
@@ -184,13 +222,22 @@ impl Shell {
         result
     }
 
-    fn execute(&mut self, io: &mut dyn System, command: &Command, kind: Builtin, input: Option<u64>, out: u64) -> Result<u8> {
+    fn execute(
+        &mut self,
+        io: &mut dyn System,
+        command: &Command,
+        kind: Builtin,
+        input: Option<u64>,
+        out: u64,
+    ) -> Result<u8> {
         let argv = command.argv();
         let raw = &argv[1..command.argc];
         let args = raw.strip_prefix(&[&b"--"[..]]).unwrap_or(raw);
         match kind {
             Builtin::Help => {
-                if args.len() > 1 { return Err(Error::Usage); }
+                if args.len() > 1 {
+                    return Err(Error::Usage);
+                }
                 show_help(io, out, args.first().copied())?;
             }
             Builtin::Man => {
@@ -198,15 +245,21 @@ impl Shell {
                     return search_manuals(io, out, args[1]);
                 }
                 let args = args.strip_prefix(&[&b"1"[..]]).unwrap_or(args);
-                if args.len() != 1 { return Err(Error::Usage); }
+                if args.len() != 1 {
+                    return Err(Error::Usage);
+                }
                 show_manual(io, out, args[0])?;
             }
             Builtin::Apropos => {
-                if args.len() != 1 { return Err(Error::Usage); }
+                if args.len() != 1 {
+                    return Err(Error::Usage);
+                }
                 return search_manuals(io, out, args[0]);
             }
             Builtin::Which => {
-                if args.is_empty() { return Err(Error::Usage); }
+                if args.is_empty() {
+                    return Err(Error::Usage);
+                }
                 let mut status = 0;
                 for &arg in args {
                     write_all(io, out, arg)?;
@@ -236,14 +289,20 @@ impl Shell {
                 write_all(io, out, b"\n")?;
             }
             Builtin::Cd => {
-                if args.len() > 1 { return Err(Error::Usage); }
+                if args.len() > 1 {
+                    return Err(Error::Usage);
+                }
                 let target = args.first().copied().unwrap_or(b"/");
                 let target = if target == b"-" {
-                    if !self.has_previous { return Err(Error::Message(b"no previous directory")); }
+                    if !self.has_previous {
+                        return Err(Error::Message(b"no previous directory"));
+                    }
                     self.previous.as_bytes()
-                } else { target };
+                } else {
+                    target
+                };
                 let path = Path::resolve(&self.cwd, target)?;
-                io.read_dir(path.bytes(), 0, &mut abi::DirEntry::EMPTY)?;
+                directory(io, path.bytes())?;
                 self.previous.set(self.cwd.as_bytes()).ok_or(Error::Usage)?;
                 self.cwd.set(path.bytes()).ok_or(Error::Usage)?;
                 self.has_previous = true;
@@ -252,15 +311,26 @@ impl Shell {
                 let all = raw.first() == Some(&&b"-a"[..]);
                 let args = if all { &raw[1..] } else { raw };
                 let args = operands(args)?;
-                if args.len() > 1 { return Err(Error::Usage); }
-                let path = Path::resolve(&self.cwd, args.first().copied().unwrap_or(self.cwd.as_bytes()))?;
+                if args.len() > 1 {
+                    return Err(Error::Usage);
+                }
+                let path = Path::resolve(
+                    &self.cwd,
+                    args.first().copied().unwrap_or(self.cwd.as_bytes()),
+                )?;
                 for index in 0..1024 {
                     let mut entry = abi::DirEntry::EMPTY;
-                    if !io.read_dir(path.bytes(), index, &mut entry)? { return Ok(0); }
+                    if !io.read_dir(path.bytes(), index, &mut entry)? {
+                        return Ok(0);
+                    }
                     let name = entry_name(&entry)?;
-                    if !all && name.starts_with(b".") { continue; }
+                    if !all && name.starts_with(b".") {
+                        continue;
+                    }
                     write_all(io, out, name)?;
-                    if entry.kind == abi::ENTRY_DIRECTORY { write_all(io, out, b"/")?; }
+                    if entry.kind == abi::ENTRY_DIRECTORY {
+                        write_all(io, out, b"/")?;
+                    }
                     write_all(io, out, b"\n")?;
                 }
                 return Err(Error::Message(b"directory enumeration limit reached"));
@@ -268,10 +338,15 @@ impl Shell {
             Builtin::Cat => {
                 let args = operands(raw)?;
                 if args.is_empty() {
-                    stream(io, input.ok_or(Error::Message(b"provide a file or < INPUT"))?, out)?;
+                    stream(
+                        io,
+                        input.ok_or(Error::Message(b"provide a file or < INPUT"))?,
+                        out,
+                    )?;
                 } else {
                     for &arg in args {
                         let path = Path::resolve(&self.cwd, arg)?;
+                        require_regular(io, path.bytes())?;
                         let fd = io.open(path.bytes(), abi::OPEN_READ)?;
                         let result = stream(io, fd, out);
                         finish(io, fd, result)?;
@@ -280,24 +355,28 @@ impl Shell {
             }
             Builtin::Mkdir | Builtin::Touch | Builtin::Rm | Builtin::Rmdir => {
                 let args = operands(raw)?;
-                if args.is_empty() { return Err(Error::Usage); }
+                if args.is_empty() {
+                    return Err(Error::Usage);
+                }
                 for &arg in args {
                     let path = Path::resolve(&self.cwd, arg)?;
                     match kind {
                         Builtin::Mkdir => io.mkdir(path.bytes())?,
                         Builtin::Touch => match io.open(path.bytes(), abi::OPEN_READ) {
                             Ok(fd) => io.close(fd)?,
-                            Err(code) if code == abi::Errno::NotFound.code() => io.create(path.bytes())?,
+                            Err(code) if code == abi::Errno::NotFound.code() => {
+                                io.create(path.bytes())?
+                            }
                             Err(code) => return Err(code.into()),
                         },
                         Builtin::Rm => {
-                            if io.read_dir(path.bytes(), 0, &mut abi::DirEntry::EMPTY).is_ok() {
+                            if directory(io, path.bytes()).is_ok() {
                                 return Err(Error::Message(b"is a directory; use rmdir"));
                             }
                             io.remove(path.bytes())?;
                         }
                         Builtin::Rmdir => {
-                            io.read_dir(path.bytes(), 0, &mut abi::DirEntry::EMPTY)?;
+                            directory(io, path.bytes())?;
                             io.remove(path.bytes())?;
                         }
                         _ => unreachable!(),
@@ -306,7 +385,9 @@ impl Shell {
             }
             Builtin::Write => {
                 let args = operands(raw)?;
-                if args.is_empty() { return Err(Error::Usage); }
+                if args.is_empty() {
+                    return Err(Error::Usage);
+                }
                 let path = Path::resolve(&self.cwd, args[0])?;
                 let fd = open_output(io, path.bytes())?;
                 let result = echo(io, fd, &args[1..], true);
@@ -314,7 +395,9 @@ impl Shell {
             }
             Builtin::Cp | Builtin::Mv => {
                 let args = operands(raw)?;
-                if args.len() != 2 { return Err(Error::Usage); }
+                if args.len() != 2 {
+                    return Err(Error::Usage);
+                }
                 let source = Path::resolve(&self.cwd, args[0])?;
                 let destination = Path::resolve(&self.cwd, args[1])?;
                 if same_path(source.bytes(), destination.bytes()) {
@@ -330,27 +413,52 @@ impl Shell {
                     Err(error) => Err(error),
                 };
                 finish(io, source_fd, result)?;
-                if kind == Builtin::Mv { io.remove(source.bytes())?; }
+                if kind == Builtin::Mv {
+                    io.remove(source.bytes())?;
+                }
             }
-            Builtin::Head | Builtin::Tail | Builtin::Wc | Builtin::Grep | Builtin::Sort | Builtin::Uniq | Builtin::Nl | Builtin::Hexdump => {
+            Builtin::Head
+            | Builtin::Tail
+            | Builtin::Wc
+            | Builtin::Grep
+            | Builtin::Sort
+            | Builtin::Uniq
+            | Builtin::Nl
+            | Builtin::Hexdump => {
                 let options = text::Options::parse(kind, raw)?;
-                let opened = options.file.map(|arg| {
-                    let path = Path::resolve(&self.cwd, arg)?;
-                    io.open(path.bytes(), abi::OPEN_READ).map_err(Error::from)
-                }).transpose()?;
-                let fd = opened.or(input).ok_or(Error::Message(b"provide a file or < INPUT"))?;
+                let opened = options
+                    .file
+                    .map(|arg| {
+                        let path = Path::resolve(&self.cwd, arg)?;
+                        require_regular(io, path.bytes())?;
+                        io.open(path.bytes(), abi::OPEN_READ).map_err(Error::from)
+                    })
+                    .transpose()?;
+                let fd = opened
+                    .or(input)
+                    .ok_or(Error::Message(b"provide a file or < INPUT"))?;
                 let mut bytes = [0; text::TEXT_BYTES];
                 let result = load_text(io, fd, &mut bytes).and_then(|len| {
-                    options.render(&bytes[..len], |part| write_all(io, out, part).map_err(Error::from))
+                    options.render(&bytes[..len], |part| {
+                        write_all(io, out, part).map_err(Error::from)
+                    })
                 });
-                return if opened.is_some() { finish(io, fd, result) } else { result };
+                return if opened.is_some() {
+                    finish(io, fd, result)
+                } else {
+                    result
+                };
             }
             Builtin::Basename | Builtin::Dirname => {
                 let args = operands(raw)?;
                 if args.is_empty() || args.len() > if kind == Builtin::Basename { 2 } else { 1 } {
                     return Err(Error::Usage);
                 }
-                let mut name = if kind == Builtin::Basename { text::basename(args[0]) } else { text::dirname(args[0]) };
+                let mut name = if kind == Builtin::Basename {
+                    text::basename(args[0])
+                } else {
+                    text::dirname(args[0])
+                };
                 if args.len() == 2 && !args[1].is_empty() && args[1].len() < name.len() {
                     name = name.strip_suffix(args[1]).unwrap_or(name);
                 }
@@ -371,16 +479,32 @@ impl Shell {
                     number(io, out, u64::from(info.pid))?;
                     write_all(io, out, b" ")?;
                     number(io, out, u64::from(info.parent))?;
-                    write_all(io, out, if info.state == abi::PROCESS_RUNNING { b" running\n" } else if info.state == abi::PROCESS_ZOMBIE { b" zombie\n" } else { b" unknown\n" })?;
+                    write_all(
+                        io,
+                        out,
+                        if info.state == abi::PROCESS_RUNNING {
+                            b" running\n"
+                        } else if info.state == abi::PROCESS_ZOMBIE {
+                            b" zombie\n"
+                        } else {
+                            b" unknown\n"
+                        },
+                    )?;
                 }
                 return Err(Error::Message(b"process enumeration limit reached"));
             }
             Builtin::Kill => {
-                if args.is_empty() || args.len() > 2 { return Err(Error::Usage); }
+                if args.is_empty() || args.len() > 2 {
+                    return Err(Error::Usage);
+                }
                 let pid = parse_number(args[0]).ok_or(Error::Usage)?;
                 let status = if args.len() == 2 {
-                    parse_number(args[1]).and_then(|value| i32::try_from(value).ok()).ok_or(Error::Usage)?
-                } else { 143 };
+                    parse_number(args[1])
+                        .and_then(|value| i32::try_from(value).ok())
+                        .ok_or(Error::Usage)?
+                } else {
+                    143
+                };
                 io.kill(pid, status)?;
             }
             Builtin::Pid => {
@@ -407,7 +531,9 @@ impl Shell {
             }
             Builtin::Clear => {
                 require_empty(args)?;
-                for _ in 0..32 { write_all(io, out, b"\n")?; }
+                for _ in 0..32 {
+                    write_all(io, out, b"\n")?;
+                }
             }
             Builtin::True | Builtin::False => {
                 require_empty(args)?;
@@ -420,7 +546,8 @@ impl Shell {
             }
             Builtin::History => {
                 require_empty(args)?;
-                let start = (self.history_next + self.history.len() - self.history_count) % self.history.len();
+                let start = (self.history_next + self.history.len() - self.history_count)
+                    % self.history.len();
                 for index in 0..self.history_count {
                     let slot = (start + index) % self.history.len();
                     number(io, out, (index + 1) as u64)?;
@@ -430,9 +557,13 @@ impl Shell {
                 }
             }
             Builtin::Exit => {
-                if args.len() > 1 { return Err(Error::Usage); }
+                if args.len() > 1 {
+                    return Err(Error::Usage);
+                }
                 let status = match args.first() {
-                    Some(arg) => parse_number(arg).and_then(|value| u8::try_from(value).ok()).ok_or(Error::Usage)?,
+                    Some(arg) => parse_number(arg)
+                        .and_then(|value| u8::try_from(value).ok())
+                        .ok_or(Error::Usage)?,
                     None => self.status,
                 };
                 self.exit = Some(status);
@@ -443,15 +574,27 @@ impl Shell {
     }
 }
 
+fn directory(io: &mut dyn System, path: &[u8]) -> vibrix_syscall::Result<bool> {
+    let mut entry = abi::DirEntry::EMPTY;
+    io.read_dir(path, 0, &mut entry)
+}
+
 fn require_empty(args: &[&[u8]]) -> Result<()> {
-    if args.is_empty() { Ok(()) } else { Err(Error::Usage) }
+    if args.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::Usage)
+    }
 }
 
 fn operands<'a, 'b>(args: &'a [&'b [u8]]) -> Result<&'a [&'b [u8]]> {
     if let Some(args) = args.strip_prefix(&[&b"--"[..]]) {
         return Ok(args);
     }
-    if args.first().is_some_and(|arg| arg.len() > 1 && arg.starts_with(b"-")) {
+    if args
+        .first()
+        .is_some_and(|arg| arg.len() > 1 && arg.starts_with(b"-"))
+    {
         return Err(Error::Usage);
     }
     Ok(args)
@@ -478,10 +621,14 @@ fn finish<T>(io: &mut dyn System, fd: u64, result: Result<T>) -> Result<T> {
 
 fn echo(io: &mut dyn System, fd: u64, args: &[&[u8]], newline: bool) -> Result<()> {
     for (index, &arg) in args.iter().enumerate() {
-        if index != 0 { write_all(io, fd, b" ")?; }
+        if index != 0 {
+            write_all(io, fd, b" ")?;
+        }
         write_all(io, fd, arg)?;
     }
-    if newline { write_all(io, fd, b"\n")?; }
+    if newline {
+        write_all(io, fd, b"\n")?;
+    }
     Ok(())
 }
 
@@ -489,7 +636,9 @@ fn stream(io: &mut dyn System, input: u64, output: u64) -> Result<()> {
     let mut bytes = [0; 128];
     loop {
         let count = system::read(io, input, &mut bytes)?;
-        if count == 0 { return Ok(()); }
+        if count == 0 {
+            return Ok(());
+        }
         write_all(io, output, &bytes[..count])?;
     }
 }
@@ -498,7 +647,9 @@ fn load_text(io: &mut dyn System, fd: u64, bytes: &mut [u8; text::TEXT_BYTES]) -
     let mut len = 0;
     while len < bytes.len() {
         let count = system::read(io, fd, &mut bytes[len..])?;
-        if count == 0 { return Ok(len); }
+        if count == 0 {
+            return Ok(len);
+        }
         len += count;
     }
     if system::read(io, fd, &mut [0; 1])? != 0 {
@@ -520,9 +671,15 @@ fn require_regular(io: &mut dyn System, path: &[u8]) -> Result<()> {
     let name = text::basename(path);
     for index in 0..1024 {
         let mut entry = abi::DirEntry::EMPTY;
-        if !io.read_dir(parent, index, &mut entry)? { break; }
+        if !io.read_dir(parent, index, &mut entry)? {
+            break;
+        }
         if entry_name(&entry)? == name {
-            return if entry.kind == abi::ENTRY_FILE { Ok(()) } else { Err(Error::Message(b"copy requires a regular file")) };
+            return if entry.kind == abi::ENTRY_FILE {
+                Ok(())
+            } else {
+                Err(Error::Message(b"operation requires a regular file"))
+            };
         }
     }
     Err(Error::Os(abi::Errno::NotFound.code()))
@@ -538,12 +695,20 @@ fn show_help(io: &mut dyn System, fd: u64, name: Option<&[u8]>) -> Result<()> {
         write_all(io, fd, page.name)?;
         write_all(io, fd, b" for details.\n")?;
     } else {
-        write_all(io, fd, b"Vibrix commands - help COMMAND, man COMMAND, man shell\n")?;
-        for page in MANUALS {
+        write_all(
+            io,
+            fd,
+            b"Vibrix commands - help COMMAND, man COMMAND, man shell\n",
+        )?;
+        for (index, page) in MANUALS.iter().enumerate() {
             write_all(io, fd, page.name)?;
-            write_all(io, fd, b" - ")?;
-            write_all(io, fd, page.summary)?;
-            write_all(io, fd, b"\n")?;
+            if index % 5 == 4 || index + 1 == MANUALS.len() {
+                write_all(io, fd, b"\n")?;
+            } else {
+                for _ in page.name.len()..12 {
+                    write_all(io, fd, b" ")?;
+                }
+            }
         }
         write_all(io, fd, b"vfetch (aliases: neofetch fastfetch); which alias: type\nFiles live in RAM and are lost when the VM stops.\n")?;
     }
@@ -556,9 +721,37 @@ fn show_manual(io: &mut dyn System, fd: u64, name: &[u8]) -> Result<()> {
         return Ok(());
     }
     let page = manual::lookup(name).ok_or(Error::Message(b"no manual entry; try apropos"))?;
-    for part in [page.name, b"(1) - Vibrix userspace\n\nNAME\n  ", page.name, b" - ", page.summary, b"\n\nSYNOPSIS\n  ", page.usage, b"\n\nDESCRIPTION\n  ", page.description, b"\n\nEXAMPLES\n  ", page.example, b"\n\nEXIT STATUS\n  0 success; 1 failure/no match; 2 usage; see description.\n\nLIMITS\n  Built-in, no external binary. RAM files are not persistent.\n  Text filters: 1024 bytes; sort/uniq: 128 lines. See man shell.\n"] {
+    for part in [
+        page.name,
+        b"(1) - Vibrix userspace\n\nNAME\n  ",
+        page.name,
+        b" - ",
+        page.summary,
+        b"\n\nSYNOPSIS\n  ",
+        page.usage,
+        b"\n\nDESCRIPTION\n  ",
+    ] {
         write_all(io, fd, part)?;
     }
+    let mut column = 2;
+    for word in page
+        .description
+        .split(|byte| byte.is_ascii_whitespace())
+        .filter(|word| !word.is_empty())
+    {
+        if column > 2 {
+            if column + 1 + word.len() > 74 {
+                write_all(io, fd, b"\n  ")?;
+                column = 2;
+            } else {
+                write_all(io, fd, b" ")?;
+                column += 1;
+            }
+        }
+        write_all(io, fd, word)?;
+        column += word.len();
+    }
+    for part in [&b"\n\nEXAMPLES\n  "[..], page.example, b"\n\nEXIT STATUS\n  0 success; 1 failure/no match; 2 usage; see description.\n\nLIMITS\n  Built-in, no external binary. RAM files are not persistent.\n  Text filters: 1024 bytes; sort/uniq: 128 lines. See man shell.\n"] { write_all(io, fd, part)?; }
     Ok(())
 }
 
@@ -579,8 +772,16 @@ fn search_manuals(io: &mut dyn System, fd: u64, word: &[u8]) -> Result<u8> {
 pub fn render_fetch(io: &mut dyn System, fd: u64) -> Result<()> {
     let pid = io.getpid().ok();
     let mut result = Ok(());
-    fetch::render(&fetch::Cpu::discover(), pid, fetch::privilege_level(), env!("CARGO_PKG_VERSION"), |part| {
-        if result.is_ok() { result = write_all(io, fd, part).map_err(Error::from); }
-    });
+    fetch::render(
+        &fetch::Cpu::discover(),
+        pid,
+        fetch::privilege_level(),
+        env!("CARGO_PKG_VERSION"),
+        |part| {
+            if result.is_ok() {
+                result = write_all(io, fd, part).map_err(Error::from);
+            }
+        },
+    );
     result
 }

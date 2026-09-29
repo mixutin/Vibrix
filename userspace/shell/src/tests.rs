@@ -28,13 +28,17 @@ fn canonical(path: &[u8]) -> Vec<u8> {
     for part in path.split(|&byte| byte == b'/') {
         match part {
             b"" | b"." => {}
-            b".." => { parts.pop(); }
+            b".." => {
+                parts.pop();
+            }
             _ => parts.push(part),
         }
     }
     let mut out = Vec::from(&b"/"[..]);
     for (index, part) in parts.into_iter().enumerate() {
-        if index != 0 { out.push(b'/'); }
+        if index != 0 {
+            out.push(b'/');
+        }
         out.extend_from_slice(part);
     }
     out
@@ -45,10 +49,19 @@ impl Memory {
         let mut files = BTreeMap::new();
         files.insert(Vec::from(&b"/"[..]), None);
         files.insert(Vec::from(&b"/tmp"[..]), None);
-        files.insert(Vec::from(&b"/welcome"[..]), Some(Vec::from(&b"hello RAM\n"[..])));
+        files.insert(
+            Vec::from(&b"/welcome"[..]),
+            Some(Vec::from(&b"hello RAM\n"[..])),
+        );
         Self {
-            files, handles: BTreeMap::new(), stdout: Vec::new(), stderr: Vec::new(),
-            next: 3, mutations: 0, broken_write: false, oversized_read: false,
+            files,
+            handles: BTreeMap::new(),
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            next: 3,
+            mutations: 0,
+            broken_write: false,
+            oversized_read: false,
         }
     }
 
@@ -66,7 +79,9 @@ impl Memory {
 
     fn insert(&mut self, path: &[u8], value: Option<Vec<u8>>) -> Result<()> {
         let path = canonical(path);
-        if self.files.contains_key(&path) { return Err(abi::Errno::Busy.code()); }
+        if self.files.contains_key(&path) {
+            return Err(abi::Errno::Busy.code());
+        }
         if self.files.get(crate::text::dirname(&path)) != Some(&None) {
             return Err(abi::Errno::NotFound.code());
         }
@@ -79,7 +94,10 @@ impl Memory {
 impl System for Memory {
     fn open(&mut self, path: &[u8], flags: u64) -> Result<u64> {
         let path = canonical(path);
-        let file = self.files.get_mut(&path).ok_or(abi::Errno::NotFound.code())?;
+        let file = self
+            .files
+            .get_mut(&path)
+            .ok_or(abi::Errno::NotFound.code())?;
         let data = file.as_mut().ok_or(abi::Errno::InvalidArgument.code())?;
         if flags & abi::OPEN_TRUNCATE != 0 {
             data.clear();
@@ -87,19 +105,37 @@ impl System for Memory {
         }
         let fd = self.next;
         self.next += 1;
-        self.handles.insert(fd, Handle { path, offset: 0, write: flags & 3 != 0 });
+        self.handles.insert(
+            fd,
+            Handle {
+                path,
+                offset: 0,
+                write: flags & 3 != 0,
+            },
+        );
         Ok(fd)
     }
 
     fn close(&mut self, fd: u64) -> Result<()> {
-        self.handles.remove(&fd).map(|_| ()).ok_or(abi::Errno::BadFileDescriptor.code())
+        self.handles
+            .remove(&fd)
+            .map(|_| ())
+            .ok_or(abi::Errno::BadFileDescriptor.code())
     }
 
     fn read(&mut self, fd: u64, bytes: &mut [u8]) -> Result<usize> {
-        if self.oversized_read { return Ok(bytes.len() + 1); }
-        let handle = self.handles.get_mut(&fd).ok_or(abi::Errno::BadFileDescriptor.code())?;
+        if self.oversized_read {
+            return Ok(bytes.len() + 1);
+        }
+        let handle = self
+            .handles
+            .get_mut(&fd)
+            .ok_or(abi::Errno::BadFileDescriptor.code())?;
         let data = self.files.get(&handle.path).unwrap().as_ref().unwrap();
-        let count = bytes.len().min(64).min(data.len().saturating_sub(handle.offset));
+        let count = bytes
+            .len()
+            .min(64)
+            .min(data.len().saturating_sub(handle.offset));
         bytes[..count].copy_from_slice(&data[handle.offset..handle.offset + count]);
         handle.offset += count;
         Ok(count)
@@ -107,12 +143,23 @@ impl System for Memory {
 
     fn write(&mut self, fd: u64, bytes: &[u8]) -> Result<usize> {
         if fd == 1 || fd == 2 {
-            if fd == 1 { self.stdout.extend_from_slice(bytes); } else { self.stderr.extend_from_slice(bytes); }
+            if fd == 1 {
+                self.stdout.extend_from_slice(bytes);
+            } else {
+                self.stderr.extend_from_slice(bytes);
+            }
             return Ok(bytes.len());
         }
-        if self.broken_write { return Ok(0); }
-        let handle = self.handles.get_mut(&fd).ok_or(abi::Errno::BadFileDescriptor.code())?;
-        if !handle.write { return Err(abi::Errno::PermissionDenied.code()); }
+        if self.broken_write {
+            return Ok(0);
+        }
+        let handle = self
+            .handles
+            .get_mut(&fd)
+            .ok_or(abi::Errno::BadFileDescriptor.code())?;
+        if !handle.write {
+            return Err(abi::Errno::PermissionDenied.code());
+        }
         let data = self.files.get_mut(&handle.path).unwrap().as_mut().unwrap();
         let count = bytes.len().min(17);
         data.resize(data.len().max(handle.offset + count), 0);
@@ -122,48 +169,76 @@ impl System for Memory {
         Ok(count)
     }
 
-    fn create(&mut self, path: &[u8]) -> Result<()> { self.insert(path, Some(Vec::new())) }
-    fn mkdir(&mut self, path: &[u8]) -> Result<()> { self.insert(path, None) }
+    fn create(&mut self, path: &[u8]) -> Result<()> {
+        self.insert(path, Some(Vec::new()))
+    }
+    fn mkdir(&mut self, path: &[u8]) -> Result<()> {
+        self.insert(path, None)
+    }
 
     fn remove(&mut self, path: &[u8]) -> Result<()> {
         let path = canonical(path);
-        if path == b"/" { return Err(abi::Errno::PermissionDenied.code()); }
+        if path == b"/" {
+            return Err(abi::Errno::PermissionDenied.code());
+        }
         let mut prefix = path.clone();
         prefix.push(b'/');
-        if self.files.keys().any(|key| key.starts_with(&prefix)) { return Err(abi::Errno::Busy.code()); }
-        self.files.remove(&path).ok_or(abi::Errno::NotFound.code())?;
+        if self.files.keys().any(|key| key.starts_with(&prefix)) {
+            return Err(abi::Errno::Busy.code());
+        }
+        self.files
+            .remove(&path)
+            .ok_or(abi::Errno::NotFound.code())?;
         self.mutations += 1;
         Ok(())
     }
 
     fn read_dir(&mut self, path: &[u8], index: u64, entry: &mut abi::DirEntry) -> Result<bool> {
         let path = canonical(path);
-        if self.files.get(&path) != Some(&None) { return Err(abi::Errno::InvalidArgument.code()); }
+        if self.files.get(&path) != Some(&None) {
+            return Err(abi::Errno::InvalidArgument.code());
+        }
         let mut prefix = path;
-        if prefix != b"/" { prefix.push(b'/'); }
+        if prefix != b"/" {
+            prefix.push(b'/');
+        }
         let mut children = self.files.iter().filter_map(|(name, data)| {
             let relative = name.strip_prefix(prefix.as_slice())?;
-            if relative.is_empty() || relative.contains(&b'/') { return None; }
+            if relative.is_empty() || relative.contains(&b'/') {
+                return None;
+            }
             Some((relative, data))
         });
-        let Some((name, data)) = children.nth(index as usize) else { return Ok(false); };
-        if name.len() > entry.name.len() { return Err(abi::Errno::InvalidArgument.code()); }
+        let Some((name, data)) = children.nth(index as usize) else {
+            return Ok(false);
+        };
+        if name.len() > entry.name.len() {
+            return Err(abi::Errno::InvalidArgument.code());
+        }
         *entry = abi::DirEntry::EMPTY;
         entry.name[..name.len()].copy_from_slice(name);
         entry.name_len = name.len() as u8;
-        entry.kind = if data.is_none() { abi::ENTRY_DIRECTORY } else { abi::ENTRY_FILE };
+        entry.kind = if data.is_none() {
+            abi::ENTRY_DIRECTORY
+        } else {
+            abi::ENTRY_FILE
+        };
         Ok(true)
     }
 
     fn process_info(&mut self, index: u64, info: &mut abi::ProcessInfo) -> Result<bool> {
-        if index != 0 { return Ok(false); }
+        if index != 0 {
+            return Ok(false);
+        }
         *info = abi::ProcessInfo::EMPTY;
         info.pid = 7;
         info.state = abi::PROCESS_RUNNING;
         Ok(true)
     }
 
-    fn getpid(&mut self) -> Result<u64> { Ok(7) }
+    fn getpid(&mut self) -> Result<u64> {
+        Ok(7)
+    }
     fn kill(&mut self, _pid: u64, _status: i32) -> Result<()> {
         self.mutations += 1;
         Err(abi::Errno::NotFound.code())
@@ -184,8 +259,19 @@ fn every_manual_and_help_path_executes_without_mutation() {
         let mut line = Vec::from(&b"man "[..]);
         line.extend_from_slice(page.name);
         assert_eq!(io.run(&mut shell, &line), 0);
-        for heading in [&b"NAME\n"[..], b"SYNOPSIS\n", b"DESCRIPTION\n", b"EXAMPLES\n", b"EXIT STATUS\n", b"LIMITS\n"] {
-            assert!(io.stdout.windows(heading.len()).any(|bytes| bytes == heading));
+        for heading in [
+            &b"NAME\n"[..],
+            b"SYNOPSIS\n",
+            b"DESCRIPTION\n",
+            b"EXAMPLES\n",
+            b"EXIT STATUS\n",
+            b"LIMITS\n",
+        ] {
+            assert!(
+                io.stdout
+                    .windows(heading.len())
+                    .any(|bytes| bytes == heading)
+            );
         }
     }
 }
@@ -194,7 +280,10 @@ fn every_manual_and_help_path_executes_without_mutation() {
 fn quoted_creation_redirection_touch_copy_move_and_removal_work() {
     let mut io = Memory::new();
     let mut shell = Shell::new();
-    assert_eq!(io.run(&mut shell, b"echo 'hello world' > '/tmp/my note'"), 0);
+    assert_eq!(
+        io.run(&mut shell, b"echo 'hello world' > '/tmp/my note'"),
+        0
+    );
     assert!(io.stdout.is_empty());
     assert_eq!(io.data(b"/tmp/my note"), b"hello world\n");
     assert_eq!(io.run(&mut shell, b"touch '/tmp/my note'"), 0);
@@ -212,7 +301,14 @@ fn quoted_creation_redirection_touch_copy_move_and_removal_work() {
 fn source_aliases_and_bad_syntax_never_truncate_input() {
     let mut io = Memory::new();
     let mut shell = Shell::new();
-    for line in [&b"cp /welcome /./welcome"[..], b"cat /welcome > /welcome", b"cat < /welcome > /./welcome", b"echo x >> /welcome", b"echo x > /welcome | cat", b"write /welcome 'unterminated"] {
+    for line in [
+        &b"cp /welcome /./welcome"[..],
+        b"cat /welcome > /welcome",
+        b"cat < /welcome > /./welcome",
+        b"echo x >> /welcome",
+        b"echo x > /welcome | cat",
+        b"write /welcome 'unterminated",
+    ] {
         assert_ne!(io.run(&mut shell, line), 0);
         assert_eq!(io.data(b"/welcome"), b"hello RAM\n");
     }
@@ -269,7 +365,8 @@ fn status_errors_search_and_exit_are_observable() {
 fn streaming_and_limit_failures_close_all_descriptors_and_keep_move_source() {
     let mut io = Memory::new();
     let mut shell = Shell::new();
-    io.files.insert(Vec::from(&b"/large"[..]), Some(self::std::vec![b'x'; 1100]));
+    io.files
+        .insert(Vec::from(&b"/large"[..]), Some(self::std::vec![b'x'; 1100]));
     assert_eq!(io.run(&mut shell, b"wc /large"), 1);
     assert!(io.stdout.is_empty());
     assert_eq!(io.run(&mut shell, b"cat /large"), 0);
@@ -288,7 +385,10 @@ fn streaming_and_limit_failures_close_all_descriptors_and_keep_move_source() {
 fn all_text_commands_and_bounded_history_are_wired_to_dispatch() {
     let mut io = Memory::new();
     let mut shell = Shell::new();
-    io.files.insert(Vec::from(&b"/lines"[..]), Some(Vec::from(&b"b\na\na\n"[..])));
+    io.files.insert(
+        Vec::from(&b"/lines"[..]),
+        Some(Vec::from(&b"b\na\na\n"[..])),
+    );
     for (command, expected) in [
         (&b"head -n 1 /lines"[..], &b"b\n"[..]),
         (b"tail -n 1 /lines", b"a\n"),

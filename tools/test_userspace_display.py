@@ -19,6 +19,8 @@ import tempfile
 import time
 import unittest
 
+from userspace_cli_cases import check_cli
+
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "build/qemu"
 GLYPHS = {
@@ -245,7 +247,7 @@ def integration() -> None:
                     command("pid", "\n1\n")
                     command("vfetch -x", "sh: command failed")
                     command("notacommand", "sh: unknown command")
-                    command("a" * 270, "sh: unknown command")
+                    command("a" * 270, "sh: input too long; command not executed")
                     command("echo recovered", "\nrecovered\n")
                     command("cat /welcome", "Vibrix bootstrap filesystem: files live in RAM until reboot.")
                     command("mkdir /tmp/session")
@@ -253,7 +255,8 @@ def integration() -> None:
                     command("pwd", "\n/tmp/session\n")
                     command("cp /welcome copy")
                     command("cat copy", "Vibrix bootstrap filesystem: files live in RAM until reboot.")
-                    command("clear", "\n" * 32)
+                    check_cli(command)
+            command("clear", "\n" * 32)
                     # Clear is the documented bounded-scroll operation, not an
                     # unimplemented ANSI home. Verify every visible cell above
                     # the last-row prompt and then exercise real scrolling.

@@ -29,13 +29,18 @@ pub extern "C" fn _start() -> ! {
                 b'\n' | b'\r' => {
                     let _ = write_all(&mut io, 1, b"\n");
                     if overflow {
-                        let _ = write_all(&mut io, 2, b"sh: input too long; command not executed\n");
+                        let _ =
+                            write_all(&mut io, 2, b"sh: input too long; command not executed\n");
                         shell.status = 2;
                     } else {
                         shell.run(&mut io, &line[..len]);
                     }
                     if let Some(status) = shell.exit {
-                        let _ = write_all(&mut io, 1, b"Boot shell stopped; restart the VM for a new session.\n");
+                        let _ = write_all(
+                            &mut io,
+                            1,
+                            b"Boot shell stopped; restart the VM for a new session.\n",
+                        );
                         let _ = syscall::exit(u64::from(status));
                         loop {
                             core::hint::spin_loop();

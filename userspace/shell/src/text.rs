@@ -129,7 +129,8 @@ impl<'a> Options<'a> {
             Builtin::Grep => {
                 let mut matched = false;
                 for (index, line) in lines(data).enumerate() {
-                    let selected = contains(body(line), self.pattern, self.insensitive) != self.invert;
+                    let selected =
+                        contains(body(line), self.pattern, self.insensitive) != self.invert;
                     if selected {
                         matched = true;
                         if self.numbered {
@@ -290,7 +291,10 @@ mod tests {
 
     #[test]
     fn grep_is_literal_and_has_distinct_match_status() {
-        assert_eq!(output(Builtin::Grep, &[b"-i", b"-n", b"a."], b"A.\nabc").1, b"1:A.\n");
+        assert_eq!(
+            output(Builtin::Grep, &[b"-i", b"-n", b"a."], b"A.\nabc").1,
+            b"1:A.\n"
+        );
         assert_eq!(output(Builtin::Grep, &[b"missing"], b"a").0, Ok(1));
         assert_eq!(output(Builtin::Grep, &[b""], b"").0, Ok(1));
         assert_eq!(output(Builtin::Grep, &[b"-v", b"a"], b"a\nb").1, b"b\n");
@@ -300,9 +304,15 @@ mod tests {
     fn sorting_uniqueness_and_numbering_use_documented_byte_semantics() {
         assert_eq!(output(Builtin::Sort, &[b"-u"], b"b\na\nb\n").1, b"a\nb\n");
         assert_eq!(output(Builtin::Sort, &[b"-r"], b"a\nb").1, b"b\na\n");
-        assert_eq!(output(Builtin::Uniq, &[b"-c"], b"a\na\nb\na").1, b"2 a\n1 b\n1 a\n");
+        assert_eq!(
+            output(Builtin::Uniq, &[b"-c"], b"a\na\nb\na").1,
+            b"2 a\n1 b\n1 a\n"
+        );
         assert_eq!(output(Builtin::Nl, &[], b"\na").1, b"1\t\n2\ta");
-        assert_eq!(output(Builtin::Hexdump, &[], &[0, 255]).1, b"00000000: 00 ff\n");
+        assert_eq!(
+            output(Builtin::Hexdump, &[], &[0, 255]).1,
+            b"00000000: 00 ff\n"
+        );
     }
 
     #[test]

@@ -114,7 +114,10 @@ impl Command {
                     }
                 } else if matches!(byte, b'\'' | b'"') {
                     quote = Some(byte);
-                } else if matches!(byte, b'|' | b'&' | b';' | b'`' | b'$' | b'(' | b')' | b'*' | b'?' | b'[' | b']') {
+                } else if matches!(
+                    byte,
+                    b'|' | b'&' | b';' | b'`' | b'$' | b'(' | b')' | b'*' | b'?' | b'[' | b']'
+                ) {
                     return Err(ParseError::UnsupportedSyntax);
                 } else {
                     command.bytes[used] = byte;
@@ -226,7 +229,13 @@ mod tests {
     #[test]
     fn saturated_tty_lines_are_rejected_not_truncated() {
         assert!(Command::parse(&[b'x'; INPUT_LIMIT]).is_ok());
-        assert!(matches!(Command::parse(&[b'x'; 255]), Err(ParseError::TooLong)));
-        assert!(matches!(Command::parse(&[b'x'; 300]), Err(ParseError::TooLong)));
+        assert!(matches!(
+            Command::parse(&[b'x'; 255]),
+            Err(ParseError::TooLong)
+        ));
+        assert!(matches!(
+            Command::parse(&[b'x'; 300]),
+            Err(ParseError::TooLong)
+        ));
     }
 }

@@ -64,17 +64,30 @@ impl SetOne {
             return None;
         }
         match code {
-            0x2a => { self.left_shift = pressed; return None; }
-            0x36 => { self.right_shift = pressed; return None; }
-            0x1d => { self.left_control = pressed; return None; }
+            0x2a => {
+                self.left_shift = pressed;
+                return None;
+            }
+            0x36 => {
+                self.right_shift = pressed;
+                return None;
+            }
+            0x1d => {
+                self.left_control = pressed;
+                return None;
+            }
             0x3a => {
-                if pressed && !self.caps_down { self.caps = !self.caps; }
+                if pressed && !self.caps_down {
+                    self.caps = !self.caps;
+                }
                 self.caps_down = pressed;
                 return None;
             }
             _ => {}
         }
-        if !pressed { return None; }
+        if !pressed {
+            return None;
+        }
         let byte = match code {
             0x02..=0x0b => b"1234567890"[usize::from(code - 0x02)],
             0x0c => b'-',
@@ -103,7 +116,9 @@ impl SetOne {
             }
             return Some(if (self.left_shift || self.right_shift) ^ self.caps {
                 byte.to_ascii_uppercase()
-            } else { byte });
+            } else {
+                byte
+            });
         }
         if self.left_shift || self.right_shift {
             const PLAIN: &[u8] = b"1234567890-=[];'`\\,./";
@@ -150,7 +165,11 @@ pub unsafe fn poll_scancode() -> Option<u8> {
             options(nomem, nostack, preserves_flags)
         );
     }
-    if status & (1 << 5) != 0 { None } else { Some(byte) }
+    if status & (1 << 5) != 0 {
+        None
+    } else {
+        Some(byte)
+    }
 }
 
 #[cfg(test)]
@@ -183,7 +202,13 @@ mod tests {
     #[test]
     fn punctuation_quotes_and_redirection_are_typeable() {
         let mut keys = SetOne::new();
-        for (scan, plain, shifted) in [(0x28, b'\'', b'"'), (0x34, b'.', b'>'), (0x33, b',', b'<'), (0x2b, b'\\', b'|'), (0x0d, b'=', b'+')] {
+        for (scan, plain, shifted) in [
+            (0x28, b'\'', b'"'),
+            (0x34, b'.', b'>'),
+            (0x33, b',', b'<'),
+            (0x2b, b'\\', b'|'),
+            (0x0d, b'=', b'+'),
+        ] {
             assert_eq!(keys.feed(scan), Some(plain));
             assert_eq!(keys.feed(0x2a), None);
             assert_eq!(keys.feed(scan), Some(shifted));
@@ -213,12 +238,14 @@ mod tests {
     }
 
     #[test]
-    fn_control_u_and_pause_do_not_leave_stuck_modifiers() {
+    fn control_u_and_pause_do_not_leave_stuck_modifiers() {
         let mut keys = SetOne::new();
         keys.feed(0x1d);
         assert_eq!(keys.feed(0x16), Some(0x15));
         keys.feed(0x9d);
-        for scan in [0xe1, 0x1d, 0x45, 0xe1, 0x9d, 0xc5] { assert_eq!(keys.feed(scan), None); }
+        for scan in [0xe1, 0x1d, 0x45, 0xe1, 0x9d, 0xc5] {
+            assert_eq!(keys.feed(scan), None);
+        }
         assert_eq!(keys.feed(0x16), Some(b'u'));
         keys.feed(0xe0);
         keys.feed(0x1d);

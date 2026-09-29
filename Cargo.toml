@@ -9,6 +9,14 @@ repository = "https://github.com/mixutin/Vibrix"
 [profile.dev]
 panic = "abort"
 
+# Keep the bounded bare-metal shell inside the existing ELF frame pool.
+# Dev overflow/debug checks remain enabled; only optimization changes.
+[profile.dev.package.vibrix-shell]
+opt-level = 2
+
+[profile.dev.package.vibrix-syscall]
+opt-level = 2
+
 [profile.release]
 panic = "abort"
 lto = true
