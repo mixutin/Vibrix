@@ -102,16 +102,13 @@ impl Table {
     /// Insert a route or replace an existing route with the same prefix and
     /// interface. Replacement is transactional and does not consume capacity.
     pub fn insert(&mut self, route: Route) -> Result<(), Error> {
-        if let Some(slot) = self.routes[..self.len]
-            .iter_mut()
-            .find(|slot| {
-                slot.is_some_and(|existing| {
-                    existing.network == route.network
-                        && existing.prefix_len == route.prefix_len
-                        && existing.interface == route.interface
-                })
+        if let Some(slot) = self.routes[..self.len].iter_mut().find(|slot| {
+            slot.is_some_and(|existing| {
+                existing.network == route.network
+                    && existing.prefix_len == route.prefix_len
+                    && existing.interface == route.interface
             })
-        {
+        }) {
             *slot = Some(route);
             return Ok(());
         }
@@ -145,12 +142,7 @@ impl Table {
         best
     }
 
-    pub fn remove(
-        &mut self,
-        network: Ipv4Address,
-        prefix_len: u8,
-        interface: u8,
-    ) -> Option<Route> {
+    pub fn remove(&mut self, network: Ipv4Address, prefix_len: u8, interface: u8) -> Option<Route> {
         let index = self.routes[..self.len].iter().position(|slot| {
             slot.is_some_and(|route| {
                 route.network == network
@@ -183,13 +175,7 @@ pub fn self_test() -> Result<(), Error> {
         1,
         100,
     )?)?;
-    table.insert(Route::new(
-        Ipv4Address::new(10, 0, 0, 0),
-        8,
-        None,
-        2,
-        20,
-    )?)?;
+    table.insert(Route::new(Ipv4Address::new(10, 0, 0, 0), 8, None, 2, 20)?)?;
     table.insert(Route::new(
         Ipv4Address::new(10, 20, 0, 0),
         16,
@@ -289,7 +275,10 @@ mod tests {
             .insert(route(Ipv4Address::new(198, 51, 100, 0), 24, None, 2, 10))
             .unwrap();
         assert_eq!(
-            table.select(Ipv4Address::new(198, 51, 100, 99)).unwrap().interface,
+            table
+                .select(Ipv4Address::new(198, 51, 100, 99))
+                .unwrap()
+                .interface,
             2
         );
     }
@@ -311,7 +300,10 @@ mod tests {
             .unwrap();
         assert_eq!(table.len(), 1);
         assert_eq!(
-            table.select(Ipv4Address::new(203, 0, 113, 2)).unwrap().metric,
+            table
+                .select(Ipv4Address::new(203, 0, 113, 2))
+                .unwrap()
+                .metric,
             5
         );
     }
