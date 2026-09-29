@@ -1119,7 +1119,11 @@ unsafe fn enumerate_first_device_inner(
 ///
 /// # Safety
 /// Same ownership requirements as the internal xHCI enumeration path.
-#[cfg(target_os = "none")]
+#[cfg(all(
+    target_os = "none",
+    feature = "usb-enum-probe",
+    not(feature = "usb-hub-probe")
+))]
 pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary, InitError> {
     Ok(unsafe { enumerate_first_device_inner(info, false) }?.0)
 }
