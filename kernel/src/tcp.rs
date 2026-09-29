@@ -169,7 +169,7 @@ impl Client {
         if segment.rst() {
             return Err(Error::Reset);
         }
-        if !segment.syn() || !segment.ack() || segment.payload().len() != 0 {
+        if !segment.syn() || !segment.ack() || !segment.payload().is_empty() {
             return Err(Error::Header);
         }
         if segment.acknowledgment() != self.snd_nxt {
