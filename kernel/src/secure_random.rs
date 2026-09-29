@@ -175,7 +175,10 @@ mod tests {
     #[test]
     fn bounded_retry_failure_leaves_output_unchanged() {
         let mut output = [0x5a; 9];
-        assert_eq!(fill_with(&mut output, None, || None), Err(Error::Unavailable));
+        assert_eq!(
+            fill_with(&mut output, None, || None),
+            Err(Error::Unavailable)
+        );
         assert_eq!(output, [0x5a; 9]);
     }
 
