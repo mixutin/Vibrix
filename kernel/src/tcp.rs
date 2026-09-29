@@ -103,6 +103,79 @@ pub struct Endpoint {
     pub port: u16,
 }
 
+pub const DEFAULT_SMSS: u32 = 536;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CongestionControl {
+    smss: u32,
+    cwnd: u32,
+    ssthresh: u32,
+    avoidance_acked: u32,
+}
+
+impl CongestionControl {
+    pub fn new(smss: u32) -> Result<Self, Error> {
+        if smss == 0 || smss > MAX_PAYLOAD as u32 {
+            return Err(Error::Length);
+        }
+        Ok(Self {
+            smss,
+            // Deliberately conservative RFC 5681 start: one SMSS is below the
+            // allowed initial-window upper bound and avoids an initial burst.
+            cwnd: smss,
+            ssthresh: u32::MAX,
+            avoidance_acked: 0,
+        })
+    }
+
+    pub const fn cwnd(&self) -> u32 {
+        self.cwnd
+    }
+
+    pub const fn ssthresh(&self) -> u32 {
+        self.ssthresh
+    }
+
+    pub fn send_allowance(&self, peer_window: u16, flight_size: u32) -> u32 {
+        u32::from(peer_window)
+            .min(self.cwnd)
+            .saturating_sub(flight_size)
+    }
+
+    pub fn on_new_ack(&mut self, newly_acked: u32) {
+        if newly_acked == 0 {
+            return;
+        }
+        if self.cwnd < self.ssthresh {
+            self.cwnd = self.cwnd.saturating_add(newly_acked.min(self.smss));
+            return;
+        }
+
+        self.avoidance_acked = self.avoidance_acked.saturating_add(newly_acked);
+        if self.avoidance_acked >= self.cwnd {
+            self.avoidance_acked -= self.cwnd;
+            self.cwnd = self.cwnd.saturating_add(self.smss);
+        }
+    }
+
+    pub fn on_retransmission_timeout(&mut self, flight_size: u32) {
+        self.ssthresh = (flight_size / 2).max(self.smss.saturating_mul(2));
+        self.cwnd = self.smss;
+        self.avoidance_acked = 0;
+    }
+
+    pub fn on_three_duplicate_acks(&mut self, flight_size: u32) {
+        self.ssthresh = (flight_size / 2).max(self.smss.saturating_mul(2));
+        self.cwnd = self.ssthresh.saturating_add(self.smss.saturating_mul(3));
+        self.avoidance_acked = 0;
+    }
+
+    pub fn on_recovery_ack(&mut self) {
+        self.cwnd = self.ssthresh.max(self.smss);
+        self.avoidance_acked = 0;
+    }
+}
+
 pub const INITIAL_RTO_TICKS: u64 = 1_000;
 pub const MAX_RTO_TICKS: u64 = 60_000;
 pub const MAX_RETRANSMISSIONS: u8 = 5;
@@ -316,6 +389,7 @@ pub struct Client {
     snd_nxt: u32,
     rcv_nxt: u32,
     peer_window: u16,
+    congestion: CongestionControl,
 }
 
 impl Client {
@@ -329,6 +403,12 @@ impl Client {
             snd_nxt: initial_sequence,
             rcv_nxt: 0,
             peer_window: 0,
+            congestion: CongestionControl {
+                smss: DEFAULT_SMSS,
+                cwnd: DEFAULT_SMSS,
+                ssthresh: u32::MAX,
+                avoidance_acked: 0,
+            },
         }
     }
 
@@ -342,6 +422,19 @@ impl Client {
 
     pub const fn receive_next(&self) -> u32 {
         self.rcv_nxt
+    }
+
+    pub const fn congestion_window(&self) -> u32 {
+        self.congestion.cwnd()
+    }
+
+    pub const fn slow_start_threshold(&self) -> u32 {
+        self.congestion.ssthresh()
+    }
+
+    pub fn retransmission_timeout(&mut self) {
+        let flight = self.snd_nxt.wrapping_sub(self.snd_una);
+        self.congestion.on_retransmission_timeout(flight);
     }
 
     pub fn connect(&mut self, output: &mut [u8]) -> Result<usize, Error> {
@@ -392,7 +485,9 @@ impl Client {
         if self.state != State::Established {
             return Err(Error::State);
         }
-        if payload.len() > MAX_PAYLOAD || payload.len() > usize::from(self.peer_window) {
+        let flight = self.snd_nxt.wrapping_sub(self.snd_una);
+        let allowance = self.congestion.send_allowance(self.peer_window, flight);
+        if payload.len() > MAX_PAYLOAD || payload.len() as u32 > allowance {
             return Err(Error::Length);
         }
         let len = encode(
@@ -529,7 +624,9 @@ impl Client {
         {
             return Err(Error::Acknowledgment);
         }
+        let newly_acked = acknowledgment.wrapping_sub(self.snd_una);
         self.snd_una = acknowledgment;
+        self.congestion.on_new_ack(newly_acked);
         Ok(())
     }
 
@@ -734,6 +831,9 @@ pub(super) fn self_test() -> Result<(), Error> {
         &mut wire,
     )?;
     client.accept_ack_only(&wire[..ack_len])?;
+    if client.congestion_window() <= DEFAULT_SMSS {
+        return Err(Error::Invariant);
+    }
 
     let response_len = synthetic_peer(
         remote,
@@ -987,6 +1087,40 @@ mod tests {
 
         let bad_len = synthetic_peer(peer, server, 102, 501, FLAG_ACK, &[], &mut input).unwrap();
         assert_eq!(pending.accept_ack(&input[..bad_len]), Err(Error::Sequence));
+    }
+
+    #[test]
+    fn congestion_control_is_bounded_by_cwnd_and_receiver_window() {
+        let mut cc = CongestionControl::new(1000).unwrap();
+        assert_eq!(cc.cwnd(), 1000);
+        assert_eq!(cc.send_allowance(8000, 0), 1000);
+        assert_eq!(cc.send_allowance(500, 0), 500);
+        assert_eq!(cc.send_allowance(8000, 750), 250);
+
+        cc.on_new_ack(500);
+        assert_eq!(cc.cwnd(), 1500);
+        cc.on_new_ack(1000);
+        assert_eq!(cc.cwnd(), 2500);
+
+        cc.on_retransmission_timeout(4000);
+        assert_eq!(cc.ssthresh(), 2000);
+        assert_eq!(cc.cwnd(), 1000);
+        cc.on_new_ack(1000);
+        assert_eq!(cc.cwnd(), 2000);
+        cc.on_new_ack(1999);
+        assert_eq!(cc.cwnd(), 2000);
+        cc.on_new_ack(1);
+        assert_eq!(cc.cwnd(), 3000);
+    }
+
+    #[test]
+    fn duplicate_ack_recovery_deflates_to_ssthresh() {
+        let mut cc = CongestionControl::new(1000).unwrap();
+        cc.on_three_duplicate_acks(8000);
+        assert_eq!(cc.ssthresh(), 4000);
+        assert_eq!(cc.cwnd(), 7000);
+        cc.on_recovery_ack();
+        assert_eq!(cc.cwnd(), 4000);
     }
 
     #[test]
