@@ -201,8 +201,12 @@ extern "x86-interrupt" fn breakpoint_handler(frame: InterruptStackFrame) {
 extern "x86-interrupt" fn double_fault_handler(frame: InterruptStackFrame, error_code: u64) -> ! {
     crate::debugcon::write("VIBRIX: kernel double fault\r\n");
     crate::println!(
-        "kernel #DF rip={:#x} error={:#x} (no IST yet)",
+        "kernel #DF rip={:#x} cs={:#x} rflags={:#x} rsp={:#x} ss={:#x} error={:#x} (no IST yet)",
         frame.instruction_pointer,
+        frame.code_segment,
+        frame.cpu_flags,
+        frame.stack_pointer,
+        frame.stack_segment,
         error_code
     );
     loop {
@@ -216,8 +220,12 @@ extern "x86-interrupt" fn general_protection_handler(
 ) -> ! {
     crate::debugcon::write("VIBRIX: kernel general protection fault\r\n");
     crate::println!(
-        "kernel #GP rip={:#x} error={:#x}",
+        "kernel #GP rip={:#x} cs={:#x} rflags={:#x} rsp={:#x} ss={:#x} error={:#x}",
         frame.instruction_pointer,
+        frame.code_segment,
+        frame.cpu_flags,
+        frame.stack_pointer,
+        frame.stack_segment,
         error_code
     );
     loop {
@@ -243,6 +251,16 @@ extern "x86-interrupt" fn page_fault_handler(frame: InterruptStackFrame, error_c
         reason.reserved_bit,
         reason.instruction_fetch
     );
+    crate::println!(
+        "kernel fault context rip={:#x} cs={:#x} rflags={:#x} rsp={:#x} ss={:#x} error={:#x}",
+        frame.instruction_pointer,
+        frame.code_segment,
+        frame.cpu_flags,
+        frame.stack_pointer,
+        frame.stack_segment,
+        error_code
+    );
+    crate::debugcon::write("VIBRIX: kernel fault context captured\r\n");
     loop {
         core::hint::spin_loop();
     }
