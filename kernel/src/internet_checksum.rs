@@ -14,11 +14,11 @@ pub(super) fn valid(bytes: &[u8]) -> bool {
 
 fn fold_sum(bytes: &[u8]) -> u16 {
     let mut sum = 0u32;
-    let mut chunks = bytes.chunks_exact(2);
-    for chunk in &mut chunks {
-        sum = sum.wrapping_add(u16::from_be_bytes([chunk[0], chunk[1]]) as u32);
+    let (chunks, remainder) = bytes.as_chunks::<2>();
+    for chunk in chunks {
+        sum = sum.wrapping_add(u16::from_be_bytes(*chunk) as u32);
     }
-    if let [last] = chunks.remainder() {
+    if let [last] = remainder {
         sum = sum.wrapping_add((*last as u32) << 8);
     }
     while sum >> 16 != 0 {
