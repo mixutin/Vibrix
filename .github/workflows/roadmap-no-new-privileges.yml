@@ -1,0 +1,31 @@
+name: No-new-privileges evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  no-new-privileges:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt,clippy --target x86_64-unknown-none
+      - name: Test no-new-privileges policy and ABI
+        run: |
+          cargo fmt --all -- --check
+          cargo test --locked -p vibrix-kernel --lib process::
+          cargo test --locked -p vibrix-kernel --lib process_syscalls::
+          cargo test --locked -p vibrix-syscall
+          cargo clippy --locked -p vibrix-kernel --lib --target x86_64-unknown-none -- -D warnings
+          cargo clippy --locked -p vibrix-syscall --target x86_64-unknown-none -- -D warnings
+          grep -Fq 'NoNewPrivileges = 23' shared/syscall_abi.rs
+          grep -Fq 'no_new_privileges: bool' kernel/src/process.rs
