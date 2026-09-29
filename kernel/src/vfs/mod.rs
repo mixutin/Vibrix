@@ -4,11 +4,11 @@ pub mod console;
 pub mod devfs;
 pub mod files;
 pub mod memfs;
-pub mod vibrixfs;
 mod pipe;
 mod proof;
 #[cfg(test)]
 mod tests;
+pub mod vibrixfs;
 
 pub use proof::self_test;
 
