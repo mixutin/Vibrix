@@ -110,7 +110,7 @@ pub fn draw<C: Canvas>(
             match desktop.app {
                 App::Terminal => {
                     terminal.dirty.fill(true);
-                    draw_terminal(&mut p, desktop, terminal)?;
+                    draw_draw_terminal(&mut p, desktop, terminal)?;
                 }
                 App::Files => {
                     p.text(
@@ -240,7 +240,7 @@ pub fn draw<C: Canvas>(
         }
         desktop.full_redraw = false;
     } else if desktop.visible && desktop.app == App::Terminal {
-        terminal(&mut p, desktop, terminal)?;
+        draw_terminal(&mut p, desktop, terminal)?;
     }
     pointer(&mut p, desktop)
 }
