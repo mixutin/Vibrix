@@ -294,6 +294,20 @@ mod native {
         Ok(())
     }
 
+    #[cfg(all(feature = "process-syscall-probe", feature = "userspace-io-probe"))]
+    fn encode_vfs_error(error: vibrix_kernel::vfs::Error) -> u64 {
+        let errno = match error {
+            vibrix_kernel::vfs::Error::BadDescriptor => abi::Errno::BadFileDescriptor,
+            vibrix_kernel::vfs::Error::AccessDenied => abi::Errno::PermissionDenied,
+            vibrix_kernel::vfs::Error::WouldBlock | vibrix_kernel::vfs::Error::Busy => {
+                abi::Errno::Busy
+            }
+            vibrix_kernel::vfs::Error::NotFound => abi::Errno::NotFound,
+            _ => abi::Errno::Io,
+        };
+        abi::encode_error(errno)
+    }
+
     #[cfg(feature = "process-syscall-probe")]
     fn process_probe_dispatch(number: u64, args: [u64; abi::MAX_ARGS]) -> u64 {
         if !PROCESS_READY.load(Ordering::SeqCst) {
@@ -311,6 +325,71 @@ mod native {
                     crate::println!("kernel process syscall: getpid={}", value);
                 }
                 value
+            }
+            Ok(Action::Read {
+                fd,
+                address,
+                length,
+            }) => {
+                #[cfg(feature = "userspace-io-probe")]
+                {
+                    let Ok(fd) = usize::try_from(fd) else {
+                        return abi::encode_error(abi::Errno::BadFileDescriptor);
+                    };
+                    let mut buffer = [0u8; 256];
+                    let count = core::cmp::min(length, buffer.len() as u64) as usize;
+                    match crate::userspace_io::read(fd, &mut buffer[..count]) {
+                        Ok(read) => {
+                            if crate::memory::address_space::copy_to_user(
+                                address,
+                                &buffer[..read],
+                            )
+                            .is_err()
+                            {
+                                abi::encode_error(abi::Errno::BadAddress)
+                            } else {
+                                read as u64
+                            }
+                        }
+                        Err(error) => encode_vfs_error(error),
+                    }
+                }
+                #[cfg(not(feature = "userspace-io-probe"))]
+                {
+                    let _ = (fd, address, length);
+                    abi::encode_error(abi::Errno::NotSupported)
+                }
+            }
+            Ok(Action::Write {
+                fd,
+                address,
+                length,
+            }) => {
+                #[cfg(feature = "userspace-io-probe")]
+                {
+                    let Ok(fd) = usize::try_from(fd) else {
+                        return abi::encode_error(abi::Errno::BadFileDescriptor);
+                    };
+                    let mut buffer = [0u8; 256];
+                    let count = core::cmp::min(length, buffer.len() as u64) as usize;
+                    if crate::memory::address_space::copy_from_user(
+                        address,
+                        &mut buffer[..count],
+                    )
+                    .is_err()
+                    {
+                        return abi::encode_error(abi::Errno::BadAddress);
+                    }
+                    match crate::userspace_io::write(fd, &buffer[..count]) {
+                        Ok(written) => written as u64,
+                        Err(error) => encode_vfs_error(error),
+                    }
+                }
+                #[cfg(not(feature = "userspace-io-probe"))]
+                {
+                    let _ = (fd, address, length);
+                    abi::encode_error(abi::Errno::NotSupported)
+                }
             }
             Ok(Action::WaitReady {
                 pid,
