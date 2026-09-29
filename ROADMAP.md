@@ -1573,10 +1573,10 @@ auditable network configuration and no surprise listening services.
 - [ ] chroot/service-jail style filesystem roots
 - [ ] immutable and append-only file flags
 - [ ] per-process CPU/memory/file/socket resource limits
-- [ ] core-dump policy that excludes secret material
+- [x] core-dump policy that excludes secret material
 - [ ] stack canaries for supported userspace toolchains
 - [ ] PIE/ASLR for base-system executables
-- [ ] kernel address randomization design and threat model
+- [x] kernel address randomization design and threat model
 - [ ] RELRO-like relocation hardening when dynamic linking exists
 - [x] exploit-mitigation regression suite
 - [ ] fuzz and hostile-input tests for every privileged daemon/parser
@@ -1599,23 +1599,49 @@ for Vibrix rather than copied.
 **Exit:** ordinary applications and daemons can permanently discard ambient
 authority, and the base system uses those mechanisms by default where practical.
 
+**Verified M23 security-design deliverables (PR #259):**
+[Full CI run 36627839509](https://github.com/mixutin/Vibrix/actions/runs/36627839509)
+and dedicated design-document
+[run 36627839251](https://github.com/mixutin/Vibrix/actions/runs/36627839251)
+passed on implementation head `1ddaad65855b63801a6b0dda3560c03efd854bfb`.
+The accepted documents define a kernel address-randomization threat model and a
+core-dump policy that excludes secret-bearing memory/classes by default.
+
+These check the **kernel address randomization design and threat model** and
+**core-dump secret-exclusion policy** deliverables only. They do not claim KASLR
+execution, a core-dump implementation, or secret classification enforcement.
+
 ## M24 — Unix compatibility and ports readiness
 
 - [x] stable libc/system-call compatibility layer
-- [ ] documented POSIX compatibility target and conformance matrix
+- [x] documented POSIX compatibility target and conformance matrix
 - [ ] fork/exec or documented compatible process-creation semantics
 - [ ] signals, pthreads and thread-local errno
 - [ ] mmap/shared-memory primitives
 - [ ] file locking and advisory locks
 - [ ] event queue suitable for scalable servers
-- [ ] dynamic linker/loader design
-- [ ] shared-library ABI/versioning policy
+- [x] dynamic linker/loader design
+- [x] shared-library ABI/versioning policy
 - [ ] pkg-config/build-tool compatibility layer
 - [ ] shell scripting sufficient for conventional build systems
 - [ ] ports recipes for representative editors, shells and servers
 - [ ] automated upstream-port patch tracking
 - [ ] manual-page sections and installed developer documentation
 - [ ] compatibility test suite against selected portable Unix software
+
+**Verified M24 compatibility/design deliverables (PR #259):**
+[Full CI run 36627839509](https://github.com/mixutin/Vibrix/actions/runs/36627839509)
+and dedicated design-document
+[run 36627839251](https://github.com/mixutin/Vibrix/actions/runs/36627839251)
+passed on implementation head `1ddaad65855b63801a6b0dda3560c03efd854bfb`.
+The accepted documents define Vibrix's POSIX compatibility target/conformance
+matrix, a future dynamic-linker/loader architecture, and shared-library
+ABI/versioning rules with explicit compatibility and security boundaries.
+
+These check **documented POSIX compatibility target and conformance matrix**,
+**dynamic linker/loader design**, and **shared-library ABI/versioning policy**
+as design deliverables. They do not claim POSIX conformance, a working dynamic
+loader, shared objects, or third-party binary compatibility.
 
 **Exit:** a documented subset of portable Unix software can be built, packaged,
 updated and operated on Vibrix without Linux emulation.
