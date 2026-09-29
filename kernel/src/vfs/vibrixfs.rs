@@ -234,7 +234,7 @@ impl<T: Transport> VibrixFs<T> {
         directory: &wire::Inode,
         offset: usize,
         storage: &mut [u8; MAX_RECORD_BYTES],
-    ) -> Result<Option<(u64, u8, Name, usize)>> {
+    ) -> Result<Option<(u64, u8, Option<Name>, usize)>> {
         let size = usize::try_from(directory.size).map_err(|_| Error::BackendContract)?;
         if offset == size {
             return Ok(None);
@@ -266,7 +266,11 @@ impl<T: Transport> VibrixFs<T> {
         if target.file_type != entry.file_type {
             return Err(Error::BackendContract);
         }
-        let name = Name::new(entry.name)?;
+        let name = if matches!(entry.name, "." | "..") {
+            None
+        } else {
+            Some(Name::new(entry.name)?)
+        };
         Ok(Some((entry.inode, entry.file_type, name, record)))
     }
 }
@@ -295,7 +299,7 @@ impl<T: Transport> Filesystem for VibrixFs<T> {
         while let Some((number, _, entry_name, used)) =
             self.directory_record(&inode, offset, &mut raw)?
         {
-            if entry_name.as_str() == name {
+            if entry_name.is_some_and(|entry_name| entry_name.as_str() == name) {
                 return Ok(NodeId(number));
             }
             offset = offset.checked_add(used).ok_or(Error::BackendContract)?;
@@ -315,9 +319,9 @@ impl<T: Transport> Filesystem for VibrixFs<T> {
             self.directory_record(&inode, offset, &mut raw)?
         {
             offset = offset.checked_add(used).ok_or(Error::BackendContract)?;
-            if matches!(name.as_str(), "." | "..") {
+            let Some(name) = name else {
                 continue;
-            }
+            };
             if visible == index {
                 return Ok(Some(Entry {
                     name,
