@@ -600,9 +600,7 @@ mod native {
                 crate::debugcon::write("VIBRIX: Rust init PID 1 exited through syscall\r\n");
                 #[cfg(feature = "package-metadata-probe")]
                 if args[0] == 0 {
-                    crate::debugcon::write(
-                        "VIBRIX: package metadata userspace verified\r\n",
-                    );
+                    crate::debugcon::write("VIBRIX: package metadata userspace verified\r\n");
                 }
                 crate::println!(
                     "kernel process syscall: exit pid=1 status={}",
