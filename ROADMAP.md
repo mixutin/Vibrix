@@ -913,8 +913,8 @@ package state, native USB storage and flash-write policy remain separate.
 - [x] Ethernet + ARP
 - [x] IPv4 + ICMP
 - [x] UDP
-- [ ] DHCP
-- [ ] DNS
+- [x] DHCP
+- [x] DNS
 - [ ] TCP
 - [ ] sockets
 - [ ] network utilities
@@ -938,6 +938,27 @@ odd-length payloads and zero-checksum semantics, and exercises the production
 path after firmware exit. This is the UDP datagram layer only: no sockets,
 port-allocation API, DHCP/DNS, TCP or external NIC claim follows.
 
+**Verified bounded M10 DHCPv4 acquisition (PR #211):**
+[Actions run 36586598165](https://github.com/mixutin/Vibrix/actions/runs/36586598165)
+passed the full exact-head CI/QEMU matrix on implementation head
+`7348d34ac368c98af61f6481fe6eda30d4207790`. The production kernel implements
+the initial RFC 2131/2132 `DISCOVER → OFFER → REQUEST → ACK` client exchange
+with bounded BOOTP/TLV parsing, transaction/client/server validation and lease
+parameter extraction. QEMU requires the production DHCP marker on debugcon and
+COM1. External DHCP traffic, retransmission, renewal/rebinding and persistence
+still depend on later runtime/NIC work.
+
+**Verified bounded M10 DNS A resolver (PR #212):**
+[Actions run 36586898449](https://github.com/mixutin/Vibrix/actions/runs/36586898449)
+passed the full exact-head CI/QEMU matrix on implementation head
+`c94a78334c52f71cff23cb567818a281ca366ba8`. The production kernel composes
+and parses bounded RFC 1035 recursive IN/A transactions through the Vibrix UDP
+path, validates transaction/header/question identity, bounds compressed-name
+walks, rejects truncation/RCODE/malformed loops and returns up to four A records
+with the minimum TTL. QEMU requires the resolver marker on both independent
+kernel outputs. Caching, retry policy, CNAME chains, DNSSEC/EDNS and TCP fallback
+remain later work.
+
 **Verified bounded M10 Ethernet + ARP runtime (PR #197):**
 [Actions run 36580005188](https://github.com/mixutin/Vibrix/actions/runs/36580005188)
 passed the exact-head host, target, QEMU, dependency and aggregate CI gates on
@@ -958,7 +979,20 @@ still separate work.
 - [ ] stack protections
 - [ ] IOMMU
 - [ ] secure updates
-- [ ] optional USB system encryption design
+- [x] optional USB system encryption design
+
+**Adopted optional encrypted-volume design (ADR 0023):** the Vibrix system
+partition may later expose an authenticated encrypted block layer beneath
+VibrixFS. The design uses a random volume master key, Argon2id passphrase
+keyslots, HKDF-separated keys, AES-256-GCM-SIV data blocks, external
+authentication tags/tree metadata, redundant authenticated roots and explicit
+crash-ordering/fail-closed rules. It also documents the unavoidable lack of
+whole-device rollback freshness without an external trusted anchor.
+
+This is a **design checkbox only**. No cryptographic implementation, secure
+random source, encrypted USB I/O, unlock UI, key management, boot-chain
+authentication or recovery support is claimed. Those remain separate work.
+See [ADR 0023](docs/decisions/0023-usb-system-encryption.md).
 
 **Verified M11 W^X enforcement (existing implementation, PR #160):**
 [Actions run 36490303799](https://github.com/mixutin/Vibrix/actions/runs/36490303799)
