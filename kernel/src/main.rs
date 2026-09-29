@@ -223,7 +223,11 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         driver_binder.count_driver(device::DriverKind::Rtl8168),
         bind_failures
     );
-    #[cfg(all(feature = "xhci-init-probe", not(feature = "usb-enum-probe")))]
+    #[cfg(all(
+        feature = "xhci-init-probe",
+        not(feature = "usb-enum-probe"),
+        not(feature = "usb-hub-probe")
+    ))]
     {
         // SAFETY: still single-BSP with IF=0. PCI discovery identified the
         // controller and all temporary MMIO/RAM scratch mappings are retired
@@ -245,7 +249,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         debugcon::write("VIBRIX: kernel xHCI reset and running\r\n");
     }
 
-    #[cfg(feature = "usb-enum-probe")]
+    #[cfg(all(feature = "usb-enum-probe", not(feature = "usb-hub-probe")))]
     {
         // SAFETY: bounded single-BSP enumeration probe owns the directly
         // attached QEMU device and retires its temporary mappings before the
@@ -265,6 +269,25 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             usb.max_packet_size0
         );
         debugcon::write("VIBRIX: kernel USB device addressed and descriptor read\r\n");
+    }
+
+    #[cfg(feature = "usb-hub-probe")]
+    {
+        // SAFETY: the bounded probe exclusively owns the QEMU xHCI controller,
+        // addresses the root-attached USB2 hub and retires temporary mappings
+        // before later runtime mapping-window users.
+        let hub = unsafe { arch::x86_64::xhci::inspect_first_hub(&info) }
+            .unwrap_or_else(|error| panic!("USB hub probe failed: {:?}", error));
+        crate::println!(
+            "kernel USB hub: root_port={} slot={} ports={} child_port={} child_status={:#06x} pwr_good_units={}",
+            hub.root_port,
+            hub.slot_id,
+            hub.downstream_ports,
+            hub.child_port,
+            hub.child_status,
+            hub.power_good_units
+        );
+        debugcon::write("VIBRIX: kernel USB hub downstream port reset and enabled\r\n");
     }
 
     if device_model.devices == pci.devices {
