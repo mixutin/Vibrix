@@ -28,6 +28,15 @@ cargo rustc --locked -p vibrix-init --bin vibrix-init --target x86_64-unknown-no
   -C link-arg=-no-pie \
   -C link-arg=-Tuserspace/linker.ld
 
+if [[ ",${VIBRIX_KERNEL_FEATURES:-}," == *,package-metadata-probe,* ]]; then
+  echo "[vibrix] building package metadata userspace probe"
+  cargo rustc --locked -p vibrix-package --bin vibrix-package-probe --target x86_64-unknown-none -- \
+    -C debuginfo=0 \
+    -C relocation-model=static \
+    -C link-arg=-no-pie \
+    -C link-arg=-Tuserspace/linker.ld
+fi
+
 echo "[vibrix] building Rust shell userspace ELF"
 cargo rustc --locked -p vibrix-shell --bin vibrix-sh --target x86_64-unknown-none -- \
   -C debuginfo=0 \

@@ -39,6 +39,7 @@ usb-hub-probe = ["qemu-debugcon"]
 usb-hid-keyboard-probe = ["qemu-debugcon"]
 usb-hid-mouse-probe = ["qemu-debugcon"]
 rust-init-probe = ["qemu-debugcon", "address-space-probe", "process-syscall-probe", "elf-load-probe"]
+package-metadata-probe = ["qemu-debugcon", "address-space-probe", "process-syscall-probe", "elf-load-probe"]
 
 [dependencies]
 vibrix-vmm = { path = "../shared/vmm", version = "=0.0.1" }

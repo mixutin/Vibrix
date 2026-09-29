@@ -8,3 +8,12 @@ repository.workspace = true
 
 [lib]
 path = "src/lib.rs"
+
+[[bin]]
+name = "vibrix-package-probe"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+vibrix-syscall = { path = "../syscall", version = "=0.0.1" }
