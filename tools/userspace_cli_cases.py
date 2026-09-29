@@ -25,7 +25,7 @@ def check_cli(command: Callable[[str, str], str]) -> None:
     success("vibrix doctor --bundle", "privacy=bounded-anonymous")
     success("vibrix doctor --bundle", "privacy_note=no-file-contents,no-pid-list,no-memory-addresses,no-hardware-identifiers,no-environment,no-history")
     success("vibrix doctor --bundle", "END-VIBRIX-SUPPORT-BUNDLE")
-    command("vibrix compat-report", "usage:")
+    command("vibrix compat-report", "Usage:")
     success("vibrix compat-report --anonymized", "VIBRIX-COMPATIBILITY-REPORT v1")
     success("vibrix compat-report --anonymized", "consent=explicit-anonymized")
     success("vibrix compat-report --anonymized", "upload=none")
