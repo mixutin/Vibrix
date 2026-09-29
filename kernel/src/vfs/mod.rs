@@ -8,6 +8,7 @@ mod pipe;
 mod proof;
 #[cfg(test)]
 mod tests;
+pub mod vibrixfs;
 
 pub use proof::self_test;
 
