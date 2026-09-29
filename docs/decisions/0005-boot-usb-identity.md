@@ -54,8 +54,11 @@ handles are not persistent kernel identities.
    root GUID as plain bytes/value fields, plus enough size/version information
    to reject incompatible handoffs. It must not pass UEFI handles, Block I/O
    pointers, live device-path pointers, USB addresses or firmware-private
-   types. The precise `BootInfo` extension and its version/size checks require
-   their own reviewed ABI change; this ADR does **not** change the implemented v2 layout in
+   types. BootInfo v4 implements that reviewed extension as a flagged
+   firmware-neutral disk/ESP/system GUID and ESP-LBA tail while preserving the
+   complete v3 prefix. This ADR originally predated that implementation; it does
+   not authorize passing firmware handles across ExitBootServices. The earlier
+   design did **not** change the implemented v2 layout in
    [ADR 0004](0004-memory-descriptor-version.md).
    An optional copied device path or USB descriptor/serial can aid diagnostics
    or discovery priority, but can never override an on-media mismatch.
@@ -147,3 +150,16 @@ bare-metal support.
 - [Vibrix USB system model](../USB_MODEL.md) and [Vibrix Boot ABI](../BOOT_ABI.md).
 
 No external implementation source was used.
+
+
+## BootInfo v4 implementation note
+
+The current implementation carries only the validated GPT disk GUID, boot ESP
+unique GUID and extent, and optional Vibrix System partition GUID. The loader
+fills this tail only after exact loaded-image USB-path matching and primary plus
+backup GPT validation through the matched whole-disk Block I/O handle. The
+kernel can therefore retain stable media identity after firmware services end
+without retaining topology or firmware pointers.
+
+Native post-ExitBootServices USB/SCSI reacquisition still has to match this tuple
+before persistent-root selection is complete.
