@@ -1,6 +1,9 @@
 //! Allocation-free synchronous Ethernet-frame interface and RAM loopback.
 //! Frames exclude preamble/FCS; no network, DMA, PCI or interrupt access occurs.
 
+#[path = "ethernet.rs"]
+pub mod ethernet;
+
 pub const ETHERNET_HEADER: usize = 14;
 pub const MTU: usize = 1500;
 pub const MAX_FRAME: usize = ETHERNET_HEADER + MTU;
@@ -172,10 +175,12 @@ pub fn self_test() -> Result<(), Error> {
     let address = MacAddress::new([2, 0, 0, 0, 0, 1])?;
     let mut nic = Loopback::new(address);
     let interface: &mut dyn NetworkInterface = &mut nic;
-    let mut frame = [0xa5; 60];
-    frame[..6].copy_from_slice(&address.bytes());
-    frame[6..12].copy_from_slice(&address.bytes());
-    frame[12..14].copy_from_slice(&[0x88, 0xb5]);
+    let mut frame = [0; 60];
+    let length = ethernet::encode(address, address.bytes(), 0x88b5, &[0xa5; 46], &mut frame)
+        .map_err(|_| Error::Io)?;
+    if length != frame.len() {
+        return Err(Error::Io);
+    }
     interface.transmit(&frame)?;
     if interface.receive(&mut [0; 14]) != Err(Error::BufferTooSmall) {
         return Err(Error::Io);
@@ -184,6 +189,14 @@ pub fn self_test() -> Result<(), Error> {
     if interface.receive(&mut output)? != Some(60)
         || output != frame
         || interface.receive(&mut output)?.is_some()
+    {
+        return Err(Error::Io);
+    }
+    let packet = ethernet::parse(&output).map_err(|_| Error::Io)?;
+    if packet.source() != address
+        || packet.destination() != address.bytes()
+        || packet.ether_type() != 0x88b5
+        || packet.payload() != [0xa5; 46]
     {
         return Err(Error::Io);
     }
@@ -244,6 +257,7 @@ mod tests {
         assert_eq!(nic.receive(&mut short), Err(Error::BufferTooSmall));
         assert_eq!(short, [0x55; 59]);
         let mut output = [0x33; 64];
+        assert_eq!(nic.receive(&mut short), Err(Error::BufferTooSmall));
         assert_eq!(nic.receive(&mut output), Ok(Some(60)));
         assert_eq!(&output[..60], &[0xab; 60]);
         assert_eq!(&output[60..], &[0x33; 4]);
