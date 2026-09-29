@@ -727,7 +727,10 @@ pub unsafe fn initialize(info: &BootInfo) -> Result<Summary, InitError> {
 /// resets and exclusively owns the first PCI-discovered xHCI controller for the
 /// duration of the probe and allocates DMA frames that remain kernel-owned.
 #[cfg(target_os = "none")]
-pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary, InitError> {
+unsafe fn enumerate_first_device_inner(
+    info: &BootInfo,
+    inspect_hub: bool,
+) -> Result<(UsbDeviceSummary, Option<UsbHubSummary>), InitError> {
     let initialized = unsafe { initialize(info) }?;
 
     let mut found = None;
@@ -935,48 +938,18 @@ pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary
     }
     unsafe { unmap_ram(&mut vm, 7) }?;
 
-    unsafe {
-        write_trb(transfer_base, 0, setup_get_device_descriptor());
-        write_trb(
+    let mut transfer_index = 0usize;
+    let transferred = unsafe {
+        rings.control_in(
             transfer_base,
-            1,
-            [
-                descriptor_buffer as u32,
-                (descriptor_buffer >> 32) as u32,
-                18,
-                trb_control(TRB_TYPE_DATA_STAGE) | TRB_DIR_IN,
-            ],
-        );
-        write_trb(
-            transfer_base,
-            2,
-            [0, 0, 0, trb_control(TRB_TYPE_STATUS_STAGE) | TRB_IOC],
-        );
-    }
-    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
-    // Doorbell index is the slot ID; target 1 selects default control endpoint.
-    unsafe { write32(doorbell_base, usize::from(slot_id) * 4, 1) };
-
-    let transfer_event = unsafe {
-        wait_for_event_type(
-            event_base,
-            event_ring,
-            runtime_base,
-            &mut rings.event_index,
-            &mut rings.event_cycle,
-            TRB_TYPE_TRANSFER_EVENT,
+            &mut transfer_index,
+            slot_id,
+            setup_get_device_descriptor(),
+            descriptor_buffer,
+            18,
         )
-    }
-    .ok_or(InitError::TransferTimeout)?;
-    let code = completion_code(transfer_event[2]);
-    if code != COMPLETION_SUCCESS && code != COMPLETION_SHORT_PACKET {
-        return Err(InitError::TransferFailed(code));
-    }
-    if event_slot_id(transfer_event[3]) != slot_id || ((transfer_event[3] >> 16) & 0x1f) != 1 {
-        return Err(InitError::InvalidControllerState);
-    }
-    let remaining = transfer_event[2] & 0x00ff_ffff;
-    if remaining > 18 || 18 - remaining < 12 {
+    }?;
+    if transferred < 12 {
         return Err(InitError::DescriptorMalformed);
     }
 
@@ -996,16 +969,7 @@ pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary
         read8(descriptor_base, 11)
     }]);
 
-    unsafe { vm.unmap(9) }.map_err(|_| InitError::Mapping)?;
-    unsafe { vm.unmap(8) }.map_err(|_| InitError::Mapping)?;
-    unsafe { vm.unmap(6) }.map_err(|_| InitError::Mapping)?;
-    unsafe { vm.unmap(5) }.map_err(|_| InitError::Mapping)?;
-    unsafe { vm.unmap(4) }.map_err(|_| InitError::Mapping)?;
-    unsafe { vm.unmap(3) }.map_err(|_| InitError::Mapping)?;
-    unsafe { vm.unmap(2) }.map_err(|_| InitError::Mapping)?;
-    unsafe { vm.unmap(0) }.map_err(|_| InitError::Mapping)?;
-
-    Ok(UsbDeviceSummary {
+    let device_summary = UsbDeviceSummary {
         port,
         slot_id,
         speed_id,
@@ -1015,7 +979,161 @@ pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary
         subclass,
         protocol,
         max_packet_size0,
-    })
+    };
+
+    let hub_summary = if inspect_hub {
+        if class != 0x09 {
+            return Err(InitError::NotHub);
+        }
+
+        let hub_bytes = unsafe {
+            rings.control_in(
+                transfer_base,
+                &mut transfer_index,
+                slot_id,
+                setup_get_hub_descriptor(),
+                descriptor_buffer,
+                9,
+            )
+        }?;
+        if hub_bytes < 7
+            || unsafe { read8(descriptor_base, 0) } < 7
+            || unsafe { read8(descriptor_base, 1) } != 0x29
+        {
+            return Err(InitError::DescriptorMalformed);
+        }
+        let downstream_ports = unsafe { read8(descriptor_base, 2) };
+        let power_good_units = unsafe { read8(descriptor_base, 5) };
+        if downstream_ports == 0 || downstream_ports > 31 {
+            return Err(InitError::DescriptorMalformed);
+        }
+
+        // USB2 hub PORT_POWER feature selector = 8. Power each advertised
+        // downstream port before looking for the QEMU-attached child.
+        for downstream_port in 1..=downstream_ports {
+            unsafe {
+                rings.control_no_data(
+                    transfer_base,
+                    &mut transfer_index,
+                    slot_id,
+                    setup_set_port_feature(downstream_port, 8),
+                )
+            }?;
+        }
+
+        let mut child = None;
+        for downstream_port in 1..=downstream_ports {
+            let status_bytes = unsafe {
+                rings.control_in(
+                    transfer_base,
+                    &mut transfer_index,
+                    slot_id,
+                    setup_get_port_status(downstream_port),
+                    descriptor_buffer,
+                    4,
+                )
+            }?;
+            if status_bytes < 4 {
+                return Err(InitError::DescriptorMalformed);
+            }
+            let status = u16::from_le_bytes([
+                unsafe { read8(descriptor_base, 0) },
+                unsafe { read8(descriptor_base, 1) },
+            ]);
+            if status & 1 != 0 {
+                child = Some((downstream_port, status));
+                break;
+            }
+        }
+        let (child_port, _) = child.ok_or(InitError::NoDownstreamDevice)?;
+
+        // USB2 hub PORT_RESET feature selector = 4. Poll GET_STATUS through
+        // the same EP0 path until the child is connected, enabled and reset
+        // has cleared. This proves real hub class request/port management.
+        unsafe {
+            rings.control_no_data(
+                transfer_base,
+                &mut transfer_index,
+                slot_id,
+                setup_set_port_feature(child_port, 4),
+            )
+        }?;
+        let mut child_status = 0u16;
+        let mut ready = false;
+        for _ in 0..16 {
+            let status_bytes = unsafe {
+                rings.control_in(
+                    transfer_base,
+                    &mut transfer_index,
+                    slot_id,
+                    setup_get_port_status(child_port),
+                    descriptor_buffer,
+                    4,
+                )
+            }?;
+            if status_bytes < 4 {
+                return Err(InitError::DescriptorMalformed);
+            }
+            child_status = u16::from_le_bytes([
+                unsafe { read8(descriptor_base, 0) },
+                unsafe { read8(descriptor_base, 1) },
+            ]);
+            let connected = child_status & (1 << 0) != 0;
+            let enabled = child_status & (1 << 1) != 0;
+            let reset = child_status & (1 << 4) != 0;
+            let powered = child_status & (1 << 8) != 0;
+            if connected && enabled && powered && !reset {
+                ready = true;
+                break;
+            }
+            core::hint::spin_loop();
+        }
+        if !ready {
+            return Err(InitError::PortResetTimeout);
+        }
+
+        Some(UsbHubSummary {
+            root_port: port,
+            slot_id,
+            downstream_ports,
+            child_port,
+            child_status,
+            power_good_units,
+        })
+    } else {
+        None
+    };
+
+    unsafe { vm.unmap(9) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(8) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(6) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(5) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(4) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(3) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(2) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(0) }.map_err(|_| InitError::Mapping)?;
+
+    Ok((device_summary, hub_summary))
+}
+
+/// Enumerate one directly attached root-port USB device.
+///
+/// # Safety
+/// Same ownership requirements as the internal xHCI enumeration path.
+#[cfg(target_os = "none")]
+pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary, InitError> {
+    Ok(unsafe { enumerate_first_device_inner(info, false) }?.0)
+}
+
+/// Address a directly attached USB2 hub and prove downstream port management.
+///
+/// # Safety
+/// Same single-BSP/IF=0 exclusive-controller ownership as device enumeration.
+#[cfg(target_os = "none")]
+pub unsafe fn inspect_first_hub(info: &BootInfo) -> Result<UsbHubSummary, InitError> {
+    unsafe { enumerate_first_device_inner(info, true) }?
+        .1
+        .ok_or(InitError::NotHub)
 }
 
 #[cfg(test)]
