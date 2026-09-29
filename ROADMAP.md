@@ -976,7 +976,7 @@ still separate work.
 - [x] secure random
 - [x] W^X
 - [ ] userspace ASLR
-- [ ] stack protections
+- [x] stack protections
 - [ ] IOMMU
 - [ ] secure updates
 - [x] optional USB system encryption design
@@ -1010,6 +1010,20 @@ This is a **design checkbox only**. No cryptographic implementation, secure
 random source, encrypted USB I/O, unlock UI, key management, boot-chain
 authentication or recovery support is claimed. Those remain separate work.
 See [ADR 0023](docs/decisions/0023-usb-system-encryption.md).
+
+**Verified M11 guarded userspace stack protection (PR #224):**
+[Actions run 36592792740](https://github.com/mixutin/Vibrix/actions/runs/36592792740)
+passed the full exact-head CI matrix on implementation head
+`d730b43ac338359bbdf36d124656495a8a59c512`. The production userspace address
+space uses the existing guarded stack layout with an RW/NX payload page and
+unmapped lower/upper guard pages. The dedicated QEMU fault probe enters CPL3,
+writes exactly below the lower guard boundary and requires a real user-mode
+page fault decoded as non-present, write, user, non-reserved and non-execute.
+
+This checks the bounded **stack protections** item for guard-page-backed
+userspace stacks. It does not claim compiler canaries, CET/shadow stacks, ASLR,
+kernel/IST guard stacks, automatic stack growth, signals, SMP shootdowns or
+physical Target 001 validation.
 
 **Verified M11 W^X enforcement (existing implementation, PR #160):**
 [Actions run 36490303799](https://github.com/mixutin/Vibrix/actions/runs/36490303799)
