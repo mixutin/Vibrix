@@ -26,6 +26,7 @@ address-space-probe = ["qemu-debugcon"]
 elf-load-probe = ["qemu-debugcon", "address-space-probe"]
 syscall-probe = ["qemu-debugcon", "address-space-probe"]
 process-syscall-probe = ["qemu-debugcon", "address-space-probe"]
+xhci-init-probe = ["qemu-debugcon"]
 rust-init-probe = ["qemu-debugcon", "address-space-probe", "process-syscall-probe", "elf-load-probe"]
 
 [dependencies]
