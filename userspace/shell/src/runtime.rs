@@ -517,9 +517,7 @@ impl Shell {
                 [b"status"] => render_vibrix_status(io, out)?,
                 [b"doctor"] => render_vibrix_doctor(io, out)?,
                 [b"doctor", b"--bundle"] => render_vibrix_doctor_bundle(io, out)?,
-                [b"compat-report", b"--anonymized"] => {
-                    render_vibrix_compatibility_report(io, out)?
-                }
+                [b"compat-report", b"--anonymized"] => render_vibrix_compatibility_report(io, out)?,
                 _ => return Err(Error::Usage),
             },
             Builtin::Fetch => {
