@@ -14,7 +14,6 @@ use crate::memory::virtual_memory::Window;
 const PAGE: u64 = 4096;
 const IA32_PAT: u32 = 0x277;
 const CAPLENGTH: usize = 0x00;
-const HCIVERSION: usize = 0x02;
 const HCSPARAMS1: usize = 0x04;
 const HCSPARAMS2: usize = 0x08;
 const DBOFF: usize = 0x14;
