@@ -52,12 +52,7 @@ struct BulkTransport<'a> {
 }
 
 impl BulkTransport<'_> {
-    unsafe fn transfer(
-        &mut self,
-        input: bool,
-        buffer: u64,
-        length: u32,
-    ) -> Result<u32, InitError> {
+    unsafe fn transfer(&mut self, input: bool, buffer: u64, length: u32) -> Result<u32, InitError> {
         let (ring_base, ring_physical, ring_index, dci) = if input {
             (
                 self.in_ring_base,
@@ -160,8 +155,7 @@ impl BulkTransport<'_> {
         expected_residue: u32,
     ) -> Result<(), InitError> {
         unsafe { clear_dma(self.status_base, bot::CSW_BYTES) };
-        let received =
-            unsafe { self.transfer(true, self.status_buffer, bot::CSW_BYTES as u32) }?;
+        let received = unsafe { self.transfer(true, self.status_buffer, bot::CSW_BYTES as u32) }?;
         if received != bot::CSW_BYTES as u32 {
             return Err(InitError::StorageCommandFailed);
         }
@@ -180,11 +174,7 @@ impl BulkTransport<'_> {
         unsafe { self.finish_csw(tag, 0, 0) }
     }
 
-    unsafe fn command_in(
-        &mut self,
-        command: scsi::Command,
-        length: u32,
-    ) -> Result<u32, InitError> {
+    unsafe fn command_in(&mut self, command: scsi::Command, length: u32) -> Result<u32, InitError> {
         if length == 0 || length > PAGE as u32 {
             return Err(InitError::StorageCommandFailed);
         }
@@ -198,11 +188,7 @@ impl BulkTransport<'_> {
         Ok(received)
     }
 
-    unsafe fn command_out(
-        &mut self,
-        command: scsi::Command,
-        length: u32,
-    ) -> Result<(), InitError> {
+    unsafe fn command_out(&mut self, command: scsi::Command, length: u32) -> Result<(), InitError> {
         if length == 0 || length > PAGE as u32 {
             return Err(InitError::StorageCommandFailed);
         }
@@ -256,11 +242,7 @@ unsafe fn configure_endpoint(
             (3 << 1) | (endpoint_type << 3) | (u32::from(endpoint.max_packet) << 16),
         );
         write64(input_base, offset + 8, ring | 1);
-        write32(
-            input_base,
-            offset + 16,
-            u32::from(endpoint.max_packet),
-        );
+        write32(input_base, offset + 16, u32::from(endpoint.max_packet));
     }
 }
 
@@ -284,10 +266,9 @@ pub(super) unsafe fn run(
     if header != 9 {
         return Err(InitError::DescriptorMalformed);
     }
-    let total = u16::from_le_bytes([
-        unsafe { read8(control.descriptor_base, 2) },
-        unsafe { read8(control.descriptor_base, 3) },
-    ]);
+    let total = u16::from_le_bytes([unsafe { read8(control.descriptor_base, 2) }, unsafe {
+        read8(control.descriptor_base, 3)
+    }]);
     if !(9..=256).contains(&total) {
         return Err(InitError::DescriptorMalformed);
     }
@@ -419,8 +400,8 @@ pub(super) unsafe fn run(
     if capacity.block_bytes > PAGE as u32 || capacity.last_lba == u32::MAX {
         return Err(InitError::StorageCommandFailed);
     }
-    let block_bytes = usize::try_from(capacity.block_bytes)
-        .map_err(|_| InitError::StorageCommandFailed)?;
+    let block_bytes =
+        usize::try_from(capacity.block_bytes).map_err(|_| InitError::StorageCommandFailed)?;
     let verified_lba = capacity.last_lba;
 
     let read = scsi::read_10(verified_lba, 1).map_err(InitError::Scsi)?;
