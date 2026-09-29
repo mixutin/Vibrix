@@ -229,10 +229,7 @@ mod tests {
         let mut output = [0xa5; 32];
         let mut zero_ttl = header();
         zero_ttl.ttl = 0;
-        assert_eq!(
-            encode(zero_ttl, &[], &mut output),
-            Err(Error::TtlExpired)
-        );
+        assert_eq!(encode(zero_ttl, &[], &mut output), Err(Error::TtlExpired));
         assert_eq!(output, [0xa5; 32]);
 
         assert_eq!(
