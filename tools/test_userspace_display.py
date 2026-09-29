@@ -253,13 +253,20 @@ def integration() -> None:
                     command("pwd", "\n/tmp/session\n")
                     command("cp /welcome copy")
                     command("cat copy", "Vibrix bootstrap filesystem: files live in RAM until reboot.")
-                    command("clear", "\n" * 32)
-                    # Clear is the documented bounded-scroll operation, not an
-                    # unimplemented ANSI home. Verify every visible cell above
-                    # the last-row prompt and then exercise real scrolling.
-                    await_text(qmp, "display-clear.ppm", [("vibrix$ ", 29)] + [(" " * 80, row) for row in range(29)])
+                    command("clear", "\x0c")
+                    # Form feed is the bounded native clear operation: one
+                    # redraw, cursor home, no ANSI parser or repeated scrolling.
+                    await_text(
+                        qmp,
+                        "display-clear.ppm",
+                        [("vibrix$ ", 0)] + [(" " * 80, row) for row in range(1, 30)],
+                    )
                     command("echo vnc", "\nvnc\n")
-                    await_text(qmp, "display-final.ppm", [("vibrix$ echo vnc", 27), ("vnc", 28), ("vibrix$ ", 29)])
+                    await_text(
+                        qmp,
+                        "display-final.ppm",
+                        [("vibrix$ echo vnc", 0), ("vnc", 1), ("vibrix$ ", 2)],
+                    )
                 evidence = {
                     "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                     "result": "passed",
