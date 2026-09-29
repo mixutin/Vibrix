@@ -310,6 +310,97 @@ fn wait_until(mut predicate: impl FnMut() -> bool) -> bool {
     false
 }
 
+#[cfg(target_os = "none")]
+unsafe fn write_trb(base: usize, index: usize, words: [u32; 4]) {
+    let offset = index * TRB_BYTES;
+    unsafe {
+        write32(base, offset, words[0]);
+        write32(base, offset + 4, words[1]);
+        write32(base, offset + 8, words[2]);
+        write32(base, offset + 12, words[3]);
+    }
+}
+
+#[cfg(target_os = "none")]
+unsafe fn wait_for_event_type(
+    event_base: usize,
+    event_physical: u64,
+    runtime_base: usize,
+    event_index: &mut usize,
+    event_cycle: &mut bool,
+    wanted_type: u32,
+) -> Option<[u32; 4]> {
+    for _ in 0..WAIT_SPINS {
+        let offset = *event_index * TRB_BYTES;
+        let control = unsafe { read32(event_base, offset + 12) };
+        let ready = (control & TRB_CYCLE != 0) == *event_cycle;
+        if !ready {
+            core::hint::spin_loop();
+            continue;
+        }
+
+        let event = unsafe {
+            [
+                read32(event_base, offset),
+                read32(event_base, offset + 4),
+                read32(event_base, offset + 8),
+                control,
+            ]
+        };
+        *event_index += 1;
+        if *event_index == EVENT_RING_TRBS as usize {
+            *event_index = 0;
+            *event_cycle = !*event_cycle;
+        }
+        let next = event_physical + (*event_index * TRB_BYTES) as u64;
+        // EHB=1 acknowledges any pending event-handler-busy state while
+        // publishing the next dequeue pointer.
+        unsafe { write64(runtime_base, ERDP, next | (1 << 3)) };
+
+        if trb_type(event[3]) == wanted_type {
+            return Some(event);
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "none")]
+unsafe fn submit_command(
+    command_base: usize,
+    command_index: &mut usize,
+    doorbell_base: usize,
+    event_base: usize,
+    event_physical: u64,
+    runtime_base: usize,
+    event_index: &mut usize,
+    event_cycle: &mut bool,
+    words: [u32; 4],
+) -> Result<[u32; 4], InitError> {
+    if *command_index >= 32 {
+        return Err(InitError::InvalidControllerState);
+    }
+    unsafe { write_trb(command_base, *command_index, words) };
+    *command_index += 1;
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
+    unsafe { write32(doorbell_base, 0, 0) };
+    let event = unsafe {
+        wait_for_event_type(
+            event_base,
+            event_physical,
+            runtime_base,
+            event_index,
+            event_cycle,
+            TRB_TYPE_COMMAND_COMPLETION,
+        )
+    }
+    .ok_or(InitError::CommandTimeout)?;
+    let code = completion_code(event[2]);
+    if code != COMPLETION_SUCCESS {
+        return Err(InitError::CommandFailed(code));
+    }
+    Ok(event)
+}
+
 /// Reset and start one PCI-discovered xHCI controller with a minimal command
 /// ring, event ring, ERST and DCBAA. No USB commands are submitted.
 ///
