@@ -1,4 +1,4 @@
-//! Ethernet/IPv4 ARP payload codec. No neighbor learning, replies or I/O.
+//! Ethernet/IPv4 ARP payload codec. No neighbor learning, automatic replies or I/O.
 use super::{MTU, MacAddress};
 
 pub const PACKET_BYTES: usize = 28;
@@ -102,9 +102,7 @@ pub(super) fn self_test() -> Result<(), Error> {
         }
     }
     let mut short = [0x5a; PACKET_BYTES - 1];
-    if packet.write(&mut short) != Err(Error::OutputTooSmall)
-        || short != [0x5a; PACKET_BYTES - 1]
-    {
+    if packet.write(&mut short) != Err(Error::OutputTooSmall) || short != [0x5a; PACKET_BYTES - 1] {
         return Err(Error::Invariant);
     }
     output[4] = 255;
@@ -136,8 +134,7 @@ mod tests {
     #[test]
     fn canonical_request_wire_fixture() {
         let expected = [
-            0, 1, 8, 0, 6, 4, 0, 1, 2, 0, 0, 0, 0, 1, 192, 0, 2, 1, 0, 0, 0, 0, 0, 0, 192, 0,
-            2, 2,
+            0, 1, 8, 0, 6, 4, 0, 1, 2, 0, 0, 0, 0, 1, 192, 0, 2, 1, 0, 0, 0, 0, 0, 0, 192, 0, 2, 2,
         ];
         let mut output = [0xa5; PACKET_BYTES];
         assert_eq!(request().write(&mut output), Ok(PACKET_BYTES));
