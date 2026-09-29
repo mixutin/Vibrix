@@ -1,0 +1,13 @@
+[package]
+name = "vibrix-ui"
+version = "0.0.1"
+edition = "2024"
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+vibrix-syscall = { path = "../syscall", version = "=0.0.1" }
