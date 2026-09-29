@@ -570,6 +570,319 @@ pub unsafe fn initialize(info: &BootInfo) -> Result<Summary, InitError> {
     })
 }
 
+/// Enumerate one directly attached root-port USB device and read enough of
+/// its standard device descriptor to prove real xHCI command and control
+/// transfers. Hub traversal is intentionally outside this bounded milestone.
+///
+/// # Safety
+/// Same single-BSP/IF=0 ownership contract as `initialize`. This function
+/// resets and exclusively owns the first PCI-discovered xHCI controller for the
+/// duration of the probe and allocates DMA frames that remain kernel-owned.
+#[cfg(target_os = "none")]
+pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary, InitError> {
+    let initialized = unsafe { initialize(info) }?;
+
+    let mut found = None;
+    let _ = unsafe {
+        pci::discover_legacy_segment_zero(|device| {
+            if found.is_none() && device.is_xhci() {
+                found = Some(device);
+            }
+        })
+    };
+    let device = found.ok_or(InitError::NotFound)?;
+    let bar = unsafe { read_bar0(device) }?;
+    if bar != initialized.bar {
+        return Err(InitError::InvalidControllerState);
+    }
+
+    let mmio_page = bar & !(PAGE - 1);
+    let bar_offset = usize::try_from(bar - mmio_page).map_err(|_| InitError::InvalidBar)?;
+    if !unsafe { memory::external_mmio_page_is_safe(mmio_page) } {
+        return Err(InitError::UnsafeMmio);
+    }
+
+    let mut vm = unsafe { memory::virtual_memory::runtime::from_boot_info(info) }
+        .map_err(|_| InitError::Mapping)?;
+    let cap_virtual =
+        unsafe { vm.map_mmio_writable(0, mmio_page) }.map_err(|_| InitError::Mapping)?;
+    let cap_base = usize::try_from(cap_virtual)
+        .map_err(|_| InitError::Mapping)?
+        .checked_add(bar_offset)
+        .ok_or(InitError::Mapping)?;
+
+    let cap_header = unsafe { read32(cap_base, CAPLENGTH) };
+    let cap_length = (cap_header & 0xff) as u8;
+    let version = (cap_header >> 16) as u16;
+    let hcs1 = unsafe { read32(cap_base, HCSPARAMS1) };
+    let hcs2 = unsafe { read32(cap_base, HCSPARAMS2) };
+    let hcc1 = unsafe { read32(cap_base, HCCPARAMS1) };
+    let capability = parse_capability(
+        cap_length,
+        version,
+        hcs1,
+        hcs2,
+        unsafe { read32(cap_base, DBOFF) },
+        unsafe { read32(cap_base, RTSOFF) },
+    )?;
+    // CSZ=1 selects 64-byte contexts. The first enumeration proof deliberately
+    // implements only the mandatory 32-byte layout used by QEMU q35.
+    if hcc1 & (1 << 2) != 0 {
+        return Err(InitError::UnsupportedContextSize);
+    }
+    let op_base = cap_base + usize::from(capability.cap_length);
+
+    let runtime_physical = bar
+        .checked_add(u64::from(capability.runtime_offset))
+        .and_then(|value| value.checked_add(INTERRUPTER_ZERO as u64))
+        .ok_or(InitError::InvalidCapabilityHeader)?;
+    let runtime_page = runtime_physical & !(PAGE - 1);
+    let runtime_offset =
+        usize::try_from(runtime_physical - runtime_page).map_err(|_| InitError::Mapping)?;
+    if !unsafe { memory::external_mmio_page_is_safe(runtime_page) } {
+        return Err(InitError::UnsafeMmio);
+    }
+    let runtime_virtual =
+        unsafe { vm.map_mmio_writable(2, runtime_page) }.map_err(|_| InitError::Mapping)?;
+    let runtime_base = usize::try_from(runtime_virtual)
+        .map_err(|_| InitError::Mapping)?
+        .checked_add(runtime_offset)
+        .ok_or(InitError::Mapping)?;
+
+    let doorbell_physical = bar
+        .checked_add(u64::from(capability.doorbell_offset))
+        .ok_or(InitError::InvalidCapabilityHeader)?;
+    let doorbell_page = doorbell_physical & !(PAGE - 1);
+    let doorbell_offset =
+        usize::try_from(doorbell_physical - doorbell_page).map_err(|_| InitError::Mapping)?;
+    if !unsafe { memory::external_mmio_page_is_safe(doorbell_page) } {
+        return Err(InitError::UnsafeMmio);
+    }
+    let doorbell_virtual =
+        unsafe { vm.map_mmio_writable(3, doorbell_page) }.map_err(|_| InitError::Mapping)?;
+    let doorbell_base = usize::try_from(doorbell_virtual)
+        .map_err(|_| InitError::Mapping)?
+        .checked_add(doorbell_offset)
+        .ok_or(InitError::Mapping)?;
+
+    let dcbaa = unsafe { read64(op_base, DCBAAP) } & !0x3f;
+    let command_ring = unsafe { read64(op_base, CRCR) } & !0x3f;
+    let erst = unsafe { read64(runtime_base, ERSTBA) } & !0x3f;
+    if dcbaa == 0 || command_ring == 0 || erst == 0 {
+        return Err(InitError::InvalidControllerState);
+    }
+
+    let erst_virtual = unsafe { vm.map(1, erst, true) }.map_err(|_| InitError::Mapping)?;
+    let erst_base = usize::try_from(erst_virtual).map_err(|_| InitError::Mapping)?;
+    let event_ring = unsafe { read64(erst_base, 0) } & !0x3f;
+    unsafe { vm.unmap(1) }.map_err(|_| InitError::Mapping)?;
+    if event_ring == 0 {
+        return Err(InitError::InvalidControllerState);
+    }
+
+    let command_virtual =
+        unsafe { vm.map(4, command_ring, true) }.map_err(|_| InitError::Mapping)?;
+    let command_base = usize::try_from(command_virtual).map_err(|_| InitError::Mapping)?;
+    let event_virtual =
+        unsafe { vm.map(5, event_ring, true) }.map_err(|_| InitError::Mapping)?;
+    let event_base = usize::try_from(event_virtual).map_err(|_| InitError::Mapping)?;
+    let dcbaa_virtual = unsafe { vm.map(6, dcbaa, true) }.map_err(|_| InitError::Mapping)?;
+    let dcbaa_base = usize::try_from(dcbaa_virtual).map_err(|_| InitError::Mapping)?;
+
+    let mut selected = None;
+    for port in 1..=capability.max_ports {
+        let offset = PORTSC_BASE + (usize::from(port) - 1) * PORTSC_STRIDE;
+        let portsc = unsafe { read32(op_base, offset) };
+        if portsc & PORTSC_CCS != 0 {
+            selected = Some((port, offset, portsc));
+            break;
+        }
+    }
+    let (port, port_offset, initial_portsc) = selected.ok_or(InitError::NoConnectedDevice)?;
+
+    // Clear no RW1C status bits while requesting a normal USB2-style port
+    // reset. QEMU's directly attached keyboard is full-speed and follows this
+    // path; hub and SuperSpeed warm-reset handling remain later work.
+    let reset = (initial_portsc & PORTSC_PP) | PORTSC_PR;
+    unsafe { write32(op_base, port_offset, reset) };
+    if !wait_until(|| {
+        let value = unsafe { read32(op_base, port_offset) };
+        value & PORTSC_CCS != 0 && value & PORTSC_PR == 0 && value & PORTSC_PED != 0
+    }) {
+        return Err(InitError::PortResetTimeout);
+    }
+    let portsc = unsafe { read32(op_base, port_offset) };
+    // Acknowledge reset/change status without disturbing live port state.
+    unsafe { write32(op_base, port_offset, portsc & PORTSC_RW1C) };
+    let speed_id = port_speed(portsc);
+    let max_packet_size = endpoint0_packet_size(speed_id).ok_or(InitError::DescriptorMalformed)?;
+
+    let mut command_index = 0usize;
+    let mut event_index = 0usize;
+    let mut event_cycle = true;
+    let enable_event = unsafe {
+        submit_command(
+            command_base,
+            &mut command_index,
+            doorbell_base,
+            event_base,
+            event_ring,
+            runtime_base,
+            &mut event_index,
+            &mut event_cycle,
+            [0, 0, 0, trb_control(TRB_TYPE_ENABLE_SLOT)],
+        )
+    }?;
+    let slot_id = event_slot_id(enable_event[3]);
+    if slot_id == 0 || slot_id > capability.max_slots.min(8) {
+        return Err(InitError::InvalidControllerState);
+    }
+
+    let device_context = unsafe { memory::allocate_frame() }.ok_or(InitError::OutOfFrames)?;
+    let input_context = unsafe { memory::allocate_frame() }.ok_or(InitError::OutOfFrames)?;
+    let transfer_ring = unsafe { memory::allocate_frame() }.ok_or(InitError::OutOfFrames)?;
+    let descriptor_buffer = unsafe { memory::allocate_frame() }.ok_or(InitError::OutOfFrames)?;
+
+    unsafe { zero_frame(&mut vm, 7, device_context) }?;
+    unsafe { unmap_ram(&mut vm, 7) }?;
+    let input_virtual = unsafe { zero_frame(&mut vm, 7, input_context) }?;
+    let input_base = usize::try_from(input_virtual).map_err(|_| InitError::Mapping)?;
+    let transfer_virtual = unsafe { zero_frame(&mut vm, 8, transfer_ring) }?;
+    let transfer_base = usize::try_from(transfer_virtual).map_err(|_| InitError::Mapping)?;
+    let descriptor_virtual = unsafe { zero_frame(&mut vm, 9, descriptor_buffer) }?;
+    let descriptor_base = usize::try_from(descriptor_virtual).map_err(|_| InitError::Mapping)?;
+
+    unsafe { write64(dcbaa_base, usize::from(slot_id) * 8, device_context) };
+
+    // 32-byte input context: input-control, slot, endpoint-0.
+    unsafe {
+        write32(input_base, 4, 0x3); // add slot context + endpoint context 0
+        write32(
+            input_base,
+            32,
+            (u32::from(speed_id) << 20) | (1 << 27), // Context Entries=1
+        );
+        write32(input_base, 36, u32::from(port) << 16);
+        write32(
+            input_base,
+            64 + 4,
+            (3 << 1) | (4 << 3) | (u32::from(max_packet_size) << 16),
+        );
+        write64(input_base, 64 + 8, transfer_ring | 1); // DCS=1
+        write32(input_base, 64 + 16, 8); // average TRB length
+    }
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
+
+    let address_event = unsafe {
+        submit_command(
+            command_base,
+            &mut command_index,
+            doorbell_base,
+            event_base,
+            event_ring,
+            runtime_base,
+            &mut event_index,
+            &mut event_cycle,
+            [
+                input_context as u32,
+                (input_context >> 32) as u32,
+                0,
+                trb_control(TRB_TYPE_ADDRESS_DEVICE) | (u32::from(slot_id) << 24),
+            ],
+        )
+    }?;
+    if event_slot_id(address_event[3]) != slot_id {
+        return Err(InitError::InvalidControllerState);
+    }
+    unsafe { unmap_ram(&mut vm, 7) }?;
+
+    unsafe {
+        write_trb(transfer_base, 0, setup_get_device_descriptor());
+        write_trb(
+            transfer_base,
+            1,
+            [
+                descriptor_buffer as u32,
+                (descriptor_buffer >> 32) as u32,
+                18,
+                trb_control(TRB_TYPE_DATA_STAGE) | TRB_DIR_IN,
+            ],
+        );
+        write_trb(
+            transfer_base,
+            2,
+            [0, 0, 0, trb_control(TRB_TYPE_STATUS_STAGE) | TRB_IOC],
+        );
+    }
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
+    // Doorbell index is the slot ID; target 1 selects default control endpoint.
+    unsafe { write32(doorbell_base, usize::from(slot_id) * 4, 1) };
+
+    let transfer_event = unsafe {
+        wait_for_event_type(
+            event_base,
+            event_ring,
+            runtime_base,
+            &mut event_index,
+            &mut event_cycle,
+            TRB_TYPE_TRANSFER_EVENT,
+        )
+    }
+    .ok_or(InitError::TransferTimeout)?;
+    let code = completion_code(transfer_event[2]);
+    if code != COMPLETION_SUCCESS && code != COMPLETION_SHORT_PACKET {
+        return Err(InitError::TransferFailed(code));
+    }
+    if event_slot_id(transfer_event[3]) != slot_id
+        || ((transfer_event[3] >> 16) & 0x1f) != 1
+    {
+        return Err(InitError::InvalidControllerState);
+    }
+    let remaining = transfer_event[2] & 0x00ff_ffff;
+    if remaining > 18 || 18 - remaining < 12 {
+        return Err(InitError::DescriptorMalformed);
+    }
+
+    let length = unsafe { read8(descriptor_base, 0) };
+    let descriptor_type = unsafe { read8(descriptor_base, 1) };
+    if length < 18 || descriptor_type != 1 {
+        return Err(InitError::DescriptorMalformed);
+    }
+    let class = unsafe { read8(descriptor_base, 4) };
+    let subclass = unsafe { read8(descriptor_base, 5) };
+    let protocol = unsafe { read8(descriptor_base, 6) };
+    let max_packet_size0 = unsafe { read8(descriptor_base, 7) };
+    let vendor_id = u16::from_le_bytes([
+        unsafe { read8(descriptor_base, 8) },
+        unsafe { read8(descriptor_base, 9) },
+    ]);
+    let product_id = u16::from_le_bytes([
+        unsafe { read8(descriptor_base, 10) },
+        unsafe { read8(descriptor_base, 11) },
+    ]);
+
+    unsafe { vm.unmap(9) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(8) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(6) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(5) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(4) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(3) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(2) }.map_err(|_| InitError::Mapping)?;
+    unsafe { vm.unmap(0) }.map_err(|_| InitError::Mapping)?;
+
+    Ok(UsbDeviceSummary {
+        port,
+        slot_id,
+        speed_id,
+        vendor_id,
+        product_id,
+        class,
+        subclass,
+        protocol,
+        max_packet_size0,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
