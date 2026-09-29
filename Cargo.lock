@@ -29,6 +29,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibrix-package-core"
+version = "0.0.1"
+
+[[package]]
 name = "vibrix-shell"
 version = "0.0.1"
 dependencies = [
