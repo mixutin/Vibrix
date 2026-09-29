@@ -655,6 +655,8 @@ fn copy_device_path(raw: *const u8) -> Result<([u8; MAX_BOOT_DEVICE_PATH_BYTES],
 #[allow(dead_code)]
 pub struct FirmwareBootDisk {
     block_io: *mut BlockIoProtocol,
+    media_id: u32,
+    io_align: u32,
     pub partition: crate::uefi_boot_path::BootPartitionPath,
     pub block_size: u32,
     pub last_block: u64,
@@ -760,8 +762,14 @@ pub unsafe fn discover_boot_whole_disk(
             let _ = unsafe { ((*services).free_pool)(handles.cast()) };
             return Err(EFI_LOAD_ERROR);
         }
+        let io_align = unsafe { (*media).io_align };
+        if io_align > 4096 || (io_align > 1 && !io_align.is_power_of_two()) {
+            continue;
+        }
         found = Some(FirmwareBootDisk {
             block_io: block,
+            media_id: unsafe { (*media).media_id },
+            io_align,
             partition,
             block_size,
             last_block: unsafe { (*media).last_block },
@@ -773,6 +781,203 @@ pub unsafe fn discover_boot_whole_disk(
         return Err(free_status);
     }
     found.ok_or(EFI_LOAD_ERROR)
+}
+
+/// Read and validate both GPT copies from the matched firmware whole disk.
+///
+/// All temporary buffers are page-backed EfiLoaderData so they satisfy any
+/// supported Block I/O alignment requirement. They are released before this
+/// function returns; only the firmware-neutral GUID/extent tuple escapes.
+///
+/// # Safety
+/// `disk` must come from `discover_boot_whole_disk` during the same live
+/// Boot Services phase. Its Block I/O protocol and media must remain valid.
+#[allow(dead_code)]
+pub unsafe fn read_boot_gpt_identity(
+    disk: &FirmwareBootDisk,
+    system_table: *mut SystemTable,
+) -> Result<crate::gpt_identity::Identity, Status> {
+    if system_table.is_null()
+        || disk.block_io.is_null()
+        || disk.last_block < 5
+        || !matches!(disk.block_size, 512 | 4096)
+    {
+        return Err(EFI_INVALID_PARAMETER);
+    }
+    let block_size = disk.block_size as usize;
+    let header_pages = 1usize;
+    let primary_header = unsafe { allocate_loader_pages(system_table, header_pages)? };
+    let backup_header = match unsafe { allocate_loader_pages(system_table, header_pages) } {
+        Ok(value) => value,
+        Err(status) => {
+            unsafe { free_loader_pages(system_table, primary_header, header_pages)? };
+            return Err(status);
+        }
+    };
+
+    let mut primary_entries = 0u64;
+    let mut backup_entries = 0u64;
+    let mut entry_pages = 0usize;
+
+    let result = (|| {
+        let primary_ptr = usize::try_from(primary_header).map_err(|_| EFI_LOAD_ERROR)? as *mut u8;
+        let backup_ptr = usize::try_from(backup_header).map_err(|_| EFI_LOAD_ERROR)? as *mut u8;
+        if disk.io_align > 1 {
+            let align = disk.io_align as usize;
+            if !(primary_ptr as usize).is_multiple_of(align)
+                || !(backup_ptr as usize).is_multiple_of(align)
+            {
+                return Err(EFI_LOAD_ERROR);
+            }
+        }
+
+        let read = unsafe { (*disk.block_io).read_blocks };
+        let status = read(
+            disk.block_io,
+            disk.media_id,
+            1,
+            block_size,
+            primary_ptr.cast(),
+        );
+        if status != EFI_SUCCESS {
+            return Err(status);
+        }
+        let status = read(
+            disk.block_io,
+            disk.media_id,
+            disk.last_block,
+            block_size,
+            backup_ptr.cast(),
+        );
+        if status != EFI_SUCCESS {
+            return Err(status);
+        }
+
+        let primary_header_slice =
+            unsafe { core::slice::from_raw_parts(primary_ptr.cast_const(), block_size) };
+        let backup_header_slice =
+            unsafe { core::slice::from_raw_parts(backup_ptr.cast_const(), block_size) };
+        let (_, primary_layout) = crate::gpt_identity::validate_header(
+            primary_header_slice,
+            block_size,
+            1,
+            disk.last_block,
+        )
+        .map_err(|_| EFI_LOAD_ERROR)?;
+        let (_, backup_layout) = crate::gpt_identity::validate_header(
+            backup_header_slice,
+            block_size,
+            disk.last_block,
+            1,
+        )
+        .map_err(|_| EFI_LOAD_ERROR)?;
+        if primary_layout.entry_array_bytes != backup_layout.entry_array_bytes {
+            return Err(EFI_LOAD_ERROR);
+        }
+
+        let read_bytes = primary_layout
+            .entry_array_bytes
+            .div_ceil(block_size)
+            .checked_mul(block_size)
+            .ok_or(EFI_LOAD_ERROR)?;
+        entry_pages = read_bytes.div_ceil(4096);
+        if entry_pages == 0 {
+            return Err(EFI_LOAD_ERROR);
+        }
+        primary_entries = unsafe { allocate_loader_pages(system_table, entry_pages)? };
+        backup_entries = unsafe { allocate_loader_pages(system_table, entry_pages)? };
+        let primary_entries_ptr =
+            usize::try_from(primary_entries).map_err(|_| EFI_LOAD_ERROR)? as *mut u8;
+        let backup_entries_ptr =
+            usize::try_from(backup_entries).map_err(|_| EFI_LOAD_ERROR)? as *mut u8;
+        if disk.io_align > 1 {
+            let align = disk.io_align as usize;
+            if !(primary_entries_ptr as usize).is_multiple_of(align)
+                || !(backup_entries_ptr as usize).is_multiple_of(align)
+            {
+                return Err(EFI_LOAD_ERROR);
+            }
+        }
+
+        let status = read(
+            disk.block_io,
+            disk.media_id,
+            primary_layout.entry_lba,
+            read_bytes,
+            primary_entries_ptr.cast(),
+        );
+        if status != EFI_SUCCESS {
+            return Err(status);
+        }
+        let status = read(
+            disk.block_io,
+            disk.media_id,
+            backup_layout.entry_lba,
+            read_bytes,
+            backup_entries_ptr.cast(),
+        );
+        if status != EFI_SUCCESS {
+            return Err(status);
+        }
+
+        let primary_entries_slice = unsafe {
+            core::slice::from_raw_parts(
+                primary_entries_ptr.cast_const(),
+                primary_layout.entry_array_bytes,
+            )
+        };
+        let backup_entries_slice = unsafe {
+            core::slice::from_raw_parts(
+                backup_entries_ptr.cast_const(),
+                backup_layout.entry_array_bytes,
+            )
+        };
+        let identity = crate::gpt_identity::validate_identity(
+            block_size,
+            disk.last_block,
+            primary_header_slice,
+            primary_entries_slice,
+            backup_header_slice,
+            backup_entries_slice,
+        )
+        .map_err(|_| EFI_LOAD_ERROR)?;
+
+        let expected_last = disk
+            .partition
+            .partition_start_lba
+            .checked_add(disk.partition.partition_size_lba)
+            .and_then(|end| end.checked_sub(1))
+            .ok_or(EFI_LOAD_ERROR)?;
+        if identity.esp_guid != disk.partition.partition_guid
+            || identity.esp_first_lba != disk.partition.partition_start_lba
+            || identity.esp_last_lba != expected_last
+        {
+            return Err(EFI_LOAD_ERROR);
+        }
+        Ok(identity)
+    })();
+
+    let mut cleanup_error = None;
+    if primary_entries != 0
+        && unsafe { free_loader_pages(system_table, primary_entries, entry_pages) }.is_err()
+    {
+        cleanup_error = Some(EFI_LOAD_ERROR);
+    }
+    if backup_entries != 0
+        && unsafe { free_loader_pages(system_table, backup_entries, entry_pages) }.is_err()
+    {
+        cleanup_error = Some(EFI_LOAD_ERROR);
+    }
+    if unsafe { free_loader_pages(system_table, primary_header, header_pages) }.is_err() {
+        cleanup_error = Some(EFI_LOAD_ERROR);
+    }
+    if unsafe { free_loader_pages(system_table, backup_header, header_pages) }.is_err() {
+        cleanup_error = Some(EFI_LOAD_ERROR);
+    }
+    match (result, cleanup_error) {
+        (_, Some(status)) => Err(status),
+        (value, None) => value,
+    }
 }
 
 pub unsafe fn loaded_image_boot_partition(
