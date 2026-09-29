@@ -6,6 +6,11 @@
 pub const SERVICE_COUNT: usize = 3;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Error {
+    Invariant,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum Service {
     Ssh = 0,
@@ -42,11 +47,11 @@ impl Default for Policy {
     }
 }
 
-pub fn self_test() -> Result<(), ()> {
+pub fn self_test() -> Result<(), Error> {
     let mut policy = Policy::new();
     for service in [Service::Ssh, Service::Resolver, Service::Ntp] {
         if policy.may_start(service) {
-            return Err(());
+            return Err(Error::Invariant);
         }
     }
 
@@ -55,12 +60,12 @@ pub fn self_test() -> Result<(), ()> {
         || policy.may_start(Service::Ssh)
         || policy.may_start(Service::Ntp)
     {
-        return Err(());
+        return Err(Error::Invariant);
     }
 
     policy.set_enabled(Service::Resolver, false);
     if policy.may_start(Service::Resolver) {
-        return Err(());
+        return Err(Error::Invariant);
     }
     Ok(())
 }
