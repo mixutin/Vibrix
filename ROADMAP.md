@@ -570,7 +570,7 @@ coordination remain later work.
 - [x] pipes
 - [x] TTY
 - [x] Rust init
-- [ ] Rust shell
+- [x] Rust shell
 - [ ] Core utilities: cat, echo, ls, pwd, cd, mkdir, cp, mv, rm, ps, kill
 
 **Verified M6 bounded bootstrap filesystem and streams (PR #135):**
@@ -623,6 +623,22 @@ evidence for both transitions.
 This checks the bounded **Rust init runtime** item. It does not by itself
 provide an interactive userspace shell, core utilities, persistent root, USB
 storage, general multi-process scheduling or a full service manager.
+
+**Verified M6 compiled Rust shell runtime (PR #176):**
+[CI run 36527750888](https://github.com/mixutin/Vibrix/actions/runs/36527750888)
+passed the full exact-head matrix on implementation head
+`c029e68221ba0b5a4a81f9b3e7ff9d62dff1fd59`. The build produces the
+real no_std `vibrix-sh` ELF, the kernel stages it into the private userspace
+CR3, pre-opens `/dev/tty` as fd 0/1/2, and routes userspace `read`/`write`
+through the real SYSCALL path, validated copy-in/copy-out and the VFS TTY.
+QEMU injects actual virtual keyboard input after the shell blocks in its TTY
+read; `help`, `echo hi` and `exit` execute in CPL3 and PID 1 terminates
+through the real exit syscall.
+
+This checks the **interactive Rust shell runtime** only. The remaining roadmap
+core utilities are not complete merely because their command names parse:
+`cat`, `ls`, `pwd`, `cd`, `mkdir`, `cp`, `mv`, `rm`, `ps`
+and `kill` still need real userspace/kernel backends and proofs.
 
 **Exit:** boot to an interactive Vibrix userspace shell.
 
