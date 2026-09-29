@@ -1241,9 +1241,9 @@ weakening the default system.
 - [ ] Panic/crash record persisted across reboot where safe
 - [ ] Symbolized kernel stack traces
 - [ ] Register/fault context in crash diagnostics
-- [ ] `vibrix status` system overview
-- [ ] `vibrix doctor` automated diagnostics
-- [ ] Driver binding/missing-driver diagnostics
+- [x] `vibrix status` system overview
+- [x] `vibrix doctor` automated diagnostics
+- [x] Driver binding/missing-driver diagnostics
 - [ ] Filesystem/network/update health checks
 - [ ] Privacy-reviewed `vibrix doctor --bundle` support bundle
 - [ ] Verbose boot mode while normal boot remains clean
@@ -1268,6 +1268,36 @@ This checks **Structured kernel logging** and **Log levels and subsystem
 filtering** only. Persistent journal storage, timestamps, `vlog`, previous-boot
 access, rotation/retention, crash persistence, symbolization and SMP/per-CPU
 logging remain separate unchecked M18 work.
+
+**Verified M18 userspace status/doctor commands (PR #233):**
+[Actions run 36596122420](https://github.com/mixutin/Vibrix/actions/runs/36596122420)
+passed the full exact-head repository matrix on implementation head
+`67cee22698c4763d20f7920528f8e3f5f6017a52`. The native Ring 3 shell exposes
+`vibrix status` and `vibrix doctor` through the existing syscall/VFS/process
+paths, with read-only process, VFS and bootstrap-device diagnostics and explicit
+labels for currently unavailable persistence/network/update state. The existing
+userspace CLI/QEMU evidence exercises the same compiled shell rather than a host
+facsimile.
+
+This checks the bounded **vibrix status system overview** and **vibrix doctor
+automated diagnostics** items only. It does not claim persistent history,
+privileged repair actions, package/network management, or a complete support
+bundle.
+
+**Verified M18 driver binding/missing-driver diagnostics (PR #229):**
+[Actions run 36595702118](https://github.com/mixutin/Vibrix/actions/runs/36595702118)
+and dedicated driver-diagnostics
+[run 36595701457](https://github.com/mixutin/Vibrix/actions/runs/36595701457)
+passed on implementation head `10c787b825ee4c22bf178b4a91534369464960c8`.
+The native post-firmware PCI path reports discovered devices, driver candidates,
+successful bindings, devices with no registered driver and candidate binding
+failures, with an independent debugcon readiness marker and host accounting
+tests.
+
+This checks **Driver binding/missing-driver diagnostics** for the current early
+PCI/device model. A successful binding remains ownership bookkeeping, not proof
+of BAR activation, DMA, interrupts, useful device I/O, USB child-device
+coverage, hotplug, or physical Target 001 support.
 
 **Exit:** common boot, driver, storage, update and network failures can be
 diagnosed from Vibrix itself with useful logs and an exportable support bundle.
