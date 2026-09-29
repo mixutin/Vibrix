@@ -11,6 +11,14 @@ disk/partition GUIDs, duplicate GUIDs, partition ranges/overlap, exactly one EFI
 System Partition, and at most one Vibrix System partition. It returns only the
 firmware-neutral disk/ESP/optional-system GUID tuple.
 
-This does not yet obtain the firmware boot disk or perform native USB reads.
-Those are the next integration steps; keeping the parser shared prevents the
-loader and kernel from making different trust decisions about the same media.
+The opt-in boot-identity probe now obtains the loaded image's exact whole-disk
+UEFI Block I/O parent, reads the primary and backup GPT headers and entry arrays
+from that disk, validates both copies with this shared parser, and requires the
+validated ESP GUID/extent to match the partition in the loaded-image device
+path. Temporary firmware buffers are page-backed, alignment-checked and released
+before ExitBootServices; only the firmware-neutral identity tuple survives the
+read.
+
+This remains a pre-ExitBootServices provenance proof. Passing the neutral tuple
+through BootInfo and reacquiring the same removable disk through Vibrix's native
+post-firmware USB mass-storage path are still separate integration steps.
