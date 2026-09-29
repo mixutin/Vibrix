@@ -12,9 +12,9 @@ pub mod nic;
 pub mod per_cpu;
 pub mod process;
 pub mod process_syscalls;
-pub mod secure_random;
 #[path = "../../shared/scsi.rs"]
 pub mod scsi;
+pub mod secure_random;
 pub mod update_policy;
 pub mod usb_hid;
 #[path = "../../shared/usb_mass_bulk.rs"]
