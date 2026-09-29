@@ -165,10 +165,16 @@ mod tests {
         assert_eq!(read_capacity_10().bytes[0], 0x25);
 
         let read = read_10(0x1122_3344, 0x5566).unwrap();
-        assert_eq!(&read.bytes[..10], &[0x28, 0, 0x11, 0x22, 0x33, 0x44, 0, 0x55, 0x66, 0]);
+        assert_eq!(
+            &read.bytes[..10],
+            &[0x28, 0, 0x11, 0x22, 0x33, 0x44, 0, 0x55, 0x66, 0]
+        );
 
         let write = write_10(0xaabb_ccdd, 2).unwrap();
-        assert_eq!(&write.bytes[..10], &[0x2a, 0, 0xaa, 0xbb, 0xcc, 0xdd, 0, 0, 2, 0]);
+        assert_eq!(
+            &write.bytes[..10],
+            &[0x2a, 0, 0xaa, 0xbb, 0xcc, 0xdd, 0, 0, 2, 0]
+        );
         assert_eq!(synchronize_cache_10().bytes[0], 0x35);
 
         assert_eq!(read_10(0, 0), Err(Error::ZeroTransfer));
@@ -187,10 +193,7 @@ mod tests {
             parse_read_capacity_10(&[0, 0, 0, 1, 0, 0, 0, 0]),
             Err(Error::InvalidBlockLength)
         );
-        assert_eq!(
-            parse_read_capacity_10(&[0; 7]),
-            Err(Error::InvalidResponse)
-        );
+        assert_eq!(parse_read_capacity_10(&[0; 7]), Err(Error::InvalidResponse));
     }
 
     #[test]
