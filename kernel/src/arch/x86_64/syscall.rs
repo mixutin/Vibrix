@@ -352,6 +352,10 @@ mod native {
                     crate::debugcon::write("VIBRIX: kernel process getpid syscall verified\r\n");
                     #[cfg(feature = "rust-init-probe")]
                     crate::debugcon::write("VIBRIX: Rust init userspace syscall reached\r\n");
+                    #[cfg(feature = "package-metadata-probe")]
+                    crate::debugcon::write(
+                        "VIBRIX: package metadata userspace syscall reached\r\n",
+                    );
                     crate::println!("kernel process syscall: getpid={}", value);
                 }
                 value
@@ -594,6 +598,12 @@ mod native {
                 crate::debugcon::write("VIBRIX: kernel process exit syscall verified\r\n");
                 #[cfg(feature = "rust-init-probe")]
                 crate::debugcon::write("VIBRIX: Rust init PID 1 exited through syscall\r\n");
+                #[cfg(feature = "package-metadata-probe")]
+                if args[0] == 0 {
+                    crate::debugcon::write(
+                        "VIBRIX: package metadata userspace verified\r\n",
+                    );
+                }
                 crate::println!(
                     "kernel process syscall: exit pid=1 status={}",
                     args[0] as i32
