@@ -127,10 +127,6 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     #[cfg(feature = "process-syscall-probe")]
     arch::x86_64::syscall::init_process_probe()
         .unwrap_or_else(|error| panic!("process syscall probe initialization failed: {:?}", error));
-    #[cfg(feature = "userspace-io-probe")]
-    debugcon::write("VIBRIX: kernel process probe initialized for userspace I/O\r\n");
-    #[cfg(feature = "userspace-io-probe")]
-    userspace_io::init().unwrap_or_else(|error| panic!("userspace stdio init failed: {:?}", error));
 
     // A kernel-side ACPI read after ExitBootServices, not a loader marker.
     // The XSDT/MCFG table pages are NOT mapped yet: consume RSDP metadata
@@ -579,6 +575,9 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
 
         #[cfg(feature = "rust-shell-probe")]
         {
+            debugcon::write("VIBRIX: kernel process probe initialized for userspace I/O\r\n");
+            userspace_io::init()
+                .unwrap_or_else(|error| panic!("userspace stdio init failed: {:?}", error));
             // SAFETY: build-qemu produced the fixed-layout no_std Rust shell
             // ELF before compiling the kernel; load_elf_probe validates it.
             let probe = unsafe { memory::address_space::load_elf_probe() }
