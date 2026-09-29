@@ -531,9 +531,7 @@ impl Shell {
             }
             Builtin::Clear => {
                 require_empty(args)?;
-                for _ in 0..32 {
-                    write_all(io, out, b"\n")?;
-                }
+                write_all(io, out, b"\x0c")?;
             }
             Builtin::True | Builtin::False => {
                 require_empty(args)?;

@@ -194,6 +194,19 @@ impl Terminal {
         Ok(())
     }
 
+    fn clear(&mut self) -> Result<(), ()> {
+        let end = self.columns * self.rows;
+        self.cells[..end].fill(b' ');
+        self.column = 0;
+        self.row = 0;
+        for row in 0..self.rows {
+            for column in 0..self.columns {
+                self.draw_cell(column, row)?;
+            }
+        }
+        Ok(())
+    }
+
     fn printable(&mut self, byte: u8) -> Result<(), ()> {
         // Delay wrap until the next printable byte so an exactly full line
         // followed by LF advances once, not twice.
@@ -212,6 +225,7 @@ impl Terminal {
             match byte {
                 b'\n' => self.newline()?,
                 b'\r' => self.column = 0,
+                0x0c => self.clear()?,
                 8 | 127 => {
                     if self.column > 0 {
                         self.column -= 1;
@@ -317,6 +331,17 @@ mod tests {
         assert_eq!(&terminal.cells[..4], b"abZ ");
         terminal.write(b"\rQ").unwrap();
         assert_eq!(&terminal.cells[..4], b"QbZ ");
+    }
+
+    #[test]
+    fn form_feed_clears_cells_and_homes_cursor() {
+        let mut pixels = vec![0; 200 * 200];
+        let boot = info(&mut pixels, 4, 2);
+        // SAFETY: uniquely owned live host pixel storage.
+        let mut terminal = unsafe { Terminal::new(&boot) }.unwrap();
+        terminal.write(b"abc\ndef\x0c").unwrap();
+        assert_eq!(&terminal.cells[..8], b"        ");
+        assert_eq!((terminal.row, terminal.column), (0, 0));
     }
 
     #[test]

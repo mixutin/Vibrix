@@ -59,7 +59,7 @@ commands! {
     Pid, b"pid", b"print the current process ID", b"pid", b"Read the current PID from the kernel; it is not a hard-coded display value.", b"pid";
     Fetch, b"vfetch", b"show native userspace system facts", b"vfetch", b"Render the original Vibrix summary using CPUID, actual privilege bits and kernel PID. neofetch and fastfetch are aliases, not imported packages. Unavailable accounting is labelled unavailable.", b"vfetch";
     Uname, b"uname", b"print OS and architecture identity", b"uname [-a|-s|-m|-r]", b"Default and -s print Vibrix. -m prints x86_64; -r prints the shell build version, not a compatibility promise. -a prints the native Rust userspace identity.", b"uname -a";
-    Clear, b"clear", b"scroll the console to a fresh area", b"clear", b"Write 32 newlines through the existing terminal. This is a bounded scrolling operation, not ANSI erase/home support. Serial output is preserved.", b"clear";
+    Clear, b"clear", b"clear the native terminal", b"clear", b"Emit one native form-feed control to clear the screen and home the cursor. This uses the existing terminal owner, not an ANSI parser. The control is also mirrored to serial output.", b"clear";
     True, b"true", b"return success", b"true", b"Return status 0 without output. Extra arguments are rejected in this bounded implementation.", b"true";
     False, b"false", b"return failure without a diagnostic", b"false", b"Return status 1 without output. Use status to inspect the result.", b"false";
     Status, b"status", b"print the previous command status", b"status", b"Print the previous command's status, then succeed. Empty input and comments preserve status. No dollar-question-mark expansion is implemented.", b"status";
