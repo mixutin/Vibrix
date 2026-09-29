@@ -24,7 +24,11 @@ impl<T: Transport> DeviceCell<T> {
         Self(UnsafeCell::new(device))
     }
 
-    fn read_blocks(&self, lba: u64, output: &mut [u8]) -> core::result::Result<(), crate::block::Error> {
+    fn read_blocks(
+        &self,
+        lba: u64,
+        output: &mut [u8],
+    ) -> core::result::Result<(), crate::block::Error> {
         // SAFETY: VibrixFs is owned exclusively by one VFS mount. The current
         // VFS never calls a backend from interrupts or concurrently, and the
         // mutable transport reference remains inside this one operation.
@@ -52,10 +56,7 @@ fn kind(file_type: u8) -> Result<Kind> {
 }
 
 impl<T: Transport> VibrixFs<T> {
-    pub fn mount_read_only(
-        device: BlockDevice<T>,
-        expected_root_guid: [u8; 16],
-    ) -> Result<Self> {
+    pub fn mount_read_only(device: BlockDevice<T>, expected_root_guid: [u8; 16]) -> Result<Self> {
         if !device.is_read_only() {
             return Err(Error::AccessDenied);
         }
@@ -169,8 +170,11 @@ impl<T: Transport> VibrixFs<T> {
         let end = within
             .checked_add(wire::INODE_BYTES)
             .ok_or(Error::BackendContract)?;
-        let inode = wire::parse_inode(raw.get(within..end).ok_or(Error::BackendContract)?, &self.superblock)
-            .map_err(backend)?;
+        let inode = wire::parse_inode(
+            raw.get(within..end).ok_or(Error::BackendContract)?,
+            &self.superblock,
+        )
+        .map_err(backend)?;
         if inode.number != number {
             return Err(Error::BackendContract);
         }
@@ -214,7 +218,8 @@ impl<T: Transport> VibrixFs<T> {
         let mut block = [0u8; wire::BLOCK];
         while done < wanted {
             let absolute = offset.checked_add(done).ok_or(Error::InvalidOffset)?;
-            let logical = u64::try_from(absolute / wire::BLOCK).map_err(|_| Error::InvalidOffset)?;
+            let logical =
+                u64::try_from(absolute / wire::BLOCK).map_err(|_| Error::InvalidOffset)?;
             let within = absolute % wire::BLOCK;
             self.read_block(Self::data_block(inode, logical)?, &mut block)?;
             let count = (wire::BLOCK - within).min(wanted - done);
@@ -373,9 +378,18 @@ mod tests {
             generation: 1,
             total_blocks: blocks as u64,
             total_inodes: 16,
-            block_bitmap: wire::Range { start: 1, blocks: 1 },
-            inode_bitmap: wire::Range { start: 2, blocks: 1 },
-            inode_table: wire::Range { start: 3, blocks: 1 },
+            block_bitmap: wire::Range {
+                start: 1,
+                blocks: 1,
+            },
+            inode_bitmap: wire::Range {
+                start: 2,
+                blocks: 1,
+            },
+            inode_table: wire::Range {
+                start: 3,
+                blocks: 1,
+            },
             journal: None,
             filesystem_uuid: [0x24; 16],
             root_partition_guid: ROOT_GUID,
@@ -391,22 +405,61 @@ mod tests {
         set_bit(&mut image[2 * wire::BLOCK..3 * wire::BLOCK], 1);
         set_bit(&mut image[2 * wire::BLOCK..3 * wire::BLOCK], 2);
 
-        let empty = wire::Extent { start: 0, blocks: 0 };
+        let empty = wire::Extent {
+            start: 0,
+            blocks: 0,
+        };
         let mut root_extents = [empty; 6];
-        root_extents[0] = wire::Extent { start: 4, blocks: 1 };
+        root_extents[0] = wire::Extent {
+            start: 4,
+            blocks: 1,
+        };
         let root = wire::Inode {
-            number: 1, file_type: 2, mode: 0o755, uid: 0, gid: 0, links: 2,
-            size: 80, allocated_blocks: 1, atime_sec: 1, atime_nsec: 0,
-            mtime_sec: 1, mtime_nsec: 0, ctime_sec: 1, ctime_nsec: 0,
-            nonce: [1; 16], extents: root_extents, extent_count: 1, device: 0, flags: 0,
+            number: 1,
+            file_type: 2,
+            mode: 0o755,
+            uid: 0,
+            gid: 0,
+            links: 2,
+            size: 80,
+            allocated_blocks: 1,
+            atime_sec: 1,
+            atime_nsec: 0,
+            mtime_sec: 1,
+            mtime_nsec: 0,
+            ctime_sec: 1,
+            ctime_nsec: 0,
+            nonce: [1; 16],
+            extents: root_extents,
+            extent_count: 1,
+            device: 0,
+            flags: 0,
         };
         let mut file_extents = [empty; 6];
-        file_extents[0] = wire::Extent { start: 5, blocks: 1 };
+        file_extents[0] = wire::Extent {
+            start: 5,
+            blocks: 1,
+        };
         let file = wire::Inode {
-            number: 2, file_type: 1, mode: 0o644, uid: 0, gid: 0, links: 1,
-            size: 6, allocated_blocks: 1, atime_sec: 1, atime_nsec: 0,
-            mtime_sec: 1, mtime_nsec: 0, ctime_sec: 1, ctime_nsec: 0,
-            nonce: [2; 16], extents: file_extents, extent_count: 1, device: 0, flags: 0,
+            number: 2,
+            file_type: 1,
+            mode: 0o644,
+            uid: 0,
+            gid: 0,
+            links: 1,
+            size: 6,
+            allocated_blocks: 1,
+            atime_sec: 1,
+            atime_nsec: 0,
+            mtime_sec: 1,
+            mtime_nsec: 0,
+            ctime_sec: 1,
+            ctime_nsec: 0,
+            nonce: [2; 16],
+            extents: file_extents,
+            extent_count: 1,
+            device: 0,
+            flags: 0,
         };
         let root_raw = wire::encode_inode(&root, &sb).unwrap();
         let file_raw = wire::encode_inode(&file, &sb).unwrap();
@@ -431,7 +484,13 @@ mod tests {
         let mut fs = VibrixFs::mount_read_only(device, ROOT_GUID).unwrap();
         assert_eq!(fs.metadata(fs.root()).unwrap().kind, Kind::Directory);
         let file = fs.lookup(fs.root(), "hello").unwrap();
-        assert_eq!(fs.metadata(file).unwrap(), Metadata { kind: Kind::File, len: 6 });
+        assert_eq!(
+            fs.metadata(file).unwrap(),
+            Metadata {
+                kind: Kind::File,
+                len: 6
+            }
+        );
         let mut bytes = [0u8; 8];
         assert_eq!(fs.read(file, 0, &mut bytes).unwrap(), 6);
         assert_eq!(&bytes[..6], b"Vibrix");
