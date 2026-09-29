@@ -59,9 +59,9 @@ impl Table {
     }
 
     fn enabled_index(&self, apic_id: u32) -> Option<usize> {
-        self.slots().iter().position(|slot| {
-            slot.apic_id == apic_id && slot.availability == Availability::Enabled
-        })
+        self.slots()
+            .iter()
+            .position(|slot| slot.apic_id == apic_id && slot.availability == Availability::Enabled)
     }
 }
 
