@@ -10,13 +10,13 @@ Each record contains:
 - a stable numeric event code;
 - two 64-bit event values.
 
-The production buffer holds 128 publish-once records. Writers atomically reserve a unique slot, initialize the record, then publish it with Release ordering. Readers require an Acquire load before copying the record. Published slots are never mutated or reused during the boot. Capacity exhaustion is returned as an explicit error; old records are never silently overwritten.
+The production buffer holds 128 publish-once records. Writers atomically reserve a unique slot, initialize the record, then publish it with Release ordering. Readers require an Acquire load before copying the record. Published slots are never mutated or reused during the boot. Capacity exhaustion is returned as an explicit error; old records are never silently overwritten.\n\nA single packed atomic filter controls the minimum accepted severity and an eight-bit subsystem mask. Filter updates publish atomically, so readers never observe a torn level/mask pair. Filtered events are explicitly reported to the caller and do not consume log capacity.
 
 This design follows Rust's documented rule that UnsafeCell does not itself make concurrent access safe. Synchronization is provided by unique atomic slot reservation plus Release/Acquire publication. The design deliberately avoids a spin lock so a future interrupt-context producer cannot deadlock by interrupting a lock holder.
 
 ## Current boundary
 
-This milestone establishes **structured kernel logging**, not the remaining M18 logging stack. It does not yet provide:
+This milestone establishes **structured kernel logging** plus the kernel-side **log level and subsystem filtering** policy. It does not yet provide:
 
 - persistent userspace journal storage;
 - wall-clock or monotonic timestamps in records;
