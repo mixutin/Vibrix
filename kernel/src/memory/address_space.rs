@@ -898,7 +898,7 @@ pub unsafe fn load_elf_probe() -> Result<ActivatedProbe, ElfProbeError> {
     // its stack and frame pool; both guards and W^X stay enforced.
     let stack_pages = if cfg!(feature = "userspace-desktop") {
         16
-    } else if cfg!(feature = "rust-shell-probe") {
+    } else if cfg!(feature = "rust-shell-probe") || cfg!(feature = "package-metadata-probe") {
         4
     } else {
         1
