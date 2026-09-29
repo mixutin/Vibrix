@@ -1,3 +1,4 @@
+@import url('visuals.css');
 /* Shared static navigation and page layouts; the existing dark/lime identity stays. */
 .site-header { position: relative; z-index: 30; border-bottom: 1px solid var(--line); }
 .site-topbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 76px; }
