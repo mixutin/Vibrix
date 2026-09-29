@@ -107,11 +107,7 @@ impl<const N: usize> Table<N> {
         self.slots.iter().flatten().copied().nth(index)
     }
 
-    pub fn replace_credentials(
-        &mut self,
-        pid: Pid,
-        credentials: Credentials,
-    ) -> Result<(), Error> {
+    pub fn replace_credentials(&mut self, pid: Pid, credentials: Credentials) -> Result<(), Error> {
         let index = self.index_of(pid).ok_or(Error::NotFound)?;
         let process = self.slots[index].as_mut().ok_or(Error::NotFound)?;
         if process.state != State::Running {
