@@ -1,0 +1,26 @@
+name: UEFI boot device path evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  uefi-boot-path:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt,clippy
+      - name: Test UEFI boot-path parser
+        run: |
+          rustfmt --edition 2024 --check shared/uefi_boot_path.rs
+          rustc --edition=2024 -D warnings --test shared/uefi_boot_path.rs -o "$RUNNER_TEMP/uefi-boot-path-tests"
+          "$RUNNER_TEMP/uefi-boot-path-tests"
