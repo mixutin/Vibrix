@@ -900,7 +900,7 @@ root unique-GUID identity checks; a partition type alone never selects a disk.
 - [ ] Persistent package database
 - [x] RAM-backed /tmp and runtime state
 - [ ] Flash-write reduction
-- [ ] Hardware rediscovery every boot
+- [x] Hardware rediscovery every boot
 - [x] Portable configuration policy
 - [ ] Safe USB provisioning/imaging tool
 - [ ] Recovery partition/environment
@@ -920,6 +920,20 @@ without any persistent block-device writes.
 
 This checks **RAM-backed /tmp and runtime state** only. Persistent root/home,
 package state, native USB storage and flash-write policy remain separate.
+
+**Verified M9 hardware rediscovery every boot (PR #251):**
+[Full CI run 36621258357](https://github.com/mixutin/Vibrix/actions/runs/36621258357)
+and dedicated [hardware-rediscovery run 36621257944](https://github.com/mixutin/Vibrix/actions/runs/36621257944)
+passed on exact implementation head `a25e020627ce67d861ea0a0d7286e3a27f067796`.
+The same built kernel image was booted twice: once with the default q35 PCI
+inventory and once with an added qemu-xhci function. The native post-firmware
+scanner reported zero then one xHCI controller, proving the device inventory is
+rebuilt from the hardware presented on each boot rather than loaded from stale
+persistent state.
+
+This checks **Hardware rediscovery every boot** for the current ACPI/PCI QEMU
+path. Runtime hotplug, USB child-device rediscovery, persistent configuration
+reconciliation and physical Target 001 hardware remain separate work.
 
 ## M10 — Networking
 - [x] NIC abstraction
@@ -1175,7 +1189,7 @@ acceleration, multi-process compositor isolation and physical display hardware
 validation remain separate work.
 
 ## M14 — Packages and development
-- [ ] Package format/database/dependencies
+- [x] Package format/database/dependencies
 - [ ] package manager
 - [ ] signed repositories
 - [ ] ports/build recipes
@@ -1196,6 +1210,20 @@ This checks only the **compiler bootstrap plan** deliverable. No hosted Vibrix
 Rust target, native rustc/Cargo execution, self-hosted userspace/kernel build or
 bootable-release production is claimed; those remain M15/M20 execution
 milestones.
+
+**Verified M14 package format/database/dependencies (PR #242):**
+[Full CI run 36621263779](https://github.com/mixutin/Vibrix/actions/runs/36621263779)
+and dedicated [package-metadata run 36621263629](https://github.com/mixutin/Vibrix/actions/runs/36621263629)
+passed on exact implementation head `f6611270b51ff2bb61c3fe3e903913e24abccb94`.
+A native x86_64-unknown-none Ring 3 ELF executes the production VPKG metadata
+codec and fixed-capacity database through the real userspace/process path,
+including encode/decode, reserved-byte rejection, dependency ordering,
+transactional missing-dependency rejection and reverse-dependency removal
+protection.
+
+This checks the bounded **Package format/database/dependencies** item. Package
+payload installation, persistent package state, package-manager UX and signed
+repositories remain separate work.
 
 ## M15 — Self-hosting
 - [ ] Compile a Rust userspace program on Vibrix
