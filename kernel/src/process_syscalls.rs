@@ -21,6 +21,16 @@ pub enum Action {
         status: i32,
         status_address: u64,
     },
+    Read {
+        fd: u64,
+        address: u64,
+        length: u64,
+    },
+    Write {
+        fd: u64,
+        address: u64,
+        length: u64,
+    },
 }
 
 fn process_errno(error: process::Error) -> abi::Errno {
