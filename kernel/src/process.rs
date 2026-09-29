@@ -117,7 +117,6 @@ impl<const N: usize> Table<N> {
         Ok(())
     }
 
-
     fn index_of(&self, pid: Pid) -> Option<usize> {
         self.slots
             .iter()
