@@ -2,8 +2,9 @@
 //!
 //! This module owns the bounded early xHCI proof path: controller startup,
 //! one directly attached device, and USB2 hub class control/port management.
-//! HID boot input uses bounded native interrupt-IN endpoints; mass storage
-//! and general multi-device scheduling remain later milestones.
+//! HID boot input uses bounded native interrupt-IN endpoints. A separate
+//! evidence path configures one MSC/SCSI BOT bulk pair and proves reversible
+//! block I/O; persistent storage ownership and general scheduling remain later.
 
 use crate::{BootInfo, memory};
 use core::arch::{asm, x86_64::__cpuid_count};
@@ -13,6 +14,8 @@ use crate::memory::virtual_memory::Window;
 
 #[cfg(target_os = "none")]
 mod hid;
+#[cfg(target_os = "none")]
+mod storage;
 
 const PAGE: u64 = 4096;
 const IA32_PAT: u32 = 0x277;
@@ -103,6 +106,10 @@ pub enum InitError {
     ))]
     NotHidBootKeyboard,
     NotHidBootMouse,
+    Storage(vibrix_kernel::usb_storage::Error),
+    Bot(vibrix_kernel::usb_mass_bulk::Error),
+    Scsi(vibrix_kernel::scsi::Error),
+    StorageCommandFailed,
     Hid(vibrix_kernel::usb_hid::Error),
 }
 
@@ -166,6 +173,20 @@ pub struct UsbHidMouseSummary {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UsbStorageSummary {
+    pub root_port: u8,
+    pub slot_id: u8,
+    pub interface: u8,
+    pub bulk_in_address: u8,
+    pub bulk_out_address: u8,
+    pub bulk_in_max_packet: u16,
+    pub bulk_out_max_packet: u16,
+    pub blocks: u64,
+    pub block_bytes: u32,
+    pub verified_lba: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct HidProbe {
     keyboard: bool,
     expected_usage: u8,
@@ -176,6 +197,7 @@ type UsbProbeResult = (
     Option<UsbHubSummary>,
     Option<UsbHidKeyboardSummary>,
     Option<UsbHidMouseSummary>,
+    Option<UsbStorageSummary>,
 );
 
 pub struct Capability {
@@ -799,6 +821,7 @@ unsafe fn enumerate_first_device_inner(
     info: &BootInfo,
     inspect_hub: bool,
     hid_probe: Option<HidProbe>,
+    storage_probe: bool,
 ) -> Result<UsbProbeResult, InitError> {
     let initialized = unsafe { initialize(info) }?;
 
@@ -1255,6 +1278,41 @@ unsafe fn enumerate_first_device_inner(
         }
     }
 
+    let mut storage_summary = None;
+    if storage_probe {
+        // SAFETY: sole BSP, IF=0, completed EP0 descriptor transfer. The
+        // helper borrows the same exclusive controller/event-ring ownership,
+        // configures one BOT bulk pair, restores its test block, and disables
+        // the slot before returning.
+        let evidence = unsafe {
+            storage::run(
+                &mut vm,
+                &mut rings,
+                storage::Control {
+                    input_context,
+                    device_context,
+                    transfer_base,
+                    transfer_index: &mut transfer_index,
+                    descriptor_buffer,
+                    descriptor_base,
+                    device: device_summary,
+                },
+            )
+        }?;
+        storage_summary = Some(UsbStorageSummary {
+            root_port: port,
+            slot_id,
+            interface: evidence.interface.interface,
+            bulk_in_address: evidence.interface.bulk_in.address,
+            bulk_out_address: evidence.interface.bulk_out.address,
+            bulk_in_max_packet: evidence.interface.bulk_in.max_packet,
+            bulk_out_max_packet: evidence.interface.bulk_out.max_packet,
+            blocks: evidence.capacity.blocks().map_err(InitError::Scsi)?,
+            block_bytes: evidence.capacity.block_bytes,
+            verified_lba: evidence.verified_lba,
+        });
+    }
+
     unsafe { vm.unmap(9) }.map_err(|_| InitError::Mapping)?;
     unsafe { vm.unmap(8) }.map_err(|_| InitError::Mapping)?;
     unsafe { vm.unmap(6) }.map_err(|_| InitError::Mapping)?;
@@ -1264,7 +1322,13 @@ unsafe fn enumerate_first_device_inner(
     unsafe { vm.unmap(2) }.map_err(|_| InitError::Mapping)?;
     unsafe { vm.unmap(0) }.map_err(|_| InitError::Mapping)?;
 
-    Ok((device_summary, hub_summary, keyboard_summary, mouse_summary))
+    Ok((
+        device_summary,
+        hub_summary,
+        keyboard_summary,
+        mouse_summary,
+        storage_summary,
+    ))
 }
 
 /// Enumerate one directly attached root-port USB device.
@@ -1277,7 +1341,7 @@ unsafe fn enumerate_first_device_inner(
     not(feature = "usb-hub-probe")
 ))]
 pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary, InitError> {
-    Ok(unsafe { enumerate_first_device_inner(info, false, None) }?.0)
+    Ok(unsafe { enumerate_first_device_inner(info, false, None, false) }?.0)
 }
 
 /// Address a directly attached USB2 hub and prove downstream port management.
@@ -1290,7 +1354,7 @@ pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary
     not(feature = "usb-hid-keyboard-probe")
 ))]
 pub unsafe fn inspect_first_hub(info: &BootInfo) -> Result<UsbHubSummary, InitError> {
-    unsafe { enumerate_first_device_inner(info, true, None) }?
+    unsafe { enumerate_first_device_inner(info, true, None, false) }?
         .1
         .ok_or(InitError::NotHub)
 }
@@ -1318,6 +1382,7 @@ pub unsafe fn probe_hid_boot_keyboard(
                 keyboard: true,
                 expected_usage,
             }),
+            false,
         )
     }?
     .2
@@ -1340,10 +1405,28 @@ pub unsafe fn probe_hid_boot_mouse(info: &BootInfo) -> Result<UsbHidMouseSummary
                 keyboard: false,
                 expected_usage: 0,
             }),
+            false,
         )
     }?
     .3
     .ok_or(InitError::NotHidBootMouse)
+}
+
+/// Configure one directly attached USB Mass Storage BOT/SCSI device and prove
+/// capacity discovery plus a reversible one-block write/read/flush transaction.
+///
+/// # Safety
+/// Same exclusive single-BSP xHCI ownership as device enumeration. The attached
+/// device is expected to be a disposable/evidence target; the probe restores the
+/// original tested block before disabling the slot.
+#[cfg(all(target_os = "none", feature = "usb-storage-probe"))]
+#[allow(dead_code)] // all-features Clippy enables mutually exclusive USB evidence profiles together
+pub unsafe fn probe_mass_storage(info: &BootInfo) -> Result<UsbStorageSummary, InitError> {
+    unsafe { enumerate_first_device_inner(info, false, None, true) }?
+        .4
+        .ok_or(InitError::Storage(
+            vibrix_kernel::usb_storage::Error::Missing,
+        ))
 }
 
 #[cfg(test)]

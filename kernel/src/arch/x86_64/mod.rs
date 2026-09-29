@@ -38,6 +38,7 @@ pub mod syscall;
     feature = "usb-enum-probe",
     feature = "usb-hub-probe",
     feature = "usb-hid-keyboard-probe",
-    feature = "usb-hid-mouse-probe"
+    feature = "usb-hid-mouse-probe",
+    feature = "usb-storage-probe"
 ))]
 pub mod xhci;

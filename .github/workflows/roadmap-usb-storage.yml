@@ -1,0 +1,53 @@
+name: USB mass-storage evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  usb-mass-storage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rust-src,rustfmt,clippy --target x86_64-unknown-uefi,x86_64-unknown-none
+      - name: Check production storage contracts
+        run: |
+          cargo fmt --all -- --check
+          rustfmt --edition 2024 --check shared/usb_mass_bulk.rs shared/scsi.rs
+          cargo test --locked -p vibrix-kernel --lib usb_storage::
+          cargo clippy --locked -p vibrix-kernel --all-features --target x86_64-unknown-none -- -D warnings
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+      - name: Execute real BOT and SCSI over xHCI bulk endpoints
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,usb-storage-probe bash tools/build-qemu.sh
+          truncate -s 2M build/qemu/usb-storage.img
+          before="$(sha256sum build/qemu/usb-storage.img | awk '{print $1}')"
+          VIBRIX_SKIP_BUILD=1 VIBRIX_QEMU_USB_STORAGE_PROBE=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
+          after="$(sha256sum build/qemu/usb-storage.img | awk '{print $1}')"
+          test "$before" = "$after"
+          grep -Fq "VIBRIX: kernel USB mass storage BOT read write flush verified" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel USB mass-storage SCSI commands verified" build/qemu/debugcon.log
+          grep -Eq '^kernel USB storage: root_port=[1-9][0-9]* slot=[1-9][0-9]* interface=[0-9]+ bulk_in=0x8[0-9a-f]/[1-9][0-9]* bulk_out=0x0[1-9a-f]/[1-9][0-9]* blocks=4096 block_bytes=512 verified_lba=4095$' build/qemu/serial.log
+      - name: Preserve storage diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: usb-storage-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/qemu/debugcon.log
+            build/qemu/serial.log
+          if-no-files-found: warn
+          retention-days: 7

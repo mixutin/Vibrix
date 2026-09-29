@@ -12,9 +12,14 @@ pub mod nic;
 pub mod per_cpu;
 pub mod process;
 pub mod process_syscalls;
+#[path = "../../shared/scsi.rs"]
+pub mod scsi;
 pub mod secure_random;
 pub mod update_policy;
 pub mod usb_hid;
+#[path = "../../shared/usb_mass_bulk.rs"]
+pub mod usb_mass_bulk;
+pub mod usb_storage;
 pub mod user_image;
 pub mod user_stack;
 pub mod vfs;
@@ -37,6 +42,8 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel Ethernet ARP responder verified");
     credentials::self_test().expect("credential policy self-test failed");
     report("VIBRIX: kernel credential policy verified");
+    usb_storage::self_test().expect("USB mass-storage descriptor policy self-test failed");
+    report("VIBRIX: kernel USB mass-storage descriptor policy verified");
     #[cfg(target_os = "none")]
     {
         if secure_random::supported() {
