@@ -3,7 +3,8 @@
 //! The wire codec lives in `arp.rs`. This module implements the RFC 826
 //! receive/update/reply rules for one configured local IPv4 address, plus the
 //! RFC 5227 conflict check and zero-sender-IP Probe behavior. It performs no
-//! device I/O and owns no timers.
+//! device I/O and owns no timers. Conflict policy remains with the caller; this
+//! module neither defends/abandons an address nor emits unsolicited ARP traffic.
 
 use super::{MAX_FRAME, MacAddress, arp, ethernet};
 
