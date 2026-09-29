@@ -51,8 +51,16 @@ success values.
 | 12 | `readdir` | `readdir(path, path_length, index, entry_ptr)` |
 | 13 | `process_info` | `process_info(index, info_ptr)` |
 | 14 | `kill` | `kill(pid, status)` |
+| 15 | `display_info` | `display_info(info_ptr)` |
+| 16 | `display_fill` | `display_fill(x, y, width, height, color)` |
+| 17 | `display_blit` | `display_blit(x, y, width, height, pixels, count)` |
+| 18 | `input_poll` | `input_poll(event_ptr)` |
+| 19 | `getresuid` | `getresuid(id_triple_ptr)` |
+| 20 | `setresuid` | `setresuid(real, effective, saved)` |
+| 21 | `getresgid` | `getresgid(id_triple_ptr)` |
+| 22 | `setresgid` | `setresgid(real, effective, saved)` |
 
-Numbers 9–14 are compatible ABI v1 extensions: the original 0–8 assignments
+Numbers 9–22 are compatible ABI v1 extensions: the original 0–8 assignments
 remain unchanged. A reserved number does **not** by itself imply that every
 runtime configuration implements the call.
 
@@ -91,6 +99,26 @@ redirection, recursive copies, glob expansion or separately launched utilities
 are implemented. Working-directory normalization happens only after a real
 kernel directory lookup succeeds; ordinary paths preserve every component for
 kernel validation.
+
+## Bounded credential transition calls
+
+`getresuid` and `getresgid` copy one `repr(C)` 12-byte `IdTriple`
+(real/effective/saved u32 fields) through the checked userspace-copy path.
+`setresuid` and `setresgid` take three scalar IDs; `0xffff_ffff` is reserved
+as the v1 “leave unchanged” sentinel and cannot be assigned as an identity.
+
+A process with effective UID 0 may select arbitrary non-sentinel IDs. A
+non-root process may only select an ID already present in its current
+real/effective/saved tuple. Validation happens before mutation, so a denied
+multi-field transition changes none of the IDs. Group-ID transition privilege
+is also governed by effective UID 0.
+
+The native Rust PID 1 proof exercises these calls through the real
+SYSCALL/SYSRET and copy-out path: it changes effective GID and UID to 1000 while
+retaining real/saved 0, verifies both tuples, regains UID 0 through the saved-ID
+rule, restores GID 0, verifies root tuples, then exits successfully. This is
+credential-transition evidence, not authentication, a persistent account
+database, set-user-ID executable semantics or filesystem DAC enforcement.
 
 ## Pointer contract
 
