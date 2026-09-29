@@ -64,6 +64,7 @@ impl Access {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Error {
     TooManyGroups,
+    PermissionDenied,
     InvalidMode,
 }
 
@@ -120,6 +121,25 @@ impl Credentials {
         &self.supplementary[..usize::from(self.supplementary_len)]
     }
 
+    /// Replace this process's supplementary group list.
+    ///
+    /// Early Vibrix follows a deliberately narrow policy: only a process with
+    /// effective UID 0 may mutate its group access list. Capacity is checked
+    /// before mutation so failure leaves the credential object unchanged.
+    pub fn set_supplementary_groups(&mut self, groups: &[Gid]) -> Result<(), Error> {
+        if !self.is_superuser() {
+            return Err(Error::PermissionDenied);
+        }
+        if groups.len() > MAX_SUPPLEMENTARY_GROUPS {
+            return Err(Error::TooManyGroups);
+        }
+
+        self.supplementary = [Gid::ROOT; MAX_SUPPLEMENTARY_GROUPS];
+        self.supplementary[..groups.len()].copy_from_slice(groups);
+        self.supplementary_len = groups.len() as u8;
+        Ok(())
+    }
+
     pub fn is_superuser(&self) -> bool {
         self.effective_uid == Uid::ROOT
     }
@@ -172,7 +192,11 @@ pub fn self_test() -> Result<(), Error> {
         return Err(Error::InvalidMode);
     }
 
-    let root = Credentials::root();
+    let mut root = Credentials::root();
+    root.set_supplementary_groups(&[Gid::from_raw(42), Gid::from_raw(43)])?;
+    if root.supplementary_groups() != [Gid::from_raw(42), Gid::from_raw(43)] {
+        return Err(Error::InvalidMode);
+    }
     if !root.permits(owner, group, 0, ObjectKind::Directory, Access::Execute)? {
         return Err(Error::InvalidMode);
     }
@@ -241,6 +265,28 @@ mod tests {
             ),
             Err(Error::TooManyGroups)
         );
+    }
+
+    #[test]
+    fn supplementary_group_mutation_is_root_only_and_transactional() {
+        let mut root = Credentials::root();
+        let initial = [Gid::from_raw(10), Gid::from_raw(11)];
+        root.set_supplementary_groups(&initial).unwrap();
+        assert_eq!(root.supplementary_groups(), initial.as_slice());
+
+        let too_many = [Gid::from_raw(99); MAX_SUPPLEMENTARY_GROUPS + 1];
+        assert_eq!(
+            root.set_supplementary_groups(&too_many),
+            Err(Error::TooManyGroups)
+        );
+        assert_eq!(root.supplementary_groups(), initial.as_slice());
+
+        let mut user = Credentials::user(Uid::from_raw(1000), Gid::from_raw(100));
+        assert_eq!(
+            user.set_supplementary_groups(&[Gid::from_raw(200)]),
+            Err(Error::PermissionDenied)
+        );
+        assert!(user.supplementary_groups().is_empty());
     }
 
     #[test]

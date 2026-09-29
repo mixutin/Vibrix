@@ -34,8 +34,11 @@ Introduce a kernel-owned, fixed-capacity credential object containing:
 - a fail-closed Unix owner/group/other DAC evaluator.
 
 PID 1 starts with root credentials. New child process-table entries inherit the
-parent's complete credential object unchanged. Credential mutation is
-deliberately not exposed yet.
+parent's complete credential object unchanged. Supplementary-group replacement
+is allocation-free, capacity-checked before mutation, and permitted only while
+the process effective UID is 0. A failed permission or capacity check leaves the
+existing list unchanged. Other credential mutation remains deliberately
+unexposed until the transition syscalls are designed.
 
 The DAC evaluator accepts validated VibrixFS-style mode bits and selects exactly
 one class:
@@ -93,6 +96,7 @@ The kernel library tests must cover:
 
 - root and non-root identity construction;
 - bounded supplementary-group membership;
+- root-only supplementary-group replacement and failure atomicity;
 - exclusive owner/group/other class selection;
 - root DAC behavior including the regular-file execute exception;
 - rejection of invalid mode bits;
