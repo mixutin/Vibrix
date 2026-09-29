@@ -166,7 +166,7 @@ impl<const N: usize> Buffer<N> {
     ) -> Result<u64, Full> {
         let index = self
             .next
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 (current < N).then_some(current + 1)
             })
             .map_err(|_| Full)?;
