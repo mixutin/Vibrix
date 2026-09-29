@@ -49,7 +49,13 @@ ARGS=(
 
 # Optionally expose a virtual PCI xHCI controller to the *native kernel*.
 # This does not connect a persistent USB system disk or enable a USB driver.
-if [[ "${VIBRIX_QEMU_USB_ENUM_PROBE:-0}" == "1" ]]; then
+if [[ "${VIBRIX_QEMU_USB_HUB_PROBE:-0}" == "1" ]]; then
+  ARGS+=(
+    -device "qemu-xhci,id=vibrix-xhci"
+    -device "usb-hub,id=vibrix-hub,bus=vibrix-xhci.0,port=1"
+    -device "usb-kbd,bus=vibrix-xhci.0,port=1.1"
+  )
+elif [[ "${VIBRIX_QEMU_USB_ENUM_PROBE:-0}" == "1" ]]; then
   ARGS+=(
     -device "qemu-xhci,id=vibrix-xhci"
     -device "usb-kbd,bus=vibrix-xhci.0"

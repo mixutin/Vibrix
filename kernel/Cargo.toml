@@ -31,6 +31,7 @@ rust-shell-probe = ["qemu-debugcon", "address-space-probe", "process-syscall-pro
 core-utils-probe = ["rust-shell-probe"]
 xhci-init-probe = ["qemu-debugcon"]
 usb-enum-probe = ["qemu-debugcon"]
+usb-hub-probe = ["qemu-debugcon"]
 rust-init-probe = ["qemu-debugcon", "address-space-probe", "process-syscall-probe", "elf-load-probe"]
 
 [dependencies]

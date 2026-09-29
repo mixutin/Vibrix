@@ -8,7 +8,7 @@ use super::gdt::Gdt;
 
 #[allow(dead_code)]
 #[path = "../../../../shared/syscall_abi.rs"]
-mod abi;
+pub(crate) mod abi;
 
 #[cfg(target_os = "none")]
 const IA32_EFER: u32 = 0xc000_0080;
@@ -320,11 +320,11 @@ mod native {
     }
 
     #[cfg(all(feature = "process-syscall-probe", feature = "userspace-io-probe"))]
-    fn user_path<'a>(
+    fn user_path(
         address: u64,
         length: u64,
-        buffer: &'a mut [u8; vibrix_kernel::vfs::PATH_MAX],
-    ) -> Result<&'a str, abi::Errno> {
+        buffer: &mut [u8; vibrix_kernel::vfs::PATH_MAX],
+    ) -> Result<&str, abi::Errno> {
         let length = usize::try_from(length).map_err(|_| abi::Errno::InvalidArgument)?;
         if length == 0 || length > buffer.len() {
             return Err(abi::Errno::InvalidArgument);

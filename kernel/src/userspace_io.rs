@@ -16,11 +16,7 @@ use vibrix_kernel::vfs::{
     files::{Access, Open},
 };
 
-use crate::arch::x86_64::{ps2, serial};
-
-#[allow(dead_code)]
-#[path = "../../shared/syscall_abi.rs"]
-mod abi;
+use crate::arch::x86_64::{ps2, serial, syscall::abi};
 
 struct StaticCell<T>(UnsafeCell<T>);
 
