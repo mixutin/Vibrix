@@ -1474,7 +1474,11 @@ pub unsafe fn inspect_first_hub(info: &BootInfo) -> Result<UsbHubSummary, InitEr
 /// # Safety
 /// Same exclusive single-BSP xHCI ownership as device enumeration. The host
 /// must keep the device attached while this bounded probe is active.
-#[cfg(all(target_os = "none", feature = "usb-hid-keyboard-probe"))]
+#[cfg(all(
+    target_os = "none",
+    feature = "usb-hid-keyboard-probe",
+    not(feature = "usb-hid-mouse-probe")
+))]
 pub unsafe fn probe_hid_boot_keyboard(
     info: &BootInfo,
     expected_usage: u8,
