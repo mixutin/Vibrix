@@ -28,6 +28,8 @@ syscall-probe = ["qemu-debugcon", "address-space-probe"]
 process-syscall-probe = ["qemu-debugcon", "address-space-probe"]
 userspace-io-probe = ["qemu-debugcon", "address-space-probe", "process-syscall-probe"]
 rust-shell-probe = ["qemu-debugcon", "address-space-probe", "process-syscall-probe", "elf-load-probe", "userspace-io-probe"]
+# Reuse the verified single-BSP ELF/TTY path; add the guest framebuffer frontend.
+userspace-shell = ["rust-shell-probe"]
 core-utils-probe = ["rust-shell-probe"]
 xhci-init-probe = ["qemu-debugcon"]
 usb-enum-probe = ["qemu-debugcon"]

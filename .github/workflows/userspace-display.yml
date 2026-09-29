@@ -1,0 +1,66 @@
+name: Userspace display
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: userspace-display-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  display:
+    name: Automatic userspace boot and VNC pixels
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Check out exact source without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install repository-pinned Rust toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rust-src,rustfmt,clippy --target x86_64-unknown-uefi,x86_64-unknown-none
+      - name: Test production framebuffer bounds, cursor, editing and scrolling
+        run: |
+          rustc --edition=2024 --test kernel/src/framebuffer.rs -o "$RUNNER_TEMP/vibrix-framebuffer-tests"
+          "$RUNNER_TEMP/vibrix-framebuffer-tests"
+          python3 tools/test_userspace_display.py --unit
+      - name: Validate launcher syntax and fail-closed VNC options
+        run: |
+          bash -n tools/run-qemu.sh
+          bash tools/run-qemu.sh --help
+          for option in --vnc= --vnc=-1 --vnc=100 --vnc=0,reverse=on --unknown; do
+            if bash tools/run-qemu.sh "$option"; then
+              echo "unexpectedly accepted option $option" >&2
+              exit 1
+            fi
+          done
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+      - name: Prove default launch, real VNC typing and captured guest pixels
+        run: python3 tools/test_userspace_display.py
+      - name: Lint integrated kernel including the interactive frontend
+        # Match the repository's strict all-feature Clippy policy; the actual
+        # single-profile build and execution are checked by the preceding step.
+        run: cargo clippy --locked -p vibrix-kernel --all-features --target x86_64-unknown-none -- -D warnings
+      - name: Retain real QEMU screenshots and diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: userspace-display-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/userspace-display-launch.log
+            build/qemu/display-*.ppm
+            build/qemu/interactive-*.log
+          if-no-files-found: warn
+          retention-days: 7

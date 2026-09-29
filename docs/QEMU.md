@@ -1,6 +1,6 @@
 # QEMU development target
 
-QEMU is Vibrix's first development platform. Target 001 remains the first physical reference machine.
+QEMU is Vibrix's first development platform. Target 001 remains the first physical reference machine. QEMU results are not physical-hardware qualification.
 
 ## Host prerequisites
 
@@ -18,27 +18,52 @@ sudo dnf install qemu-system-x86 edk2-ovmf
 sudo pacman -S qemu-system-x86 edk2-ovmf
 ```
 
-Install Rust with [rustup](https://rustup.rs/) and restart your shell. The
-pinned toolchain and required Rust targets are managed by
-`tools/build-qemu.sh`.
+Install Rust with [rustup](https://rustup.rs/) and restart your shell. The pinned toolchain and required Rust targets are managed by `tools/build-qemu.sh`. A successful Rust build does not install QEMU or OVMF. The launcher checks those dependencies before building.
 
-A successful Rust build does not install QEMU or OVMF. The interactive
-launcher and headless smoke test check those host dependencies before
-starting the build.
-
-## First boot
+## First boot: real userspace in the QEMU window
 
 ```bash
 ./tools/run-qemu.sh
 ```
 
-`tools/run-qemu.sh` and `tools/test-qemu.sh` share the firmware selection
-logic in `tools/ovmf.inc`. It searches common Ubuntu/Debian, Fedora, Arch
-and EDK2 installation paths, then requires a matching OVMF CODE/VARS pair
-rather than mixing 2 MiB and 4 MiB images. The VARS template is copied
-to a per-run writable file: the system-installed firmware is not modified.
+The interactive launcher builds with `userspace-shell` by default, enters the existing compiled Rust shell at Ring 3, and presents `/dev/tty` output on the guest framebuffer:
 
-If OVMF is installed somewhere else, supply explicit paths:
+```text
+Vibrix shell
+vibrix$ 
+```
+
+Click the guest window to type. Start with `help`, `echo hello`, `pwd`, `ls /` or `cat /welcome`. The prompt and results are produced by userspace syscalls, not by a kernel command parser. Accepted keyboard input is echoed live, Backspace erases input, and output scrolls. The existing native PS/2 decoder remains a limited unshifted ASCII subset; this is not full keyboard-layout/modifier support.
+
+The kernel-owned renderer uses retained GOP pixels after `ExitBootServices`, not firmware text output. Small or unsupported bitmask GOP modes retain a safe marker and serial fallback. See [userspace display](USERSPACE_DISPLAY.md) for ownership, limits, tests and exact profile selection.
+
+The bootstrap filesystem is RAM-only. This does not provide persistent USB root, native USB keyboard-to-TTY integration, a graphical desktop or a multi-process service manager. `exit` retains the early PID 1 exit behavior rather than automatically respawning the shell.
+
+## VNC: the same guest display and keyboard
+
+```bash
+./tools/run-qemu.sh --vnc
+```
+
+Connect a VNC viewer to `127.0.0.1:5900` (display `:0`). To use port 5901:
+
+```bash
+./tools/run-qemu.sh --vnc=1
+```
+
+Only display numbers 0 through 99 are accepted. The listener binds to localhost, never all interfaces. VNC itself is unencrypted and unauthenticated; do not expose it publicly. For a remote QEMU host, create an authenticated SSH tunnel and connect the viewer locally:
+
+```bash
+ssh -N -L 5900:127.0.0.1:5900 user@qemu-host
+```
+
+This is a native VNC endpoint, not a bundled browser/noVNC server. Local users may still reach a localhost listener.
+
+## Firmware selection
+
+`tools/run-qemu.sh` and `tools/test-qemu.sh` share `tools/ovmf.inc`. It searches common Ubuntu/Debian, Fedora, Arch and EDK2 paths and requires a matching OVMF CODE/VARS pair rather than mixing 2 MiB and 4 MiB images. The VARS template is copied to a per-run writable file; the system-installed firmware is not modified.
+
+For a nonstandard installation:
 
 ```bash
 OVMF_CODE=/path/to/OVMF_CODE.fd \
@@ -46,70 +71,57 @@ OVMF_VARS=/path/to/OVMF_VARS.fd \
 ./tools/run-qemu.sh
 ```
 
-You can also extend the searched firmware locations with a colon-separated
-`OVMF_SEARCH_DIRS` value. The missing-firmware diagnostic names the
-distribution packages and supported environment variables.
+`OVMF_SEARCH_DIRS` can extend the searched locations with colon-separated paths. The missing-firmware diagnostic lists supported settings. Launch only one VM at a time per checkout because the build directory and variable copy are shared development state.
 
-## GUI splash versus kernel progress
+## Serial/debug logging and diagnostic boot
 
-The interactive QEMU window can keep the **TianoCore splash** and the
-pre-exit UEFI console text at `VIBRIX: transition mappings verified`.
-That screen is **not** a reliable kernel progress indicator: after
-`ExitBootServices`, the loader stops calling firmware text output and
-the standalone kernel writes to two native logging channels instead.
-It now overlays a **small, readable "VIBRIX / KERNEL LIVE" banner**
-on a sufficiently large RGB/BGR framebuffer after reaching the independent
-kernel. This is a bounded pixel/glyph status indicator—not a general
-text console, window manager or interactive shell. Small/bitmask GOP modes
-keep a minimal safe black/green marker. The banner is separate from native
-COM1/debugcon output, which remains the authoritative boot trace.
+Both interactive modes retain independent native logs:
 
-`./tools/run-qemu.sh` now captures both channels *without hiding the
-graphical QEMU window*:
-
-- `build/qemu/interactive-debugcon.log`: loader and kernel QEMU debug
-  I/O port 0xE9, including `VIBRIX: ExitBootServices succeeded` and
-  `VIBRIX: kernel entry after ExitBootServices`.
-- `build/qemu/interactive-serial.log`: the kernel's independent native
-  COM1 messages, including `Vibrix kernel started.` and PCI device
-  discovery when the kernel actually reaches those stages.
-
-From another terminal, while interactive QEMU runs:
+- `build/qemu/interactive-debugcon.log`: loader/kernel port 0xE9 evidence, including firmware exit, kernel entry and userspace setup.
+- `build/qemu/interactive-serial.log`: native COM1 diagnostics and mirrored TTY output/input echo.
 
 ```bash
 tail -f build/qemu/interactive-debugcon.log build/qemu/interactive-serial.log
 ```
 
-The `tools/test-qemu.sh` **headless** test separately uses
-`build/qemu/debugcon.log` and `build/qemu/serial.log`. Its filenames
-are intentionally distinct so tests do not overwrite GUI-run evidence.
-QEMU is still not a persistent USB-root boot; the FAT directory is
-development media.
+A TianoCore splash is not proof of a running userspace shell. A visible shell plus the independent logs distinguishes successful post-firmware execution from a stalled boot. In the interactive profile, `VIBRIX: framebuffer terminal initialized` marks the renderer setup; the shell's later prompt and command responses prove its actual use.
 
-To expose a virtual xHCI controller for native PCI-discovery diagnostics:
+To boot the older `vibrix>` kernel development console instead:
 
 ```bash
-VIBRIX_QEMU_XHCI=1 ./tools/run-qemu.sh
+./tools/run-qemu.sh --kernel-console
 ```
 
-This adds a controller in PCI, **not** an initialized xHCI stack or a
-booted USB storage device.
+That console remains COM1-oriented, with its historical boot banner. Its diagnostic commands include `help`, `clear`, `info`, `mem`, `pci`, `acpi`, `uptime` and `reboot`. An explicit `VIBRIX_KERNEL_FEATURES` value also selects a custom profile; unset it to restore the launcher's automatic userspace default.
 
-Run the headless CI-equivalent smoke test with:
+To expose a virtual xHCI controller for diagnostic discovery:
+
+```bash
+VIBRIX_QEMU_XHCI=1 ./tools/run-qemu.sh --kernel-console
+```
+
+Adding that virtual PCI device alone is not native USB storage or keyboard integration. Existing dedicated USB proof profiles remain separate.
+
+## Automated verification
+
+The new graphical/VNC integration test uses the actual interactive launcher, a real localhost RFB keyboard client, and captured guest pixels:
+
+```bash
+python3 tools/test_userspace_display.py --unit
+python3 tools/test_userspace_display.py
+```
+
+It verifies automatic `vibrix$` display, keyboard echo and Backspace before Enter, then the actual userspace `echo vnc` result and next prompt. The `Userspace display` workflow uploads real `.ppm` screenshots and serial/debug logs. Test definitions are not passing evidence; consult the exact-head Actions result.
+
+The original headless diagnostic smoke test is unchanged:
 
 ```bash
 bash tools/test-qemu.sh
 ```
 
-The smoke test now verifies **real kernel execution after firmware exit**. Its
-QEMU debugcon log requires `ExitBootServices succeeded`, the standalone
-kernel entry and BootInfo v3 validation, GDT/TSS initialization, COM1 setup,
-and pixel writes to the uncached GOP framebuffer. The distinct QEMU serial
-file must contain `Vibrix kernel started.`. This is not a native USB,
-filesystem, userspace or physical Target 001 test.
+Direct `tools/build-qemu.sh` and this diagnostic test retain the `qemu-debugcon` default, preserving existing fault/IRQ/console probe semantics. Their logs are `build/qemu/debugcon.log` and `build/qemu/serial.log`, separate from interactive log names. The FAT directory is development media, not a native persistent USB root.
 
-The optional kernel panic-probe build tests the real post-firmware panic
-handler independently of the regular spin-loop boot:
+The opt-in panic proof remains:
 
 ```bash
 VIBRIX_KERNEL_FEATURES=qemu-debugcon,panic-probe bash tools/build-qemu.sh
@@ -118,108 +130,8 @@ grep -F 'VIBRIX: kernel panic' build/qemu/debugcon.log
 grep -F 'kernel panic:' build/qemu/serial.log
 ```
 
-The panic-probe feature is deliberately opt-in; the regular QEMU build and
-bare-metal kernel do not deliberately panic.
+Historical kernel-console and keyboard checks remain available with `VIBRIX_QEMU_CONSOLE_PROBE=1` and `VIBRIX_QEMU_KEYBOARD_PROBE=1` on diagnostic builds. They inject real monitor keys and verify native COM1/debugcon behavior, but by themselves do not prove a userspace framebuffer terminal. The console reboot test requires actual QEMU termination under `-no-reboot`; a logged reboot request is insufficient. See [the roadmap](../ROADMAP.md) for milestone evidence and [CI](CI.md) for the wider matrix.
 
 ## Independence boundary
 
-OVMF is development firmware supplied to the virtual machine, not part of
-Vibrix. QEMU is development/testing infrastructure, not shipped as the
-Vibrix runtime. Rust package policy is documented in [AGENTS.md](../AGENTS.md) and
-[INDEPENDENCE.md](INDEPENDENCE.md).
-
-## Native keyboard input prototype (M4.5, QEMU verified)
-
-The standalone kernel includes a **read-only, polled i8042/PS/2 set-one
-keyboard input prototype**. After firmware services terminate it polls legacy
-x86 I/O status/data ports 0x64/0x60 with IRQs disabled and translates only a
-small unshifted ASCII make-code subset; releases, extended and unsupported
-codes are ignored. This is not a USB HID driver, hardware IRQ routing,
-interactive command loop, VFS, TTY or Ring 3 userspace. Physical Target 001
-may have no PS/2 keyboard and is not covered by this prototype.
-
-The opt-in QEMU smoke variant exercises **actual QEMU keyboard injection** via
-its host monitor after the kernel's own `VIBRIX: kernel PS2 polling ready`
-marker, rather than fabricating kernel log text. It sends `h` and Return,
-and requires the kernel's native COM1 output `kernel PS2 ascii 104` and
-`kernel PS2 ascii 10`. Run with:
-
-```sh
-VIBRIX_QEMU_KEYBOARD_PROBE=1 bash tools/test-qemu.sh
-```
-
-[Actions run 36347623002](https://github.com/mixutin/Vibrix/actions/runs/36347623002)
-verified the actual kernel's two distinct COM1 lines
-`kernel PS2 ascii 104` and `kernel PS2 ascii 10`, plus the independent
-debugcon readiness and accepted-character markers. The first smoke
-assertion had a false-positive ASCII prefix bug; the final test uses
-CRLF-normalized **exact-line matches** and observed Return separately.
-Normal, virtual xHCI and all exception-probe boot configurations also passed
-the kernel/QEMU job. There is still no IRQ route, USB HID, interactive
-console input editing or physical PS/2 test.
-
-## Bounded native development console (M4.5 candidate)
-
-The post-firmware single-CPU kernel now offers a serial COM1 `vibrix> `
-prompt once the i8042 polling loop is ready. Its fixed 80-byte ASCII input
-buffer implements backspace/erase, printable-character echo, Return
-submission, bounded overflow rejection, and reset between lines.
-The first strict command table supports `help` and `info`, and reports
-unknown exact commands without shell expansions or untrusted memory access.
-The console never uses firmware text output and has no allocator, syscall,
-scheduler, native USB HID, filesystem or privilege boundary.
-
-QEMU's opt-in `VIBRIX_QEMU_CONSOLE_PROBE=1 VIBRIX_SKIP_BUILD=1
-bash tools/test-qemu.sh` waits for a **kernel-origin** prompt marker,
-then uses the host monitor to inject the real key sequence `helx`,
-Backspace, `p`, Return. It checks kernel-only acceptance of the
-backspace and `help` dispatch and the actual COM1 command listing.
-This validates the text path only; the visible framebuffer remains an
-independent boot banner, not a graphical interactive terminal. Target 001
-USB HID, APIC interrupt delivery, full TTY and the userspace shell are
-separate roadmap items. CI evidence is pending on this branch.
-
-## Native timer IRQ and uptime console proof (PR #82)
-
-The default QEMU smoke boot now requires a post-`ExitBootServices` hardware
-timer interrupt delivered through the MADT-selected I/O APIC route to a
-permanent kernel IDT vector. CI rejects a boot unless debugcon records
-`VIBRIX: kernel timer IRQ delivered` and COM1 reports a nonzero timer tick.
-
-The interactive console probe additionally injects the literal keyboard command
-`uptime` after the edited `help` command. The kernel reads its live atomic
-timer counter and prints `uptime: N ticks (~S.ss)`, while debugcon records a
-distinct uptime-dispatch marker. This demonstrates a monotonic development
-timer available to the kernel console; it is not a wall clock or calibrated
-high-resolution time source.
-
-## Native diagnostic console commands
-
-The early post-firmware COM1 console now exposes bounded read-only diagnostics
-from immutable values captured before the PIT enables interrupts:
-
-- `mem` reports final UEFI descriptor count, the two early claimed physical
-  frame numbers, and the fixed 64 KiB early-heap capacity;
-- `pci` reports the already completed native segment-zero PCI scan summary;
-- `acpi` reports the validated MCFG allocation count, ECAM bus-zero device
-  count, I/O APIC count and routed legacy timer GSI.
-
-These commands do not re-enter the frame allocator or temporary ACPI mapping
-window after `sti`, and they perform no PCI configuration writes, MMIO,
-allocation, filesystem or device I/O. The QEMU console probe injects each
-command through the real emulated keyboard and validates independent
-kernel-origin debug markers plus COM1 output. Target 001 remains separate.
-
-
-## Native console clear and reboot controls
-
-The bounded development console also exposes two control commands:
-
-- `clear` emits the standard ANSI clear-screen + home sequence on COM1;
-- `reboot` requests an x86 reset through the q35 legacy i8042 command port.
-
-The QEMU console probe types both commands through the real emulated keyboard.
-It requires the exact clear sequence in the serial byte stream and runs QEMU
-with `-no-reboot`; the probe fails if the reboot command merely logs a message
-and QEMU survives until the test timeout. The i8042 reset path is a QEMU
-development-target proof only and does not claim Target 001 reboot support.
+OVMF is development firmware supplied to the VM, not part of Vibrix. QEMU, the Python RFB/QMP test client and host build utilities are development infrastructure, not the Vibrix runtime. See [AGENTS.md](../AGENTS.md), [INDEPENDENCE.md](INDEPENDENCE.md) and the [display design](USERSPACE_DISPLAY.md).
