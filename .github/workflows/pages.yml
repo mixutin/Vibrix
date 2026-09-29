@@ -40,10 +40,11 @@ jobs:
         run: python3 tools/build_site.py
       - name: Check generated links, fragments, structured data and metadata
         run: python3 tools/check_site.py build/site
-      - name: Check and test browser-data helpers
+      - name: Check browser-data helpers and 3D geometry
         run: |
           node --check site/script.js
-          node --test tools/test-site.cjs
+          node --check site/visuals.js
+          node --test tools/test-site.cjs tools/test-visuals.cjs
       - name: Preserve the validated website for review
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
