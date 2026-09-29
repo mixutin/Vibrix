@@ -21,6 +21,16 @@ pub enum Action {
         status: i32,
         status_address: u64,
     },
+    Read {
+        fd: u64,
+        address: u64,
+        length: u64,
+    },
+    Write {
+        fd: u64,
+        address: u64,
+        length: u64,
+    },
 }
 
 fn process_errno(error: process::Error) -> abi::Errno {
@@ -42,6 +52,16 @@ pub fn dispatch<const N: usize>(
     let call = abi::Syscall::from_number(number).ok_or(abi::Errno::NotSupported)?;
     match call {
         abi::Syscall::GetPid => Ok(Action::Return(u64::from(current.get()))),
+        abi::Syscall::Read => Ok(Action::Read {
+            fd: args[0],
+            address: args[1],
+            length: args[2],
+        }),
+        abi::Syscall::Write => Ok(Action::Write {
+            fd: args[0],
+            address: args[1],
+            length: args[2],
+        }),
         abi::Syscall::Exit => {
             let status = args[0] as u32 as i32;
             table.exit(current, status).map_err(process_errno)?;
@@ -103,6 +123,38 @@ mod tests {
         assert_eq!(
             dispatch(&mut table, init, u64::MAX, [0; abi::MAX_ARGS]),
             Err(abi::Errno::NotSupported)
+        );
+    }
+
+    #[test]
+    fn read_and_write_preserve_raw_user_memory_arguments() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::Read.number(),
+                args(3, 0x7000, 12)
+            ),
+            Ok(Action::Read {
+                fd: 3,
+                address: 0x7000,
+                length: 12
+            })
+        );
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::Write.number(),
+                args(4, 0x8000, 9)
+            ),
+            Ok(Action::Write {
+                fd: 4,
+                address: 0x8000,
+                length: 9
+            })
         );
     }
 
