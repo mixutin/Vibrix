@@ -45,9 +45,16 @@ success values.
 | 6 | `close` | `close(fd)` |
 | 7 | `wait` | `wait(pid, status_ptr, options)` |
 | 8 | `exec` | `exec(path, path_length, argv, envp)` |
+| 9 | `create` | `create(path, path_length)` |
+| 10 | `mkdir` | `mkdir(path, path_length)` |
+| 11 | `remove` | `remove(path, path_length)` |
+| 12 | `readdir` | `readdir(path, path_length, index, entry_ptr)` |
+| 13 | `process_info` | `process_info(index, info_ptr)` |
+| 14 | `kill` | `kill(pid, status)` |
 
-These numbers reserve the ABI surface; they do **not** imply that the kernel
-implements the call yet.
+Numbers 9–14 are compatible ABI v1 extensions: the original 0–8 assignments
+remain unchanged. A reserved number does **not** by itself imply that every
+runtime configuration implements the call.
 
 ## Pointer contract
 
