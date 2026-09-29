@@ -29,6 +29,8 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel UDP datagram verified");
     nic::ethernet_arp_self_test().expect("Ethernet/ARP self-test failed");
     report("VIBRIX: kernel Ethernet ARP responder verified");
+    nic::dhcp_self_test().expect("DHCPv4 client self-test failed");
+    report("VIBRIX: kernel DHCPv4 client exchange verified");
     process::self_test().expect("process lifecycle self-test failed");
     report("VIBRIX: kernel process lifecycle verified");
     config_policy::self_test().expect("portable configuration policy self-test failed");
