@@ -275,6 +275,11 @@ unsafe fn unmap_ram(vm: &mut Window, slot: usize) -> Result<(), InitError> {
 }
 
 #[cfg(target_os = "none")]
+unsafe fn read8(base: usize, offset: usize) -> u8 {
+    unsafe { core::ptr::read_volatile((base + offset) as *const u8) }
+}
+
+#[cfg(target_os = "none")]
 unsafe fn read32(base: usize, offset: usize) -> u32 {
     unsafe { core::ptr::read_volatile((base + offset) as *const u32) }
 }
