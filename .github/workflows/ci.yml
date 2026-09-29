@@ -159,6 +159,7 @@ jobs:
       - name: Test production bootstrap VFS and stream lifetimes
         run: |
           cargo test --locked --package vibrix-kernel --lib vfs::
+          cargo clippy --locked --package vibrix-kernel --lib --target x86_64-unknown-none -- -D warnings
       - name: Test argv and environment initial stack builder
         run: |
           cargo test --locked --package vibrix-kernel --lib user_stack::
@@ -216,7 +217,7 @@ jobs:
 
       - name: Test VibrixFS v1 wire-format conformance on host
         run: |
-          rustfmt --edition 2024 --check tools/vibrixfs-wire.rs
+          rustfmt --edition 2024 --check tools/vibrixfs-wire.rs shared/vibrixfs_wire.rs
           rustc --edition=2024 -D warnings --test tools/vibrixfs-wire.rs -o "$RUNNER_TEMP/vibrixfs-wire-tests"
           "$RUNNER_TEMP/vibrixfs-wire-tests"
       - name: Test VibrixFS redo-journal wire validation on host
