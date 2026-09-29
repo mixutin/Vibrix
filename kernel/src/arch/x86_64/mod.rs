@@ -23,7 +23,7 @@ mod pci_msi;
 mod pci_msix;
 #[cfg(all(feature = "pci-msix-probe", not(feature = "panic-probe")))]
 mod pci_msix_probe;
-#[cfg(not(feature = "panic-probe"))]
+#[cfg(any(not(feature = "panic-probe"), feature = "userspace-io-probe"))]
 pub mod ps2;
 #[cfg(not(feature = "panic-probe"))]
 pub mod reset;
