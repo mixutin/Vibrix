@@ -5,8 +5,8 @@ extern crate std;
 
 pub mod block;
 pub mod config_policy;
-pub mod credentials;
 pub mod cpu_topology;
+pub mod credentials;
 pub mod nic;
 pub mod process;
 pub mod process_syscalls;
