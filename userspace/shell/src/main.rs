@@ -244,9 +244,7 @@ fn dispatch(line: &[u8], cwd: &mut WorkingDir) -> bool {
             true
         }
         Some(Builtin::Clear) if command.argc == 1 => {
-            for _ in 0..32 {
-                write(b"\n");
-            }
+            write(b"\x0c");
             true
         }
         Some(Builtin::Pid) if command.argc == 1 => match syscall::getpid() {
