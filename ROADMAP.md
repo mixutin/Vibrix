@@ -724,7 +724,25 @@ This checkbox is **host regular-file formatter/recovery tooling**. It is not a
 kernel VFS driver, native USB storage path, writable USB-root mount, hardware
 flush/barrier proof, power-loss validation or Target 001 filesystem evidence.
 
-- [ ] VFS driver
+- [x] VFS driver
+
+**Verified M8 read-only VibrixFS VFS driver (PR #170):**
+[Actions run 36524057848](https://github.com/mixutin/Vibrix/actions/runs/36524057848)
+passed the exact implementation head `d58ba901482d10a4255d495a03580528cd724e02`,
+including shared wire-format tests, production kernel VFS tests, Clippy, target
+builds, the full QEMU regression matrix and dependency gates. The kernel can
+mount an already-selected partition-sized `BlockDevice` read-only, require two
+compatible clean superblocks, validate allocation metadata and checksummed
+inodes/directories on access, walk directories, report metadata, and read
+regular-file extents through the existing VFS contract. Mutation fails
+`ReadOnly`, and production-block-device fixtures cover both 512-byte and
+4096-byte logical-sector-compatible geometry.
+
+This checks the **read-only VibrixFS VFS backend** only. It does not identify
+the boot USB device, issue USB/SCSI storage I/O, replay or commit the journal in
+kernel, prove write barriers, or mount a persistent USB root; those remain
+separate M7/M8/M9 work.
+
 - [ ] persistent root mounted from USB
 
 **Verified M8 bounded on-disk metadata foundation (PR #81):**
