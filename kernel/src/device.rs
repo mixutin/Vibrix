@@ -214,11 +214,7 @@ pub struct DiagnosticSummary {
 }
 
 impl DiagnosticSummary {
-    pub fn new(
-        discovery: DiscoverySummary,
-        binder: &Binder,
-        binding_failures: u32,
-    ) -> Self {
+    pub fn new(discovery: DiscoverySummary, binder: &Binder, binding_failures: u32) -> Self {
         let bound = u32::try_from(binder.len()).unwrap_or(u32::MAX);
         Self {
             discovered: discovery.devices,
@@ -227,9 +223,8 @@ impl DiagnosticSummary {
             missing_driver: discovery
                 .devices
                 .saturating_sub(discovery.driver_candidates),
-            binding_failures: binding_failures.max(
-                discovery.driver_candidates.saturating_sub(bound),
-            ),
+            binding_failures: binding_failures
+                .max(discovery.driver_candidates.saturating_sub(bound)),
         }
     }
 
