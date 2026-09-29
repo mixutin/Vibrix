@@ -14,11 +14,13 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - name: Test production MADT processor parser
+      - name: Test production MADT and per-CPU structures
         run: |
-          rustfmt --edition 2024 --check kernel/src/cpu_topology.rs
+          rustfmt --edition 2024 --check kernel/src/cpu_topology.rs kernel/src/per_cpu.rs host-tests/per_cpu.rs
           rustc --edition=2024 -D warnings --test kernel/src/cpu_topology.rs -o "$RUNNER_TEMP/cpu-tests"
           "$RUNNER_TEMP/cpu-tests"
+          rustc --edition=2024 -D warnings --test host-tests/per_cpu.rs -o "$RUNNER_TEMP/per-cpu-tests"
+          "$RUNNER_TEMP/per-cpu-tests"
           cargo clippy -p vibrix-kernel --all-features --target x86_64-unknown-none -- -D warnings
           bash -n tools/test-cpu-enumeration.sh
       - name: Install QEMU and OVMF
