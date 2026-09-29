@@ -4,6 +4,7 @@ pub mod console;
 pub mod devfs;
 pub mod files;
 pub mod memfs;
+pub mod vibrixfs;
 mod pipe;
 mod proof;
 #[cfg(test)]
