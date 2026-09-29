@@ -1019,7 +1019,7 @@ still separate work.
 - [ ] users/groups/credentials
   - [ ] persistent user/group account database
   - [ ] login/session authentication
-  - [ ] real/effective/saved-ID transition syscalls
+  - [x] real/effective/saved-ID transition syscalls
   - [x] supplementary-group management policy
   - [ ] set-user-ID/set-group-ID execution semantics
 - [ ] permissions
@@ -1035,6 +1035,20 @@ still separate work.
 - [ ] IOMMU
 - [ ] secure updates
 - [x] optional USB system encryption design
+
+**Verified M11 real/effective/saved-ID transition syscalls (PR #254):**
+[Actions run 36626673773](https://github.com/mixutin/Vibrix/actions/runs/36626673773)
+passed the full exact-head repository matrix on implementation head
+`1d7f3f934b20feba9edc0dba2f9127e1021b7896`. ABI v1 now includes
+`getresuid`, `setresuid`, `getresgid` and `setresgid`; non-root callers
+may select only IDs already present in their current real/effective/saved tuple,
+effective UID 0 may choose arbitrary non-sentinel IDs, tuple validation is
+complete before mutation, and native Ring 3 evidence drops and regains saved
+root identity through the real syscall path.
+
+This checks only the bounded **real/effective/saved-ID transition syscalls**
+sub-item. Persistent accounts, login/authentication, set-ID executable
+semantics and VFS DAC enforcement remain separate unchecked work.
 
 **Verified M11 fail-closed secure random (PR #217):**
 [Actions run 36588340214](https://github.com/mixutin/Vibrix/actions/runs/36588340214)
