@@ -16,6 +16,9 @@ pub mod icmp;
 #[path = "udp.rs"]
 pub mod udp;
 
+#[path = "dhcp.rs"]
+pub mod dhcp;
+
 pub const ETHERNET_HEADER: usize = 14;
 pub const MTU: usize = 1500;
 pub const MAX_FRAME: usize = ETHERNET_HEADER + MTU;
@@ -197,6 +200,10 @@ pub fn udp_self_test() -> Result<(), Error> {
     udp::self_test().map_err(|_| Error::Io)
 }
 
+pub fn dhcp_self_test() -> Result<(), Error> {
+    dhcp::self_test().map_err(|_| Error::Io)
+}
+
 pub fn ethernet_arp_self_test() -> Result<(), Error> {
     arp_runtime::self_test().map_err(|_| Error::Io)
 }
@@ -255,6 +262,11 @@ mod tests {
     #[test]
     fn production_udp_datagram_path() {
         assert_eq!(udp_self_test(), Ok(()));
+    }
+
+    #[test]
+    fn production_dhcp_client_path() {
+        assert_eq!(dhcp_self_test(), Ok(()));
     }
 
     #[test]
