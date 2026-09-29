@@ -175,6 +175,9 @@ jobs:
       - name: Test bounded userspace ELF image loader
         run: |
           cargo test --locked --package vibrix-kernel --lib user_image::
+      - name: Test process credential and DAC policy on host
+        run: |
+          cargo test --locked --package vibrix-kernel --lib credentials::
       - name: Test production PID/process lifecycle on host
         run: |
           cargo test --locked --package vibrix-kernel --lib process::
