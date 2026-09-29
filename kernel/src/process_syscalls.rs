@@ -31,6 +31,36 @@ pub enum Action {
         address: u64,
         length: u64,
     },
+    Open {
+        path: u64,
+        length: u64,
+        flags: u64,
+    },
+    Close {
+        fd: u64,
+    },
+    Create {
+        path: u64,
+        length: u64,
+    },
+    Mkdir {
+        path: u64,
+        length: u64,
+    },
+    Remove {
+        path: u64,
+        length: u64,
+    },
+    ReadDir {
+        path: u64,
+        length: u64,
+        index: u64,
+        output: u64,
+    },
+    ProcessInfo {
+        process: process::Process,
+        output: u64,
+    },
 }
 
 fn process_errno(error: process::Error) -> abi::Errno {
@@ -62,6 +92,46 @@ pub fn dispatch<const N: usize>(
             address: args[1],
             length: args[2],
         }),
+        abi::Syscall::Open => Ok(Action::Open {
+            path: args[0],
+            length: args[1],
+            flags: args[2],
+        }),
+        abi::Syscall::Close => Ok(Action::Close { fd: args[0] }),
+        abi::Syscall::Create => Ok(Action::Create {
+            path: args[0],
+            length: args[1],
+        }),
+        abi::Syscall::Mkdir => Ok(Action::Mkdir {
+            path: args[0],
+            length: args[1],
+        }),
+        abi::Syscall::Remove => Ok(Action::Remove {
+            path: args[0],
+            length: args[1],
+        }),
+        abi::Syscall::ReadDir => Ok(Action::ReadDir {
+            path: args[0],
+            length: args[1],
+            index: args[2],
+            output: args[3],
+        }),
+        abi::Syscall::ProcessInfo => {
+            let index = usize::try_from(args[0]).map_err(|_| abi::Errno::InvalidArgument)?;
+            Ok(Action::ProcessInfo {
+                process: table.entry(index).ok_or(abi::Errno::NotFound)?,
+                output: args[1],
+            })
+        }
+        abi::Syscall::Kill => {
+            let target = Pid::from_raw(args[0]).ok_or(abi::Errno::InvalidArgument)?;
+            if current != Pid::INIT || target == Pid::INIT {
+                return Err(abi::Errno::PermissionDenied);
+            }
+            let status = args[1] as u32 as i32;
+            table.exit(target, status).map_err(process_errno)?;
+            Ok(Action::Return(0))
+        }
         abi::Syscall::Exit => {
             let status = args[0] as u32 as i32;
             table.exit(current, status).map_err(process_errno)?;
@@ -156,6 +226,57 @@ mod tests {
                 length: 9
             })
         );
+    }
+
+    #[test]
+    fn utility_actions_preserve_paths_fds_and_process_records() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+        let child = table.spawn_child(init).unwrap();
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::Open.number(),
+                [0x7000, 5, abi::OPEN_READ, 0, 0, 0]
+            ),
+            Ok(Action::Open {
+                path: 0x7000,
+                length: 5,
+                flags: abi::OPEN_READ
+            })
+        );
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::Close.number(),
+                [3, 0, 0, 0, 0, 0]
+            ),
+            Ok(Action::Close { fd: 3 })
+        );
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::ProcessInfo.number(),
+                [1, 0x8000, 0, 0, 0, 0]
+            ),
+            Ok(Action::ProcessInfo {
+                process: table.get(child).unwrap(),
+                output: 0x8000
+            })
+        );
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::Kill.number(),
+                [u64::from(child.get()), 9, 0, 0, 0, 0]
+            ),
+            Ok(Action::Return(0))
+        );
+        assert_eq!(table.get(child).unwrap().state, process::State::Zombie(9));
     }
 
     #[test]
