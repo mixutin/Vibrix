@@ -429,6 +429,15 @@ jobs:
         run: |
           bash tools/test-qemu.sh
           grep -Eq 'Vibrix PCI segment0: [1-9][0-9]* devices, [1-9][0-9]* assigned BARs, [1-9][0-9]* xHCI' build/qemu/serial.log
+      - name: QEMU native xHCI reset and running initialization
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,xhci-init-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_QEMU_XHCI=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel xHCI reset and running" build/qemu/debugcon.log
+          grep -Eq 'kernel xHCI: [0-9a-f]{2}:[0-9a-f]{2}\.[0-7] bar=0x[0-9a-f]+ version=0x[0-9a-f]+ slots=[1-9][0-9]* ports=[1-9][0-9]*' build/qemu/serial.log
+          # Restore the ordinary development image before later tests that
+          # intentionally reuse build/qemu with VIBRIX_SKIP_BUILD=1.
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon bash tools/build-qemu.sh
       - name: QEMU real keyboard injection after ExitBootServices
         env:
           VIBRIX_SKIP_BUILD: "1"

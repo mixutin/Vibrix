@@ -221,6 +221,28 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         driver_binder.count_driver(device::DriverKind::Rtl8168),
         bind_failures
     );
+    #[cfg(feature = "xhci-init-probe")]
+    {
+        // SAFETY: still single-BSP with IF=0. PCI discovery identified the
+        // controller and all temporary MMIO/RAM scratch mappings are retired
+        // before ACPI/APIC mapping-window ownership begins.
+        let xhci = unsafe { arch::x86_64::xhci::initialize(&info) }
+            .unwrap_or_else(|error| panic!("xHCI initialization failed: {:?}", error));
+        crate::println!(
+            "kernel xHCI: {:02x}:{:02x}.{} bar={:#x} version={:#x} slots={} ports={} dboff={:#x} rtsoff={:#x}",
+            xhci.bdf.bus,
+            xhci.bdf.device,
+            xhci.bdf.function,
+            xhci.bar,
+            xhci.version,
+            xhci.max_slots,
+            xhci.max_ports,
+            xhci.doorbell_offset,
+            xhci.runtime_offset
+        );
+        debugcon::write("VIBRIX: kernel xHCI reset and running\r\n");
+    }
+
     if device_model.devices == pci.devices {
         debugcon::write("VIBRIX: kernel device model populated\r\n");
     } else {
