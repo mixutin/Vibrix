@@ -5,6 +5,7 @@ extern crate std;
 
 pub mod block;
 pub mod config_policy;
+pub mod credentials;
 pub mod cpu_topology;
 pub mod nic;
 pub mod process;
@@ -26,6 +27,8 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel IPv4 ICMP echo verified");
     nic::udp_self_test().expect("UDP self-test failed");
     report("VIBRIX: kernel UDP datagram verified");
+    credentials::self_test().expect("credential policy self-test failed");
+    report("VIBRIX: kernel credential policy verified");
     process::self_test().expect("process lifecycle self-test failed");
     report("VIBRIX: kernel process lifecycle verified");
     config_policy::self_test().expect("portable configuration policy self-test failed");
