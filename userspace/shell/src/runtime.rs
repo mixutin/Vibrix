@@ -797,7 +797,9 @@ fn render_vibrix_doctor(io: &mut dyn System, fd: u64) -> Result<()> {
         }
     }
     if !current_seen {
-        return Err(Error::Message(b"doctor: current PID absent from process table"));
+        return Err(Error::Message(
+            b"doctor: current PID absent from process table",
+        ));
     }
 
     if !directory(io, b"/")? {
