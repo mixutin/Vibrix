@@ -571,7 +571,7 @@ coordination remain later work.
 - [x] TTY
 - [x] Rust init
 - [x] Rust shell
-- [ ] Core utilities: cat, echo, ls, pwd, cd, mkdir, cp, mv, rm, ps, kill
+- [x] Core utilities: cat, echo, ls, pwd, cd, mkdir, cp, mv, rm, ps, kill
 
 **Verified M6 bounded bootstrap filesystem and streams (PR #135):**
 [Actions run 36474454756](https://github.com/mixutin/Vibrix/actions/runs/36474454756)
@@ -640,12 +640,31 @@ core utilities are not complete merely because their command names parse:
 `cat`, `ls`, `pwd`, `cd`, `mkdir`, `cp`, `mv`, `rm`, `ps`
 and `kill` still need real userspace/kernel backends and proofs.
 
+**Verified M6 core utility backends (PR #180):**
+[CI run 36553591892](https://github.com/mixutin/Vibrix/actions/runs/36553591892)
+passed the full exact-head repository matrix on implementation head
+`a35dc931d432c89d3d0a4f57ea6a21511a616109`, including nightly torture and
+the real-keyboard QEMU utility transcript. The compiled Rust shell executes
+`cat`, `echo`, `ls`, `pwd`, `cd`, `mkdir`, `cp`, `mv`, `rm`,
+`ps` and `kill` through real userspace syscalls backed by the bounded VFS
+and process table. QEMU proves path creation/copy/move/removal, working-directory
+changes, process listing, and PID 2 transitioning from running to zombie after
+`kill`. Four deliberately invalid path/self-copy operations fail while source
+data remains readable. The exact keyboard proof also production-tests the PS/2
+minus scan code required by `echo utilities-ok`.
+
+This completes the **bounded M6 core utility set** and therefore the M6 exit
+criterion: Vibrix boots to an interactive Rust userspace shell with the listed
+utility backends. The filesystem remains volatile RAM, process/job control is
+minimal, and none of this implies persistent USB root, signals, atomic rename,
+recursive copy semantics or POSIX conformance.
+
 **Exit:** boot to an interactive Vibrix userspace shell.
 
 ## M7 — USB platform
 - [x] xHCI initialization
 - [x] USB device enumeration
-- [ ] USB hub support
+- [x] USB hub support
 - [ ] USB HID keyboard
 - [ ] USB HID mouse
 - [ ] USB mass-storage transport
@@ -687,6 +706,21 @@ layouts.
 This checks **one directly attached root-port device enumeration path**. Hub
 traversal, HID report/configuration handling, mass-storage/SCSI, robust boot-USB
 identity and native USB block I/O remain separate unchecked M7 work.
+
+**Verified M7 USB2 hub control and downstream-port management (PR #178):**
+[CI run 36551513173](https://github.com/mixutin/Vibrix/actions/runs/36551513173)
+and all companion workflows passed exact implementation head
+`c697e76db7aeba5ff82959dd6aa533c9d2dbb3a8`. The native xHCI path addresses
+a real QEMU USB2 hub, reads and validates its class hub descriptor, powers the
+advertised downstream ports, locates a connected child, issues PORT_RESET and
+polls class GET_STATUS until the child is connected, enabled and powered with
+reset clear. The real topology `qemu-xhci -> usb-hub -> usb-kbd` reported
+root port 5, slot 1, eight downstream ports, child port 1 and status `0x0103`.
+
+This checks **bounded USB2-compatible hub support** only. It does not yet
+address the downstream child as a HID device through the hub, implement
+SuperSpeed hub semantics, hotplug, multiple-hub arbitration, mass storage,
+persistent boot-USB access or physical Target 001 validation.
 
 ## M8 — Vibrix filesystem
 - [x] On-disk specification
