@@ -921,20 +921,32 @@ pub unsafe fn load_elf_probe() -> Result<ActivatedProbe, ElfProbeError> {
         not(clippy)
     ))]
     let image: &[u8] = include_bytes!("../../../target/x86_64-unknown-none/debug/vibrix-sh");
+    #[cfg(all(feature = "package-metadata-probe", not(feature = "rust-shell-probe"), not(clippy)))]
+    let image: &[u8] =
+        include_bytes!("../../../target/x86_64-unknown-none/debug/vibrix-package-probe");
     #[cfg(all(
         feature = "rust-init-probe",
         not(feature = "rust-shell-probe"),
+        not(feature = "package-metadata-probe"),
         not(clippy)
     ))]
     let image: &[u8] = include_bytes!("../../../target/x86_64-unknown-none/debug/vibrix-init");
     #[cfg(any(
         clippy,
-        all(not(feature = "rust-init-probe"), not(feature = "rust-shell-probe"))
+        all(
+            not(feature = "rust-init-probe"),
+            not(feature = "rust-shell-probe"),
+            not(feature = "package-metadata-probe")
+        )
     ))]
     let probe_image = elf_probe_image();
     #[cfg(any(
         clippy,
-        all(not(feature = "rust-init-probe"), not(feature = "rust-shell-probe"))
+        all(
+            not(feature = "rust-init-probe"),
+            not(feature = "rust-shell-probe"),
+            not(feature = "package-metadata-probe")
+        )
     ))]
     let image: &[u8] = &probe_image;
 
