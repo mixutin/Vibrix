@@ -2,7 +2,7 @@
 use super::{
     Error, Filesystem, Kind, Result, Vfs,
     devfs::DevFs,
-    files::{Files, Open},
+    files::{Access, Files, Open},
     memfs::MemFs,
 };
 
@@ -59,6 +59,19 @@ pub fn self_test(mut report: impl FnMut(&str)) -> Result<()> {
     assert_eq!(files.read(fd, &mut data), Err(Error::BadDescriptor));
     files.close(duplicate)?;
     files.close(separate)?;
+    let append = files.open(
+        "/tmp/note",
+        Open {
+            access: Access::ReadWrite,
+            truncate: false,
+            append: true,
+        },
+    )?;
+    files.seek(append, 3)?;
+    assert_eq!(files.write(append, b"")?, 0);
+    assert_eq!(files.read(append, &mut data[..2])?, 2);
+    assert_eq!(&data[..2], b"vi");
+    files.close(append)?;
     report("VIBRIX: kernel file descriptors verified");
 
     let null = files.open("/dev/null", Open::READ_WRITE)?;

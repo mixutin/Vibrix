@@ -33,6 +33,12 @@ pub enum Syscall {
     Close = 6,
     Wait = 7,
     Exec = 8,
+    Create = 9,
+    Mkdir = 10,
+    Remove = 11,
+    ReadDir = 12,
+    ProcessInfo = 13,
+    Kill = 14,
 }
 
 impl Syscall {
@@ -47,6 +53,12 @@ impl Syscall {
             6 => Some(Self::Close),
             7 => Some(Self::Wait),
             8 => Some(Self::Exec),
+            9 => Some(Self::Create),
+            10 => Some(Self::Mkdir),
+            11 => Some(Self::Remove),
+            12 => Some(Self::ReadDir),
+            13 => Some(Self::ProcessInfo),
+            14 => Some(Self::Kill),
             _ => None,
         }
     }
@@ -55,6 +67,64 @@ impl Syscall {
         self as u64
     }
 }
+
+pub const OPEN_READ: u64 = 0;
+pub const OPEN_WRITE: u64 = 1;
+pub const OPEN_READ_WRITE: u64 = 2;
+pub const OPEN_TRUNCATE: u64 = 1 << 8;
+
+pub const ENTRY_FILE: u8 = 1;
+pub const ENTRY_DIRECTORY: u8 = 2;
+pub const ENTRY_DEVICE: u8 = 3;
+pub const ENTRY_NAME_BYTES: usize = 32;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DirEntry {
+    pub kind: u8,
+    pub name_len: u8,
+    pub reserved: [u8; 6],
+    pub name: [u8; ENTRY_NAME_BYTES],
+}
+
+impl DirEntry {
+    pub const EMPTY: Self = Self {
+        kind: 0,
+        name_len: 0,
+        reserved: [0; 6],
+        name: [0; ENTRY_NAME_BYTES],
+    };
+}
+
+pub const PROCESS_RUNNING: u8 = 1;
+pub const PROCESS_ZOMBIE: u8 = 2;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProcessInfo {
+    pub pid: u32,
+    pub parent: u32,
+    pub state: u8,
+    pub reserved: [u8; 3],
+    pub status: i32,
+}
+
+impl ProcessInfo {
+    pub const EMPTY: Self = Self {
+        pid: 0,
+        parent: 0,
+        state: 0,
+        reserved: [0; 3],
+        status: 0,
+    };
+}
+
+// These structures are copied as bytes across the ABI. They must not contain
+// uninitialized padding, regardless of compiler layout changes elsewhere.
+const _: () = assert!(core::mem::size_of::<DirEntry>() == 40);
+const _: () = assert!(core::mem::align_of::<DirEntry>() == 1);
+const _: () = assert!(core::mem::size_of::<ProcessInfo>() == 16);
+const _: () = assert!(core::mem::offset_of!(ProcessInfo, status) == 12);
 
 #[repr(u16)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -129,6 +199,12 @@ mod tests {
             Syscall::Close,
             Syscall::Wait,
             Syscall::Exec,
+            Syscall::Create,
+            Syscall::Mkdir,
+            Syscall::Remove,
+            Syscall::ReadDir,
+            Syscall::ProcessInfo,
+            Syscall::Kill,
         ];
         for (expected, call) in calls.into_iter().enumerate() {
             assert_eq!(call.number(), expected as u64);

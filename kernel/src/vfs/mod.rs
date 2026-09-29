@@ -227,6 +227,10 @@ impl<'a, const M: usize> Vfs<'a, M> {
     }
 
     pub fn resolve(&self, path: &str) -> Result<Node> {
+        self.walk(path).map(|(node, _)| node)
+    }
+
+    fn walk(&self, path: &str) -> Result<(Node, usize)> {
         validate_path(path)?;
         let mut ancestors = [self.root(); DEPTH_MAX + 1];
         let mut depth = 0;
@@ -256,26 +260,29 @@ impl<'a, const M: usize> Vfs<'a, M> {
         if path.ends_with('/') && self.metadata(node)?.kind != Kind::Directory {
             return Err(Error::NotDirectory);
         }
-        Ok(node)
+        Ok((node, depth))
     }
 
-    fn parent<'p>(&self, path: &'p str) -> Result<(Node, &'p str)> {
+    fn parent<'p>(&self, path: &'p str) -> Result<(Node, &'p str, usize)> {
         validate_path(path)?;
         let path = path.trim_end_matches('/');
         let (prefix, name) = path.rsplit_once('/').ok_or(Error::InvalidPath)?;
         Name::new(name)?;
-        let parent = self.resolve(if prefix.is_empty() { "/" } else { prefix })?;
+        let (parent, depth) = self.walk(if prefix.is_empty() { "/" } else { prefix })?;
         if self.metadata(parent)?.kind != Kind::Directory {
             return Err(Error::NotDirectory);
         }
-        Ok((parent, name))
+        Ok((parent, name, depth))
     }
 
     pub fn create(&mut self, path: &str, kind: Kind) -> Result<Node> {
         if path.ends_with('/') && kind != Kind::Directory {
             return Err(Error::NotDirectory);
         }
-        let (parent, name) = self.parent(path)?;
+        let (parent, name, depth) = self.parent(path)?;
+        if depth == DEPTH_MAX {
+            return Err(Error::NameTooLong);
+        }
         let id = self.fs_mut(parent)?.create(parent.id, name, kind)?;
         Ok(Node {
             mount: parent.mount,
@@ -288,7 +295,7 @@ impl<'a, const M: usize> Vfs<'a, M> {
         if resolved == self.root() {
             return Err(Error::Busy);
         }
-        let (parent, name) = self.parent(path)?;
+        let (parent, name, _) = self.parent(path)?;
         let id = self.fs(parent)?.lookup(parent.id, name)?;
         let covered = Node {
             mount: parent.mount,

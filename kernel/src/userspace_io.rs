@@ -10,13 +10,13 @@ use core::{
 };
 
 use vibrix_kernel::vfs::{
-    Error, Result,
+    Entry, Error, Result,
     console::{BootstrapFiles, BootstrapRoot, bootstrap},
     devfs::DevFs,
     files::{Access, Open},
 };
 
-use crate::arch::x86_64::{ps2, serial};
+use crate::arch::x86_64::{ps2, serial, syscall::abi};
 
 struct StaticCell<T>(UnsafeCell<T>);
 
@@ -102,6 +102,50 @@ fn with_files<T>(operation: impl FnOnce(&mut BootstrapFiles<'static>) -> Result<
     // caller exists in this bounded proof. The mutable borrow never escapes.
     let files = unsafe { (*FILES.0.get()).as_mut().ok_or(Error::BadDescriptor)? };
     operation(files)
+}
+
+pub fn open(path: &str, flags: u64) -> Result<usize> {
+    let access_bits = flags & 0xff;
+    let truncate = flags & abi::OPEN_TRUNCATE != 0;
+    if flags & !(0xff | abi::OPEN_TRUNCATE) != 0 {
+        return Err(Error::Unsupported);
+    }
+    let access = match access_bits {
+        abi::OPEN_READ => Access::Read,
+        abi::OPEN_WRITE => Access::Write,
+        abi::OPEN_READ_WRITE => Access::ReadWrite,
+        _ => return Err(Error::Unsupported),
+    };
+    with_files(|files| {
+        files.open(
+            path,
+            Open {
+                access,
+                truncate,
+                append: false,
+            },
+        )
+    })
+}
+
+pub fn close(fd: usize) -> Result<()> {
+    with_files(|files| files.close(fd))
+}
+
+pub fn create(path: &str) -> Result<()> {
+    with_files(|files| files.create(path))
+}
+
+pub fn mkdir(path: &str) -> Result<()> {
+    with_files(|files| files.mkdir(path))
+}
+
+pub fn remove(path: &str) -> Result<()> {
+    with_files(|files| files.remove(path))
+}
+
+pub fn entry(path: &str, index: usize) -> Result<Option<Entry>> {
+    with_files(|files| files.entry(path, index))
 }
 
 pub fn read(fd: usize, buffer: &mut [u8]) -> Result<usize> {

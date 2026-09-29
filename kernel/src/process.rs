@@ -100,6 +100,10 @@ impl<const N: usize> Table<N> {
             .find(|process| process.pid == pid)
     }
 
+    pub fn entry(&self, index: usize) -> Option<Process> {
+        self.slots.iter().flatten().copied().nth(index)
+    }
+
     fn index_of(&self, pid: Pid) -> Option<usize> {
         self.slots
             .iter()
@@ -433,6 +437,16 @@ mod tests {
         table.exit(running, 7).unwrap();
         assert_eq!(table.reap(other, running), Err(Error::NoChild));
         assert_eq!(table.get(running).unwrap().state, State::Zombie(7));
+    }
+
+    #[test]
+    fn entries_enumerate_live_processes_without_exposing_slots() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+        let child = table.spawn_child(init).unwrap();
+        assert_eq!(table.entry(0).unwrap().pid, init);
+        assert_eq!(table.entry(1).unwrap().pid, child);
+        assert_eq!(table.entry(2), None);
     }
 
     #[test]

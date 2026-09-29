@@ -1,5 +1,7 @@
 #![no_std]
 
+pub mod path;
+
 pub const LINE_BYTES: usize = 256;
 pub const MAX_ARGS: usize = 16;
 

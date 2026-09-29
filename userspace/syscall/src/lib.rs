@@ -155,6 +155,61 @@ pub unsafe fn exec(path: &[u8], argv: u64, envp: u64) -> Result<u64> {
     )
 }
 
+pub fn create(path: &[u8]) -> Result<()> {
+    call(
+        abi::Syscall::Create,
+        [path.as_ptr() as u64, path.len() as u64, 0, 0, 0, 0],
+    )
+    .map(|_| ())
+}
+
+pub fn mkdir(path: &[u8]) -> Result<()> {
+    call(
+        abi::Syscall::Mkdir,
+        [path.as_ptr() as u64, path.len() as u64, 0, 0, 0, 0],
+    )
+    .map(|_| ())
+}
+
+pub fn remove(path: &[u8]) -> Result<()> {
+    call(
+        abi::Syscall::Remove,
+        [path.as_ptr() as u64, path.len() as u64, 0, 0, 0, 0],
+    )
+    .map(|_| ())
+}
+
+pub fn read_dir(path: &[u8], index: u64, entry: &mut abi::DirEntry) -> Result<bool> {
+    let raw = call(
+        abi::Syscall::ReadDir,
+        [
+            path.as_ptr() as u64,
+            path.len() as u64,
+            index,
+            entry as *mut abi::DirEntry as u64,
+            0,
+            0,
+        ],
+    )?;
+    Ok(raw != 0)
+}
+
+pub fn process_info(index: u64, info: &mut abi::ProcessInfo) -> Result<bool> {
+    let raw = call(
+        abi::Syscall::ProcessInfo,
+        [index, info as *mut abi::ProcessInfo as u64, 0, 0, 0, 0],
+    )?;
+    Ok(raw != 0)
+}
+
+pub fn kill(pid: u64, status: i32) -> Result<()> {
+    call(
+        abi::Syscall::Kill,
+        [pid, u64::from(status as u32), 0, 0, 0, 0],
+    )
+    .map(|_| ())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,5 +242,11 @@ mod tests {
         assert_eq!(abi::Syscall::Close.number(), 6);
         assert_eq!(abi::Syscall::Wait.number(), 7);
         assert_eq!(abi::Syscall::Exec.number(), 8);
+        assert_eq!(abi::Syscall::Create.number(), 9);
+        assert_eq!(abi::Syscall::Mkdir.number(), 10);
+        assert_eq!(abi::Syscall::Remove.number(), 11);
+        assert_eq!(abi::Syscall::ReadDir.number(), 12);
+        assert_eq!(abi::Syscall::ProcessInfo.number(), 13);
+        assert_eq!(abi::Syscall::Kill.number(), 14);
     }
 }

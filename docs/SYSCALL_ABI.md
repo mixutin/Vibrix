@@ -45,9 +45,52 @@ success values.
 | 6 | `close` | `close(fd)` |
 | 7 | `wait` | `wait(pid, status_ptr, options)` |
 | 8 | `exec` | `exec(path, path_length, argv, envp)` |
+| 9 | `create` | `create(path, path_length)` |
+| 10 | `mkdir` | `mkdir(path, path_length)` |
+| 11 | `remove` | `remove(path, path_length)` |
+| 12 | `readdir` | `readdir(path, path_length, index, entry_ptr)` |
+| 13 | `process_info` | `process_info(index, info_ptr)` |
+| 14 | `kill` | `kill(pid, status)` |
 
-These numbers reserve the ABI surface; they do **not** imply that the kernel
-implements the call yet.
+Numbers 9–14 are compatible ABI v1 extensions: the original 0–8 assignments
+remain unchanged. A reserved number does **not** by itself imply that every
+runtime configuration implements the call.
+
+## Bounded M6 filesystem and process services
+
+The `userspace-io-probe` configuration binds descriptors 0, 1 and 2 to one
+kernel-owned `/dev/tty`. Paths are length-delimited UTF-8, absolute, at most
+255 bytes, and copied from checked userspace mappings before lookup. Empty
+paths, embedded NULs, nonexistent parent components and file-as-directory
+traversals fail. No symlinks or hard links are present in this namespace.
+
+`open` accepts access values 0 (read), 1 (write) or 2 (read/write), optionally
+ORed with bit 8 (truncate). Truncation requires write access. Other flags fail.
+`create` creates an empty regular file and fails if it already exists;
+`mkdir` creates a directory; `remove` rejects nonempty directories, mount roots
+and files with open descriptors. Files and directories are volatile RAM state.
+
+`readdir` indexes a live directory and returns 1 after copying a 40-byte
+`DirEntry`, or 0 at the end. `kind`, `name_len`, six reserved zero bytes and a
+32-byte name array form the record; names have an explicit length, not a
+required NUL terminator. Mutation invalidates enumeration indices.
+
+`process_info` indexes the bounded process table and returns 1 after copying
+a 16-byte `ProcessInfo`; end of table is `NotFound`. The record contains
+u32 PID, u32 parent PID (0 if absent), u8 state (1 running, 2 zombie), three
+zero reserved bytes, and i32 exit status. `kill` currently allows PID 1 to
+terminate a non-init table entry with an explicit status. It does not deliver
+POSIX signals or stop a separately scheduled userspace thread. `core-utils-probe`
+seeds a child table entry to demonstrate the running-to-zombie transition.
+
+The Rust shell implements `cat`, `echo`, `ls`, `pwd`, `cd`, `mkdir`, `cp`, `mv`,
+`rm`, `ps` and `kill` as builtins using these services. `cp`/`mv` reject aliases
+of the source before opening a truncating destination. `mv` is copy followed
+by remove, not atomic rename, and only handles regular files. No pipelines,
+redirection, recursive copies, glob expansion or separately launched utilities
+are implemented. Working-directory normalization happens only after a real
+kernel directory lookup succeeds; ordinary paths preserve every component for
+kernel validation.
 
 ## Pointer contract
 

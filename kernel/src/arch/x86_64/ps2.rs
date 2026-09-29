@@ -47,6 +47,7 @@ impl SetOne {
             0x09 => b'8',
             0x0a => b'9',
             0x0b => b'0',
+            0x0c => b'-',
             0x0e => 8, // backspace
             0x10 => b'q',
             0x11 => b'w',
@@ -145,6 +146,7 @@ mod tests {
         assert_eq!(keys.feed(0x01), None); // escape unsupported
         assert_eq!(keys.feed(0x1e), Some(b'a'));
         assert_eq!(keys.feed(0x35), Some(b'/'));
+        assert_eq!(keys.feed(0x0c), Some(b'-'));
         assert_eq!(keys.feed(0x39), Some(b' '));
         assert_eq!(keys.feed(0x0e), Some(8));
     }
