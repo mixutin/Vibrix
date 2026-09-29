@@ -103,8 +103,7 @@ pub fn bulk_interface(bytes: &[u8]) -> Result<BulkInterface, Error> {
                 }
                 let address = bytes[offset + 2];
                 let attributes = bytes[offset + 3] & 0x03;
-                let raw_packet =
-                    u16::from_le_bytes([bytes[offset + 4], bytes[offset + 5]]);
+                let raw_packet = u16::from_le_bytes([bytes[offset + 4], bytes[offset + 5]]);
                 let max_packet = raw_packet & 0x07ff;
                 let number = address & 0x0f;
                 if attributes != 0x02 {
@@ -170,10 +169,8 @@ mod tests {
 
     fn descriptor() -> [u8; 32] {
         [
-            9, 2, 32, 0, 1, 1, 0, 0x80, 50,
-            9, 4, 0, 0, 2, 0x08, 0x06, 0x50, 0,
-            7, 5, 0x02, 0x02, 0x00, 0x02, 0,
-            7, 5, 0x81, 0x02, 0x00, 0x02, 0,
+            9, 2, 32, 0, 1, 1, 0, 0x80, 50, 9, 4, 0, 0, 2, 0x08, 0x06, 0x50, 0, 7, 5, 0x02, 0x02,
+            0x00, 0x02, 0, 7, 5, 0x81, 0x02, 0x00, 0x02, 0,
         ]
     }
 
