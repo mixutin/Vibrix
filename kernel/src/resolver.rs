@@ -63,9 +63,7 @@ impl Name {
         if value.is_empty()
             || value.len() > NAME_BYTES
             || !value.iter().copied().all(|byte| {
-                byte.is_ascii_lowercase()
-                    || byte.is_ascii_digit()
-                    || matches!(byte, b'.' | b'-')
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'-')
             })
         {
             return Err(Error::Name);
@@ -210,11 +208,7 @@ mod tests {
             ResolverConfig::new(&[Ipv4([0, 0, 0, 0])], false),
             Err(Error::InvalidServer)
         );
-        let config = ResolverConfig::new(
-            &[Ipv4([1, 1, 1, 1]), Ipv4([9, 9, 9, 9])],
-            true,
-        )
-        .unwrap();
+        let config = ResolverConfig::new(&[Ipv4([1, 1, 1, 1]), Ipv4([9, 9, 9, 9])], true).unwrap();
         assert_eq!(config.servers().len(), 2);
         assert!(config.cache_enabled());
     }
