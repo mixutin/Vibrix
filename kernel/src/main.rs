@@ -668,7 +668,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         #[cfg(all(
             feature = "elf-load-probe",
             not(feature = "rust-init-probe"),
-            not(feature = "rust-shell-probe")
+            not(feature = "rust-shell-probe"),
+            not(feature = "package-metadata-probe")
         ))]
         {
             // SAFETY: the private address-space owner is initialized and the
@@ -687,7 +688,11 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             unsafe { memory::address_space::enter_probe(probe) };
         }
 
-        #[cfg(all(feature = "rust-init-probe", not(feature = "rust-shell-probe")))]
+        #[cfg(all(
+            feature = "rust-init-probe",
+            not(feature = "rust-shell-probe"),
+            not(feature = "package-metadata-probe")
+        ))]
         {
             // SAFETY: build-qemu produced the fixed-layout no_std Rust init ELF
             // before compiling the kernel. The same validated ImageSink stages
@@ -703,6 +708,24 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                 probe.user_rsp
             );
             // SAFETY: the compiled init image and guarded stack were validated.
+            unsafe { memory::address_space::enter_probe(probe) };
+        }
+
+        #[cfg(all(feature = "package-metadata-probe", not(feature = "rust-shell-probe")))]
+        {
+            // SAFETY: build-qemu produced the fixed-layout no_std package probe
+            // before compiling the kernel. The normal ELF loader validates its
+            // W^X mappings and guarded userspace stack before CPL3 entry.
+            let probe = unsafe { memory::address_space::load_elf_probe() }
+                .unwrap_or_else(|error| panic!("package metadata ELF load failed: {:?}", error));
+            debugcon::write("VIBRIX: kernel package metadata ELF loaded\r\n");
+            crate::println!(
+                "kernel package metadata: kernel_cr3={:#x} user_cr3={:#x} entry={:#x} rsp={:#x}",
+                probe.kernel_root,
+                probe.user_root,
+                probe.user_rip,
+                probe.user_rsp
+            );
             unsafe { memory::address_space::enter_probe(probe) };
         }
 
