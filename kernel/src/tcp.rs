@@ -197,7 +197,12 @@ impl ReassemblyQueue {
         }
     }
 
-    pub fn insert(&mut self, receive_next: u32, sequence: u32, payload: &[u8]) -> Result<(), Error> {
+    pub fn insert(
+        &mut self,
+        receive_next: u32,
+        sequence: u32,
+        payload: &[u8],
+    ) -> Result<(), Error> {
         if payload.is_empty() || payload.len() > REASSEMBLY_SEGMENT_BYTES {
             return Err(Error::Length);
         }
