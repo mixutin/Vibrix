@@ -111,11 +111,16 @@ pub fn endpoint(bytes: &[u8], protocol: Protocol) -> Result<Endpoint, Error> {
 }
 
 /// xHCI 1.2c table 6-12: full/low-speed intervals round down in microframes.
-pub fn interval(speed: u8, milliseconds: u8) -> Result<u8, Error> {
-    if !matches!(speed, 1 | 2) || milliseconds == 0 {
-        return Err(Error::Unsupported);
+pub fn interval(speed: u8, value: u8) -> Result<u8, Error> {
+    match speed {
+        // xHCI speed IDs 1/2 are full/low speed. HID bInterval is in
+        // milliseconds; xHCI stores a power-of-two microframe exponent.
+        1 | 2 if value != 0 => Ok((u32::from(value) * 8).ilog2() as u8),
+        // High-speed interrupt endpoints encode bInterval as an exponent
+        // from 1..=16; xHCI's Interval field is that exponent minus one.
+        3 if (1..=16).contains(&value) => Ok(value - 1),
+        _ => Err(Error::Unsupported),
     }
-    Ok((u32::from(milliseconds) * 8).ilog2() as u8)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
