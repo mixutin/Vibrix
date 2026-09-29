@@ -188,12 +188,12 @@ impl Manifest {
         payload_hash.copy_from_slice(&wire[36..68]);
 
         let mut dependencies = [Dependency::EMPTY; MAX_DEPENDENCIES];
-        for index in 0..dependency_count {
+        for (index, dependency) in dependencies.iter_mut().enumerate().take(dependency_count) {
             let base = DEPENDENCY_BASE + index * DEPENDENCY_BYTES;
             if wire[base + 1..base + 4].iter().any(|&byte| byte != 0) {
                 return Err(Error::Reserved);
             }
-            dependencies[index] = Dependency {
+            *dependency = Dependency {
                 name: decode_name(wire[base], &wire[base + 16..base + 48])?,
                 minimum: Version::new(
                     get_u32(&wire[base + 4..base + 8]),
