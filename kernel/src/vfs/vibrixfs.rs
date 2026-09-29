@@ -91,7 +91,7 @@ impl<T: Transport> VibrixFs<T> {
             return Err(Error::BackendContract);
         }
         let superblock = if b.generation > a.generation { b } else { a };
-        let mut fs = Self {
+        let fs = Self {
             device: cell,
             superblock,
             sectors_per_block,
@@ -141,7 +141,7 @@ impl<T: Transport> VibrixFs<T> {
         Ok(raw[byte_in_block] & (1 << (bit & 7)) != 0)
     }
 
-    fn inode(&mut self, number: u64) -> Result<wire::Inode> {
+    fn inode(&self, number: u64) -> Result<wire::Inode> {
         if number == 0
             || number > self.superblock.total_inodes
             || !self.bitmap_allocated(self.superblock.inode_bitmap, number)?
@@ -182,14 +182,6 @@ impl<T: Transport> VibrixFs<T> {
             }
         }
         Ok(inode)
-    }
-
-    fn inode_shared(&self, number: u64) -> Result<wire::Inode> {
-        // SAFETY boundary is entirely inside DeviceCell. The logical filesystem
-        // state is read-only, so casting the receiver only permits transport
-        // reads and does not mutate filesystem-visible metadata.
-        let this = self as *const Self as *mut Self;
-        unsafe { (&mut *this).inode(number) }
     }
 
     fn data_block(inode: &wire::Inode, logical: u64) -> Result<u64> {
@@ -265,7 +257,7 @@ impl<T: Transport> VibrixFs<T> {
         if consumed != record {
             return Err(Error::BackendContract);
         }
-        let target = self.inode_shared(entry.inode)?;
+        let target = self.inode(entry.inode)?;
         if target.file_type != entry.file_type {
             return Err(Error::BackendContract);
         }
@@ -280,7 +272,7 @@ impl<T: Transport> Filesystem for VibrixFs<T> {
     }
 
     fn metadata(&self, id: NodeId) -> Result<Metadata> {
-        let inode = self.inode_shared(id.0)?;
+        let inode = self.inode(id.0)?;
         Ok(Metadata {
             kind: kind(inode.file_type)?,
             len: usize::try_from(inode.size).map_err(|_| Error::BackendContract)?,
@@ -289,7 +281,7 @@ impl<T: Transport> Filesystem for VibrixFs<T> {
 
     fn lookup(&self, dir: NodeId, name: &str) -> Result<NodeId> {
         Name::new(name)?;
-        let inode = self.inode_shared(dir.0)?;
+        let inode = self.inode(dir.0)?;
         if inode.file_type != 2 {
             return Err(Error::NotDirectory);
         }
@@ -307,7 +299,7 @@ impl<T: Transport> Filesystem for VibrixFs<T> {
     }
 
     fn entry(&self, dir: NodeId, index: usize) -> Result<Option<Entry>> {
-        let inode = self.inode_shared(dir.0)?;
+        let inode = self.inode(dir.0)?;
         if inode.file_type != 2 {
             return Err(Error::NotDirectory);
         }
@@ -453,21 +445,10 @@ mod tests {
     #[test]
     fn refuses_dirty_or_wrong_identity_media() {
         let mut image = fixture();
-        let primary = &mut image[..wire::BLOCK];
-        primary[20] = 0;
-        let crc = {
-            let mut copy = [0u8; wire::BLOCK];
-            copy.copy_from_slice(primary);
-            copy[120..124].fill(0);
-            // local copy of public codec via re-encode is simpler than exposing CRC:
-            let mut sb = wire::parse_superblock(
-                &image[(4095) * wire::BLOCK..],
-                4096,
-                &ROOT_GUID,
-            ).unwrap();
-            sb.clean = false;
-            wire::encode_superblock(&sb, 4096, &ROOT_GUID).unwrap()
-        };
+        let mut sb =
+            wire::parse_superblock(&image[4095 * wire::BLOCK..], 4096, &ROOT_GUID).unwrap();
+        sb.clean = false;
+        let crc = wire::encode_superblock(&sb, 4096, &ROOT_GUID).unwrap();
         image[..wire::BLOCK].copy_from_slice(&crc);
         image[4095 * wire::BLOCK..4096 * wire::BLOCK].copy_from_slice(&crc);
         let device = block::ram_device(&mut image, 4096, true).unwrap();
