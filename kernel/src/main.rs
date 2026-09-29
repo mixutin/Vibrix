@@ -408,6 +408,7 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
                         bsp.apic_id,
                         vibrix_kernel::per_cpu::slots().len()
                     );
+                    crate::println!("VIBRIX: kernel per-CPU BSP bound");
                     debugcon::write("VIBRIX: kernel per-CPU BSP bound\r\n");
                     timer_setup = Some((
                         discovery.lapic_physical,
