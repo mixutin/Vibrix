@@ -82,11 +82,7 @@ fn checksum_valid(source: [u8; 4], destination: [u8; 4], udp: &[u8]) -> bool {
 /// enclosing IP/link padding. A transmitted checksum of zero is accepted and
 /// reported as absent, as permitted by RFC 768. Non-zero checksums are always
 /// validated against the IPv4 pseudo-header.
-pub fn parse(
-    source: [u8; 4],
-    destination: [u8; 4],
-    input: &[u8],
-) -> Result<Datagram<'_>, Error> {
+pub fn parse(source: [u8; 4], destination: [u8; 4], input: &[u8]) -> Result<Datagram<'_>, Error> {
     if !(HEADER_BYTES..=ipv4::MAX_PAYLOAD).contains(&input.len()) {
         return Err(Error::Length);
     }
@@ -142,14 +138,7 @@ pub(super) fn self_test() -> Result<(), Error> {
     let source = [192, 0, 2, 10];
     let destination = [192, 0, 2, 20];
     let mut udp = [0u8; ipv4::MAX_PAYLOAD];
-    let length = encode(
-        source,
-        destination,
-        49152,
-        53,
-        b"vibrix",
-        &mut udp,
-    )?;
+    let length = encode(source, destination, 49152, 53, b"vibrix", &mut udp)?;
     let datagram = parse(source, destination, &udp[..length])?;
     if datagram.source_port() != 49152
         || datagram.destination_port() != 53
@@ -248,7 +237,14 @@ mod tests {
         let (source, destination) = addresses();
         let mut output = [0xa5; HEADER_BYTES];
         assert_eq!(
-            encode(source, destination, 1, 2, &[0; MAX_PAYLOAD + 1], &mut output),
+            encode(
+                source,
+                destination,
+                1,
+                2,
+                &[0; MAX_PAYLOAD + 1],
+                &mut output
+            ),
             Err(Error::Length)
         );
         assert_eq!(output, [0xa5; HEADER_BYTES]);
