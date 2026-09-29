@@ -201,13 +201,12 @@ fn validate_superblock(
             return Err(Error::Geometry);
         }
     }
-    if let Some(journal) = info.journal {
-        if journal.blocks < 3
+    if let Some(journal) = info.journal
+        && (journal.blocks < 3
             || !journal.valid_metadata(info.total_blocks)
-            || regions.iter().any(|region| journal.overlaps(*region))
-        {
-            return Err(Error::Geometry);
-        }
+            || regions.iter().any(|region| journal.overlaps(*region)))
+    {
+        return Err(Error::Geometry);
     }
     let bits_per_block = (BLOCK as u64) * 8;
     if info
@@ -520,7 +519,7 @@ fn validate_inode(inode: &Inode, fs: &Superblock) -> Result<(), Error> {
             .ok_or(Error::Extent)?;
     }
     if sum != inode.allocated_blocks
-        || (matches!(inode.file_type, 1 | 2 | 3)
+        || (matches!(inode.file_type, 1..=3)
             && inode
                 .allocated_blocks
                 .checked_mul(BLOCK as u64)
