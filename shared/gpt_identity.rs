@@ -34,6 +34,8 @@ pub struct HeaderLayout {
 pub struct Identity {
     pub disk_guid: [u8; 16],
     pub esp_guid: [u8; 16],
+    pub esp_first_lba: u64,
+    pub esp_last_lba: u64,
     pub system_guid: Option<[u8; 16]>,
 }
 
@@ -208,7 +210,7 @@ pub fn validate_identity(
     let mut seen_len = 0usize;
     let mut ranges = [(0u64, 0u64); MAX_ENTRIES];
     let mut range_len = 0usize;
-    let mut esp = None;
+    let mut esp: Option<([u8; 16], u64, u64)> = None;
     let mut system = None;
 
     for entry in primary_entries.chunks_exact(primary.1.entry_size) {
@@ -240,7 +242,7 @@ pub fn validate_identity(
         range_len += 1;
 
         if type_guid == ESP_TYPE_GUID {
-            if esp.replace(guid).is_some() {
+            if esp.replace((guid, first, last)).is_some() {
                 return Err(Error::MultipleEsp);
             }
         } else if type_guid == VIBRIX_SYSTEM_TYPE_GUID && system.replace(guid).is_some() {
@@ -248,9 +250,12 @@ pub fn validate_identity(
         }
     }
 
+    let (esp_guid, esp_first_lba, esp_last_lba) = esp.ok_or(Error::MissingEsp)?;
     Ok(Identity {
         disk_guid: primary.1.disk_guid,
-        esp_guid: esp.ok_or(Error::MissingEsp)?,
+        esp_guid,
+        esp_first_lba,
+        esp_last_lba,
         system_guid: system,
     })
 }
@@ -319,6 +324,8 @@ mod tests {
                 validate_identity(sector, 127, &primary, &entries, &backup, &entries).unwrap();
             assert_eq!(identity.disk_guid, [0x11; 16]);
             assert_eq!(identity.esp_guid, [0x22; 16]);
+            assert_eq!(identity.esp_first_lba, 40);
+            assert_eq!(identity.esp_last_lba, 60);
             assert_eq!(identity.system_guid, Some([0x33; 16]));
         }
     }
