@@ -953,12 +953,30 @@ still separate work.
 - [ ] users/groups/credentials
 - [ ] permissions
 - [ ] secure random
-- [ ] W^X
+- [x] W^X
 - [ ] userspace ASLR
 - [ ] stack protections
 - [ ] IOMMU
 - [ ] secure updates
 - [ ] optional USB system encryption design
+
+**Verified M11 W^X enforcement (existing implementation, PR #160):**
+[Actions run 36490303799](https://github.com/mixutin/Vibrix/actions/runs/36490303799)
+passed the full exact-head matrix on implementation head
+`ef780dbc298a33bf92eb40d9d7f7db75c6cd969b`. The production userspace ELF
+planner rejects any PT_LOAD segment that is both writable and executable before
+the mapping sink is mutated. The shared managed-VM permission type makes RWX
+unrepresentable: mappings are only read-only, read-write or read-execute.
+During ELF loading, segment pages are staged writable only while bytes/BSS are
+copied, then non-writable segments are protected to their final RO or RX state
+before the entry point is validated and CPL3 execution begins. The QEMU proof
+executed the validated ELF under the private CR3 and completed the real syscall
+round trip after final permissions were committed.
+
+This checks the current bounded **W^X mapping policy and executable-load path**.
+It does not claim ASLR, stack canaries, JIT support, executable shared-memory
+policy, SMP TLB-shootdown hardening, IOMMU isolation or physical Target 001
+validation.
 
 ## M12 — SMP and performance
 - [x] CPU enumeration
