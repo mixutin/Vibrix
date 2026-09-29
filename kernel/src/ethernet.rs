@@ -108,8 +108,14 @@ mod tests {
     #[test]
     fn canonical_header_and_zero_padding() {
         let mut output = [0xa5; 64];
-        assert_eq!(encode(address(), BROADCAST, IPV4, &[1, 2, 3], &mut output), Ok(60));
-        assert_eq!(&output[..14], &[255, 255, 255, 255, 255, 255, 2, 0, 0, 0, 0, 1, 8, 0]);
+        assert_eq!(
+            encode(address(), BROADCAST, IPV4, &[1, 2, 3], &mut output),
+            Ok(60)
+        );
+        assert_eq!(
+            &output[..14],
+            &[255, 255, 255, 255, 255, 255, 2, 0, 0, 0, 0, 1, 8, 0]
+        );
         assert_eq!(&output[14..17], &[1, 2, 3]);
         assert_eq!(&output[17..60], &[0; 43]);
         assert_eq!(&output[60..], &[0xa5; 4]);
