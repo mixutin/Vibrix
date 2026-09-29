@@ -1286,9 +1286,23 @@ different host operating system.
 Internal NVMe/SATA disks may be supported as user-accessible **data devices**. They are not Vibrix root/system installation targets.
 
 ## Future
-- [ ] aarch64 design
+- [x] aarch64 design
 - [ ] aarch64 UEFI boot
 - [ ] architecture-independent driver boundaries
+
+**Accepted AArch64 platform architecture (ADR 0025):** Vibrix keeps UEFI as
+the first firmware interface, defines EL0 userspace / EL1 kernel ownership,
+handles either EL2 or EL1 UEFI entry explicitly, uses a 4 KiB translation
+granule, GICv3, Arm Generic Timer, PSCI CPU startup, architecture-specific
+page-table/TLB/cache backends, and a shared semantic syscall space transported
+through `svc #0` with x8 as the syscall number and x0..x5 as arguments.
+The first validation target is QEMU `virt` with AArch64 UEFI.
+
+This is a **design completion only**. No AArch64 binary, boot proof, GIC/PSCI
+driver, page-table implementation, physical ARM support, Device Tree parser or
+architecture-independent driver implementation is claimed. See
+[ADR 0025](docs/decisions/0025-aarch64-platform-design.md).
+
 
 ## Early non-goals
 
