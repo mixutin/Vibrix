@@ -628,8 +628,10 @@ mod tests {
         assert_eq!(segment.acknowledgment(), 20);
         assert!(segment.ack());
         assert_eq!(segment.payload(), b"abc");
+        let mut wrong_source = local.address;
+        wrong_source[3] ^= 1;
         assert_eq!(
-            parse(remote.address, local.address, &output[..length]),
+            parse(wrong_source, remote.address, &output[..length]),
             Err(Error::Checksum)
         );
     }
