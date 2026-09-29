@@ -5,6 +5,8 @@
 //! address-space owner and syscall dispatcher so those can be connected without
 //! weakening lifetime rules. No heap allocation or unsafe Rust is used.
 
+use crate::credentials::Credentials;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Pid(u32);
 
@@ -35,6 +37,7 @@ pub struct Process {
     pub pid: Pid,
     pub parent: Option<Pid>,
     pub state: State,
+    pub credentials: Credentials,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -123,21 +126,23 @@ impl<const N: usize> Table<N> {
         if self.get(Pid::INIT).is_some() || self.next_pid != Pid::INIT.get() {
             return Err(Error::ParentNotRunning);
         }
-        self.spawn(None)
+        self.spawn(None, Credentials::root())
     }
 
     pub fn spawn_child(&mut self, parent: Pid) -> Result<Pid, Error> {
         match self.get(parent) {
-            Some(Process {
-                state: State::Running,
-                ..
-            }) => self.spawn(Some(parent)),
+            Some(
+                process @ Process {
+                    state: State::Running,
+                    ..
+                },
+            ) => self.spawn(Some(parent), process.credentials),
             Some(_) => Err(Error::ParentNotRunning),
             None => Err(Error::NotFound),
         }
     }
 
-    fn spawn(&mut self, parent: Option<Pid>) -> Result<Pid, Error> {
+    fn spawn(&mut self, parent: Option<Pid>, credentials: Credentials) -> Result<Pid, Error> {
         let slot = self
             .slots
             .iter()
@@ -148,6 +153,7 @@ impl<const N: usize> Table<N> {
             pid,
             parent,
             state: State::Running,
+            credentials,
         });
         Ok(pid)
     }
@@ -309,6 +315,18 @@ mod tests {
         assert_eq!(a.get(), 2);
         assert_eq!(b.get(), 3);
         assert_eq!(table.len(), 3);
+    }
+
+    #[test]
+    fn init_is_root_and_children_inherit_credentials() {
+        let mut table = Table::<3>::new();
+        let init = table.spawn_init().unwrap();
+        let child = table.spawn_child(init).unwrap();
+        assert_eq!(table.get(init).unwrap().credentials, Credentials::root());
+        assert_eq!(
+            table.get(child).unwrap().credentials,
+            table.get(init).unwrap().credentials
+        );
     }
 
     #[test]
