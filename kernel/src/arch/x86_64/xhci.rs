@@ -888,6 +888,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn usb_enumeration_helpers_encode_architectural_fields() {
+        assert_eq!(trb_type(trb_control(TRB_TYPE_ENABLE_SLOT)), TRB_TYPE_ENABLE_SLOT);
+        assert_eq!(completion_code(1 << 24), COMPLETION_SUCCESS);
+        assert_eq!(event_slot_id(7 << 24), 7);
+        assert_eq!(port_speed(3 << PORTSC_SPEED_SHIFT), 3);
+        assert_eq!(endpoint0_packet_size(1), Some(8));
+        assert_eq!(endpoint0_packet_size(3), Some(64));
+        assert_eq!(endpoint0_packet_size(4), Some(512));
+        assert_eq!(endpoint0_packet_size(0), None);
+
+        let setup = setup_get_device_descriptor();
+        assert_eq!(setup[0], 0x0100_0680);
+        assert_eq!(setup[1], 18 << 16);
+        assert_eq!(setup[2], 8);
+        assert_eq!(trb_type(setup[3]), TRB_TYPE_SETUP_STAGE);
+        assert_ne!(setup[3] & TRB_IDT, 0);
+        assert_eq!((setup[3] >> 16) & 0x3, 3);
+    }
+
+    #[test]
     fn parses_capability_and_masks_array_offsets() {
         let cap = parse_capability(0x40, 0x0110, 32 | (8 << 24), 0, 0x1003, 0x200f).unwrap();
         assert_eq!(cap.cap_length, 0x40);
