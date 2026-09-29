@@ -149,6 +149,14 @@ pub fn setresgid(real: Option<u32>, effective: Option<u32>, saved: Option<u32>) 
     .map(|_| ())
 }
 
+pub fn no_new_privileges() -> Result<bool> {
+    call(abi::Syscall::NoNewPrivileges, [0, 0, 0, 0, 0, 0]).map(|value| value != 0)
+}
+
+pub fn set_no_new_privileges() -> Result<()> {
+    call(abi::Syscall::NoNewPrivileges, [1, 0, 0, 0, 0, 0]).map(|_| ())
+}
+
 pub fn read(fd: u64, buffer: &mut [u8]) -> Result<usize> {
     let raw = call(
         abi::Syscall::Read,
@@ -348,5 +356,6 @@ mod tests {
         assert_eq!(abi::Syscall::SetResUid.number(), 20);
         assert_eq!(abi::Syscall::GetResGid.number(), 21);
         assert_eq!(abi::Syscall::SetResGid.number(), 22);
+        assert_eq!(abi::Syscall::NoNewPrivileges.number(), 23);
     }
 }
