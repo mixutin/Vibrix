@@ -457,6 +457,191 @@ jobs:
           grep -Fq "VIBRIX: kernel USB hub downstream port reset and enabled" build/qemu/debugcon.log
           grep -Eq 'kernel USB hub: root_port=[1-9][0-9]* slot=[1-9][0-9]* ports=[1-9][0-9]* child_port=[1-9][0-9]* child_status=0x[0-9a-f]{4} pwr_good_units=[0-9]+' build/qemu/serial.log
           VIBRIX_KERNEL_FEATURES=qemu-debugcon bash tools/build-qemu.sh
+      - name: QEMU USB HID boot keyboard class input
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,usb-hid-keyboard-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_QEMU_USB_HID_KEYBOARD_PROBE=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel USB HID keyboard ready" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel USB HID keyboard input observed" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Eq '^kernel USB HID keyboard: root_port=[1-9][0-9]* slot=[1-9][0-9]* interface=[0-9]+ endpoint=0x8[0-9a-f] mps=[8-9][0-9]*|^kernel USB HID keyboard: .* usage=0x0b      - name: QEMU real keyboard injection after ExitBootServices
+        env:
+          VIBRIX_SKIP_BUILD: "1"
+          VIBRIX_QEMU_KEYBOARD_PROBE: "1"
+        run: |
+          bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel PS2 byte entered TTY" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel TTY line discipline verified" build/qemu/debugcon.log
+      - name: QEMU edited help command through real keyboard
+        env:
+          VIBRIX_SKIP_BUILD: "1"
+          VIBRIX_QEMU_CONSOLE_PROBE: "1"
+        run: bash tools/test-qemu.sh
+      - name: QEMU retained RAM files, devfs and pipe console commands
+        run: |
+          VIBRIX_SKIP_BUILD=1 VIBRIX_QEMU_FILES_PROBE=1 ./tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel RAM tmp and runtime state verified" build/qemu/debugcon.log
+      - name: QEMU post-firmware kernel panic test
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,panic-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel panic" build/qemu/debugcon.log
+          grep -Fq "kernel panic:" build/qemu/serial.log
+      - name: QEMU native breakpoint trap test
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,breakpoint-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel breakpoint exception handled" build/qemu/debugcon.log
+          grep -Fq "kernel #BP breakpoint rip=" build/qemu/serial.log
+      - name: QEMU native page-fault diagnostic test
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,page-fault-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel page fault diagnostic" build/qemu/debugcon.log
+          grep -Fq "kernel #PF cr2=0x10000000000" build/qemu/serial.log
+          grep -Fq "present=false write=false user=false reserved=false exec=false" build/qemu/serial.log
+      - name: QEMU real CPL3 entry and TSS RSP0 trap proof
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,ring3-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel CPL3 mappings ready" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel CPL3 trap reached via TSS RSP0" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel ring3 probe: cs=0x23 ss=0x1b "
+      - name: QEMU independent userspace CR3 and CPL3 trap proof
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,address-space-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel userspace CR3 prepared" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel userspace CR3 activated" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel userspace CR3 preserved across CPL3 trap" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel address space probe: kernel_cr3="
+          tr -d '\r' < build/qemu/serial.log | grep -Fq " rip=0x400000 rsp=0x800000"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel address space trap: expected_cr3="
+      - name: QEMU validated ELF load into private userspace CR3
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,elf-load-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel userspace ELF loaded" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel userspace CR3 activated" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel userspace CR3 preserved across CPL3 trap" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel ELF probe: kernel_cr3="
+          tr -d '\r' < build/qemu/serial.log | grep -Fq " entry=0x400000 rsp=0x800000"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel address space trap: expected_cr3="
+      - name: QEMU real SYSCALL and SYSRETQ round trip
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,syscall-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel SYSCALL MSRs configured" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel SYSCALL entry reached" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel SYSCALL/SYSRETQ round trip verified" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel syscall probe: number=0xffffffffffffffff"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel ring3 probe: cs=0x23 ss=0x1b "
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel syscall round trip: observed=true"
+
+      - name: QEMU process getpid wait copyout reap and exit syscalls
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,process-syscall-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel process getpid syscall verified" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel process wait copyout and reap verified" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: kernel process exit syscall verified" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: getpid=1"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: wait pid=2 status=23 copied=true"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: exit pid=1 status=42"
+
+      - name: QEMU compiled Rust init executes as PID 1
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,rust-init-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel Rust init ELF loaded" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: Rust init userspace syscall reached" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: Rust init PID 1 exited through syscall" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel Rust init: kernel_cr3="
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: getpid=1"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: exit pid=1 status=0"
+
+      - name: QEMU compiled Rust shell uses real syscalls VFS TTY and keyboard
+        env:
+          VIBRIX_KERNEL_FEATURES: qemu-debugcon,rust-shell-probe
+          VIBRIX_SKIP_BUILD: "1"
+          VIBRIX_EXPECT_TIMER_IRQ: "1"
+          VIBRIX_QEMU_USER_SHELL_PROBE: "1"
+        run: |
+          VIBRIX_KERNEL_FEATURES="$VIBRIX_KERNEL_FEATURES" bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 VIBRIX_QEMU_USER_SHELL_PROBE=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel Rust shell ELF loaded" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: userspace TTY read waiting for keyboard" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "Vibrix shell"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "cat echo ls pwd cd mkdir cp mv rm ps kill exit help"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "hi"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: exit pid=1 status=0"
+
+      - name: QEMU Rust shell executes every M6 core utility backend
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,core-utils-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 VIBRIX_QEMU_CORE_UTILS_PROBE=1 bash tools/test-qemu.sh
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "Vibrix bootstrap filesystem: files live in RAM until reboot."
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "/tmp/u"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "moved"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "2 1 running"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "2 1 zombie"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "utilities-ok"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: exit pid=1 status=0"
+          # Exactly the four deliberate self-copy/move and invalid-parent
+          # operations fail. Source data must survive all four rejections.
+          test "$(tr -d '\r' < build/qemu/serial.log | grep -Fc 'sh: command failed')" -eq 4
+          test "$(tr -d '\r' < build/qemu/serial.log | grep -Fc 'Vibrix bootstrap filesystem: files live in RAM until reboot.')" -eq 3
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon bash tools/build-qemu.sh
+      - name: QEMU supervisor write-protection fault
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,vm-write-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
+          grep -Fq "kernel #PF cr2=0xffffc00000000000" build/qemu/serial.log
+          grep -Fq "present=true write=true user=false reserved=false exec=false" build/qemu/serial.log
+      - name: QEMU access after unmap fault
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,vm-unmap-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
+          grep -Fq "kernel #PF cr2=0xffffc00000000000" build/qemu/serial.log
+          grep -Fq "present=false write=false user=false reserved=false exec=false" build/qemu/serial.log
+      - name: Preserve most recent QEMU diagnostics on success or failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qemu-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/qemu/*.log
+          if-no-files-found: warn
+          retention-days: 7
+
+  ci-gate:
+    name: CI gate
+    if: always()
+    needs: [repository-quality, supply-chain, dependency-review, minimal-features, build-and-smoke-test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every applicable check to succeed
+        env:
+          CHECKS: ${{ toJSON(needs) }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          checks = json.loads(os.environ["CHECKS"])
+          failed = []
+          for name, check in checks.items():
+              allowed = {"success"}
+              if name == "dependency-review" and os.environ["EVENT"] != "pull_request":
+                  allowed = {"skipped"}
+              if check["result"] not in allowed:
+                  failed.append(f'{name}: {check["result"]}')
+          if failed:
+              print("Required checks did not pass:\n" + "\n".join(failed))
+              sys.exit(1)
+          print("All applicable CI checks passed.")
+          PY
+
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "usage=0x0b"
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon bash tools/build-qemu.sh
       - name: QEMU real keyboard injection after ExitBootServices
         env:
           VIBRIX_SKIP_BUILD: "1"
