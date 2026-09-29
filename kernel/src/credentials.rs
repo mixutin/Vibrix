@@ -106,11 +106,7 @@ impl Credentials {
         }
     }
 
-    pub fn with_supplementary_groups(
-        uid: Uid,
-        gid: Gid,
-        groups: &[Gid],
-    ) -> Result<Self, Error> {
+    pub fn with_supplementary_groups(uid: Uid, gid: Gid, groups: &[Gid]) -> Result<Self, Error> {
         if groups.len() > MAX_SUPPLEMENTARY_GROUPS {
             return Err(Error::TooManyGroups);
         }
@@ -166,11 +162,8 @@ impl Credentials {
 pub fn self_test() -> Result<(), Error> {
     let owner = Uid::from_raw(1000);
     let group = Gid::from_raw(100);
-    let user = Credentials::with_supplementary_groups(
-        Uid::from_raw(2000),
-        Gid::from_raw(200),
-        &[group],
-    )?;
+    let user =
+        Credentials::with_supplementary_groups(Uid::from_raw(2000), Gid::from_raw(200), &[group])?;
 
     if !user.permits(owner, group, 0o0640, ObjectKind::Regular, Access::Read)? {
         return Err(Error::InvalidMode);
@@ -222,12 +215,9 @@ mod tests {
             Gid::from_raw(16),
             Gid::from_raw(17),
         ];
-        let credentials = Credentials::with_supplementary_groups(
-            Uid::from_raw(1000),
-            Gid::from_raw(20),
-            &groups,
-        )
-        .unwrap();
+        let credentials =
+            Credentials::with_supplementary_groups(Uid::from_raw(1000), Gid::from_raw(20), &groups)
+                .unwrap();
         assert_eq!(credentials.supplementary_groups(), groups.as_slice());
         assert!(credentials.in_group(Gid::from_raw(14)));
         assert!(credentials.in_group(Gid::from_raw(20)));
@@ -258,12 +248,16 @@ mod tests {
         let owner = Uid::from_raw(1000);
         let group = Gid::from_raw(100);
         let owner_credentials = Credentials::user(owner, Gid::from_raw(999));
-        assert!(owner_credentials
-            .permits(owner, group, 0o0400, ObjectKind::Regular, Access::Read)
-            .unwrap());
-        assert!(!owner_credentials
-            .permits(owner, group, 0o0040, ObjectKind::Regular, Access::Read)
-            .unwrap());
+        assert!(
+            owner_credentials
+                .permits(owner, group, 0o0400, ObjectKind::Regular, Access::Read)
+                .unwrap()
+        );
+        assert!(
+            !owner_credentials
+                .permits(owner, group, 0o0040, ObjectKind::Regular, Access::Read)
+                .unwrap()
+        );
 
         let group_credentials = Credentials::with_supplementary_groups(
             Uid::from_raw(2000),
@@ -271,18 +265,23 @@ mod tests {
             &[group],
         )
         .unwrap();
-        assert!(group_credentials
-            .permits(owner, group, 0o0040, ObjectKind::Regular, Access::Read)
-            .unwrap());
-        assert!(!group_credentials
-            .permits(owner, group, 0o0004, ObjectKind::Regular, Access::Read)
-            .unwrap());
+        assert!(
+            group_credentials
+                .permits(owner, group, 0o0040, ObjectKind::Regular, Access::Read)
+                .unwrap()
+        );
+        assert!(
+            !group_credentials
+                .permits(owner, group, 0o0004, ObjectKind::Regular, Access::Read)
+                .unwrap()
+        );
 
-        let other_credentials =
-            Credentials::user(Uid::from_raw(2000), Gid::from_raw(200));
-        assert!(other_credentials
-            .permits(owner, group, 0o0004, ObjectKind::Regular, Access::Read)
-            .unwrap());
+        let other_credentials = Credentials::user(Uid::from_raw(2000), Gid::from_raw(200));
+        assert!(
+            other_credentials
+                .permits(owner, group, 0o0004, ObjectKind::Regular, Access::Read)
+                .unwrap()
+        );
     }
 
     #[test]
@@ -291,27 +290,32 @@ mod tests {
         let owner = Uid::from_raw(1000);
         let group = Gid::from_raw(100);
 
-        assert!(root
-            .permits(owner, group, 0, ObjectKind::Regular, Access::Read)
-            .unwrap());
-        assert!(root
-            .permits(owner, group, 0, ObjectKind::Regular, Access::Write)
-            .unwrap());
-        assert!(root
-            .permits(owner, group, 0, ObjectKind::Directory, Access::Execute)
-            .unwrap());
-        assert!(!root
-            .permits(owner, group, 0o0644, ObjectKind::Regular, Access::Execute)
-            .unwrap());
-        assert!(root
-            .permits(owner, group, 0o0100, ObjectKind::Regular, Access::Execute)
-            .unwrap());
+        assert!(
+            root.permits(owner, group, 0, ObjectKind::Regular, Access::Read)
+                .unwrap()
+        );
+        assert!(
+            root.permits(owner, group, 0, ObjectKind::Regular, Access::Write)
+                .unwrap()
+        );
+        assert!(
+            root.permits(owner, group, 0, ObjectKind::Directory, Access::Execute)
+                .unwrap()
+        );
+        assert!(
+            !root
+                .permits(owner, group, 0o0644, ObjectKind::Regular, Access::Execute)
+                .unwrap()
+        );
+        assert!(
+            root.permits(owner, group, 0o0100, ObjectKind::Regular, Access::Execute)
+                .unwrap()
+        );
     }
 
     #[test]
     fn invalid_mode_bits_fail_closed() {
-        let credentials =
-            Credentials::user(Uid::from_raw(1000), Gid::from_raw(100));
+        let credentials = Credentials::user(Uid::from_raw(1000), Gid::from_raw(100));
         assert_eq!(
             credentials.permits(
                 Uid::from_raw(1000),
