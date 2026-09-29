@@ -1,0 +1,49 @@
+name: Hardware rediscovery evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  hardware-rediscovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+      - name: Install repository toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rust-src,rustfmt,clippy --target x86_64-unknown-uefi,x86_64-unknown-none
+      - name: Build once and boot without xHCI
+        run: |
+          bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
+          cp build/qemu/serial.log build/qemu/rediscovery-default-serial.log
+          cp build/qemu/debugcon.log build/qemu/rediscovery-default-debugcon.log
+          grep -Eq 'Vibrix PCI segment0: [0-9]+ devices, [0-9]+ assigned BARs, 0 xHCI' build/qemu/rediscovery-default-serial.log
+      - name: Reboot same image with changed hardware inventory
+        run: |
+          VIBRIX_SKIP_BUILD=1 VIBRIX_QEMU_XHCI=1 bash tools/test-qemu.sh
+          cp build/qemu/serial.log build/qemu/rediscovery-xhci-serial.log
+          cp build/qemu/debugcon.log build/qemu/rediscovery-xhci-debugcon.log
+          grep -Eq 'Vibrix PCI segment0: [0-9]+ devices, [0-9]+ assigned BARs, 1 xHCI' build/qemu/rediscovery-xhci-serial.log
+          grep -Fq 'VIBRIX: kernel PCI inventory complete' build/qemu/rediscovery-default-debugcon.log
+          grep -Fq 'VIBRIX: kernel PCI inventory complete' build/qemu/rediscovery-xhci-debugcon.log
+      - name: Preserve rediscovery logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: hardware-rediscovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/qemu/rediscovery-*.log
+          if-no-files-found: warn
+          retention-days: 7
