@@ -627,7 +627,7 @@ storage, general multi-process scheduling or a full service manager.
 **Exit:** boot to an interactive Vibrix userspace shell.
 
 ## M7 — USB platform
-- [ ] xHCI initialization
+- [x] xHCI initialization
 - [ ] USB device enumeration
 - [ ] USB hub support
 - [ ] USB HID keyboard
@@ -639,6 +639,21 @@ storage, general multi-process scheduling or a full service manager.
 - [ ] Read/write blocks on the Vibrix USB device
 
 **Exit:** Vibrix can access the same removable USB device it booted from after leaving firmware services.
+
+**Verified M7 native xHCI initialization (PR #168):**
+[CI run 36519983485](https://github.com/mixutin/Vibrix/actions/runs/36519983485)
+passed formatting, host contracts, target Clippy/builds and the full QEMU
+regression matrix on implementation head `ec6aabe8a27f9e9fc07e8dc952bbb7c3a4dcf63c`.
+The dedicated post-firmware probe discovered the QEMU xHCI PCI function,
+validated its MMIO capability header, reset the controller, provisioned bounded
+DCBAA/command/event/ERST structures, programmed operational/runtime registers
+and observed the controller transition to Running. Independent kernel output
+reported `VIBRIX: kernel xHCI reset and running` and
+`kernel xHCI: 00:03.0 ... version=0x100 slots=64 ports=8`.
+
+This checks **controller initialization only**. USB device enumeration, hubs,
+HID, mass-storage transfers, SCSI, robust boot-USB identity, persistent USB I/O
+and Target 001 hardware proof remain separate unchecked work.
 
 ## M8 — Vibrix filesystem
 - [x] On-disk specification
