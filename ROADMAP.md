@@ -958,7 +958,20 @@ still separate work.
 - [ ] stack protections
 - [ ] IOMMU
 - [ ] secure updates
-- [ ] optional USB system encryption design
+- [x] optional USB system encryption design
+
+**Adopted optional encrypted-volume design (ADR 0023):** the Vibrix system
+partition may later expose an authenticated encrypted block layer beneath
+VibrixFS. The design uses a random volume master key, Argon2id passphrase
+keyslots, HKDF-separated keys, AES-256-GCM-SIV data blocks, external
+authentication tags/tree metadata, redundant authenticated roots and explicit
+crash-ordering/fail-closed rules. It also documents the unavoidable lack of
+whole-device rollback freshness without an external trusted anchor.
+
+This is a **design checkbox only**. No cryptographic implementation, secure
+random source, encrypted USB I/O, unlock UI, key management, boot-chain
+authentication or recovery support is claimed. Those remain separate work.
+See [ADR 0023](docs/decisions/0023-usb-system-encryption.md).
 
 **Verified M11 W^X enforcement (existing implementation, PR #160):**
 [Actions run 36490303799](https://github.com/mixutin/Vibrix/actions/runs/36490303799)
