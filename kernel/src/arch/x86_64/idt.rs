@@ -195,14 +195,25 @@ extern "x86-interrupt" fn ring3_probe_handler(frame: InterruptStackFrame) -> ! {
 
 extern "x86-interrupt" fn breakpoint_handler(frame: InterruptStackFrame) {
     crate::debugcon::write("VIBRIX: kernel breakpoint exception handled\r\n");
-    crate::println!("kernel #BP breakpoint rip={:#x}", frame.instruction_pointer);
+    crate::println!(
+        "kernel #BP rip={:#x} cs={:#x} rflags={:#x} rsp={:#x} ss={:#x}",
+        frame.instruction_pointer,
+        frame.code_segment,
+        frame.cpu_flags,
+        frame.stack_pointer,
+        frame.stack_segment
+    );
 }
 
 extern "x86-interrupt" fn double_fault_handler(frame: InterruptStackFrame, error_code: u64) -> ! {
     crate::debugcon::write("VIBRIX: kernel double fault\r\n");
     crate::println!(
-        "kernel #DF rip={:#x} error={:#x} (no IST yet)",
+        "kernel #DF rip={:#x} cs={:#x} rflags={:#x} rsp={:#x} ss={:#x} error={:#x} (no IST yet)",
         frame.instruction_pointer,
+        frame.code_segment,
+        frame.cpu_flags,
+        frame.stack_pointer,
+        frame.stack_segment,
         error_code
     );
     loop {
@@ -216,8 +227,12 @@ extern "x86-interrupt" fn general_protection_handler(
 ) -> ! {
     crate::debugcon::write("VIBRIX: kernel general protection fault\r\n");
     crate::println!(
-        "kernel #GP rip={:#x} error={:#x}",
+        "kernel #GP rip={:#x} cs={:#x} rflags={:#x} rsp={:#x} ss={:#x} error={:#x}",
         frame.instruction_pointer,
+        frame.code_segment,
+        frame.cpu_flags,
+        frame.stack_pointer,
+        frame.stack_segment,
         error_code
     );
     loop {
@@ -233,9 +248,13 @@ extern "x86-interrupt" fn page_fault_handler(frame: InterruptStackFrame, error_c
     let reason = PageFaultReason::from_error_code(error_code);
     crate::debugcon::write("VIBRIX: kernel page fault diagnostic\r\n");
     crate::println!(
-        "kernel #PF cr2={:#x} rip={:#x} error={:#x} present={} write={} user={} reserved={} exec={}",
+        "kernel #PF cr2={:#x} rip={:#x} cs={:#x} rflags={:#x} rsp={:#x} ss={:#x} error={:#x} present={} write={} user={} reserved={} exec={}",
         cr2,
         frame.instruction_pointer,
+        frame.code_segment,
+        frame.cpu_flags,
+        frame.stack_pointer,
+        frame.stack_segment,
         error_code,
         reason.protection,
         reason.write,
