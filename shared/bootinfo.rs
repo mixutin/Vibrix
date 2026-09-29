@@ -4,7 +4,7 @@
 //! addresses remain integers: validating metadata does not map their backing.
 
 pub const BOOTINFO_MAGIC: u64 = 0x4942_5849_5242_4956; // "VIBRIXBI" in little endian
-pub const BOOTINFO_VERSION: u32 = 3;
+pub const BOOTINFO_VERSION: u32 = 4;
 pub const SUPPORTED_MEMORY_DESCRIPTOR_VERSION: u32 = 1;
 pub const MEMORY_DESCRIPTOR_PREFIX_BYTES: u64 = 40;
 
@@ -25,7 +25,7 @@ pub struct BootInfo {
     pub memory_map_len: u64,
     pub memory_descriptor_size: u64,
     pub memory_descriptor_version: u32,
-    pub _reserved_v2: u32,
+    pub ap_trampoline_page: u32,
     pub kernel_window_table: u64,
 }
 
@@ -57,6 +57,7 @@ pub enum BootInfoError {
     InvalidRsdp,
     InvalidMemoryMap,
     UnsupportedDescriptorVersion,
+    InvalidApTrampoline,
 }
 
 impl BootInfo {
@@ -66,6 +67,7 @@ impl BootInfo {
         framebuffer: FramebufferInfo,
         rsdp: u64,
         map: FinalMemoryMap,
+        ap_trampoline_page: u32,
         kernel_window_table: u64,
     ) -> Result<Self, BootInfoError> {
         let byte_len = u64::try_from(map.byte_len).map_err(|_| BootInfoError::InvalidMemoryMap)?;
@@ -86,7 +88,7 @@ impl BootInfo {
             memory_map_len: byte_len,
             memory_descriptor_size: descriptor_size,
             memory_descriptor_version: map.descriptor_version,
-            _reserved_v2: 0,
+            ap_trampoline_page,
             kernel_window_table,
         };
         info.validate()?;
@@ -100,7 +102,7 @@ impl BootInfo {
         if self.magic != BOOTINFO_MAGIC {
             return Err(BootInfoError::InvalidMagic);
         }
-        // Version gate precedes all v2/v3 tail access in kernel entry.
+        // Version gate precedes all v2/v3/v4 tail access in kernel entry.
         // A future pointer-based reader must first check the mapped v1 prefix.
         if self.version != BOOTINFO_VERSION {
             return Err(BootInfoError::UnsupportedVersion);
@@ -111,8 +113,14 @@ impl BootInfo {
         {
             return Err(BootInfoError::InvalidWindowTable);
         }
-        if self._reserved != 0 || self._reserved_v2 != 0 {
+        if self._reserved != 0 {
             return Err(BootInfoError::NonzeroReserved);
+        }
+        if self.ap_trampoline_page < 4096
+            || self.ap_trampoline_page > 0x000f_f000
+            || !self.ap_trampoline_page.is_multiple_of(4096)
+        {
+            return Err(BootInfoError::InvalidApTrampoline);
         }
         let min_framebuffer_bytes = u64::from(self.framebuffer_stride)
             .checked_mul(u64::from(self.framebuffer_height))
@@ -174,6 +182,7 @@ mod tests {
                 descriptor_size: 48,
                 descriptor_version: 1,
             },
+            0x8000,
             0x3000,
         )
         .unwrap()
@@ -198,7 +207,7 @@ mod tests {
         assert_eq!(offset_of!(BootInfo, memory_map_len), 64);
         assert_eq!(offset_of!(BootInfo, memory_descriptor_size), 72);
         assert_eq!(offset_of!(BootInfo, memory_descriptor_version), 80);
-        assert_eq!(offset_of!(BootInfo, _reserved_v2), 84);
+        assert_eq!(offset_of!(BootInfo, ap_trampoline_page), 84);
         assert_eq!(offset_of!(BootInfo, kernel_window_table), 88);
     }
 
@@ -206,9 +215,9 @@ mod tests {
     fn final_map_is_written_without_map_key_and_with_zero_reserved_fields() {
         let info = valid();
         assert_eq!(info.magic, BOOTINFO_MAGIC);
-        assert_eq!(info.version, 3);
+        assert_eq!(info.version, 4);
         assert_eq!(info._reserved, 0);
-        assert_eq!(info._reserved_v2, 0);
+        assert_eq!(info.ap_trampoline_page, 0x8000);
         assert_eq!(info.memory_map_len, 144);
         assert_eq!(info.memory_descriptor_size, 48);
         assert_eq!(info.memory_descriptor_version, 1);
@@ -217,7 +226,7 @@ mod tests {
 
     #[test]
     fn corrupt_magic_version_and_reserved_fields_fail_closed() {
-        for value in [0, 1, 2, 4] {
+        for value in [0, 1, 2, 3, 5] {
             let mut info = valid();
             info.version = value;
             assert_eq!(info.validate(), Err(BootInfoError::UnsupportedVersion));
@@ -228,9 +237,15 @@ mod tests {
         let mut info = valid();
         info._reserved = 1;
         assert_eq!(info.validate(), Err(BootInfoError::NonzeroReserved));
-        let mut info = valid();
-        info._reserved_v2 = 1;
-        assert_eq!(info.validate(), Err(BootInfoError::NonzeroReserved));
+    }
+
+    #[test]
+    fn invalid_ap_trampoline_page_fails_closed() {
+        for address in [0, 1, 0x1001, 0x0010_0000, u32::MAX] {
+            let mut info = valid();
+            info.ap_trampoline_page = address;
+            assert_eq!(info.validate(), Err(BootInfoError::InvalidApTrampoline));
+        }
     }
 
     #[test]
