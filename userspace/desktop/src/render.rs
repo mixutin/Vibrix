@@ -1,6 +1,6 @@
 //! Userspace software presentation; bounded tiles cross the native syscall ABI.
 use crate::{App, Desktop, Terminal, files::Files};
-use vibrix_syscall::{Result, display::Rect};
+use vibrix_syscall::Result;
 use vibrix_ui::{CELL_HEIGHT, CELL_WIDTH, Painter, Theme, paint_button, paint_window_frame};
 pub use vibrix_ui::{Canvas, NativeCanvas as Native};
 
@@ -110,7 +110,7 @@ pub fn draw<C: Canvas>(
             match desktop.app {
                 App::Terminal => {
                     terminal.dirty.fill(true);
-                    draw_draw_terminal(&mut p, desktop, terminal)?;
+                    draw_terminal(&mut p, desktop, terminal)?;
                 }
                 App::Files => {
                     p.text(
