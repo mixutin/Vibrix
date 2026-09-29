@@ -995,12 +995,29 @@ This is a single-process foreground desktop preview, **not completion of M13**, 
 - [ ] HDA + basic PCM
 - [ ] USB audio
 - [x] graphics architecture
-- [ ] framebuffer userspace API
+- [x] framebuffer userspace API
 - [x] compositor/display-server design
 - [x] Navi 23 modesetting research
 - [ ] native modesetting
 - [ ] acceleration
 - [ ] GUI toolkit
+
+**Verified M13 bounded userspace framebuffer/display API (PR #199):**
+[Full CI run 36578586659](https://github.com/mixutin/Vibrix/actions/runs/36578586659)
+and [dedicated userspace display run 36578586194](https://github.com/mixutin/Vibrix/actions/runs/36578586194)
+passed on implementation head `6c7774da242303c071e229431ff4b91a8d02895d`.
+The opt-in native Ring 3 desktop uses additive ABI v1 calls `DisplayInfo`,
+`DisplayFill` and `DisplayBlit` through the real syscall path. User pointers
+are validated by the existing checked copy layer, blits copy through a bounded
+kernel buffer, rectangle/count/reserved-argument checks fail before drawing, and
+no framebuffer/MMIO physical address is exposed to userspace. The dedicated
+workflow boots the real userspace ELF and validates actual guest framebuffer
+pixels and interactive input rather than a host-rendered mockup.
+
+This checks the bounded **framebuffer userspace API** only. The retained GOP
+framebuffer remains kernel-owned and software-rendered; native GPU modesetting,
+acceleration, multi-client compositor isolation, physical Target 001 display
+validation and the general GUI toolkit remain separate unchecked work.
 
 **Adopted M13 graphics architecture and Navi 23 research (ADR 0022):**
 Vibrix separates kernel modesetting/hardware ownership from a userspace
