@@ -1,8 +1,7 @@
-"""Exercise the actual interactive launcher, RFB keyboard, and guest pixels.
+"""Verify the normal userspace boot through real RFB keys and QEMU pixels.
 
-Host-only test infrastructure. No generated image or manufactured guest marker
-can substitute for QEMU's captured framebuffer. See RFC 6143 sections 7.1, 7.3,
-7.5.4 and QEMU's QMP screendump command.
+The independent glyph fixtures below check actual QMP screendumps. Host-only
+oracle tests are not boot evidence. No generated image replaces guest output.
 """
 
 from __future__ import annotations
@@ -35,6 +34,8 @@ GLYPHS = {
     "h": [16, 16, 30, 17, 17, 17, 17],
     "o": [0, 0, 14, 17, 17, 17, 14],
     "n": [0, 0, 30, 17, 17, 17, 17],
+    "f": [6, 9, 8, 28, 8, 8, 8],
+    "t": [8, 8, 28, 8, 8, 9, 6],
 }
 
 
@@ -53,8 +54,8 @@ def ppm(data: bytes) -> tuple[int, int, bytes]:
 
 def require_text(data: bytes, text: str, row: int, column: int = 0) -> None:
     width, height, pixels = ppm(data)
-    if 16 + (column + len(text)) * 12 > width or 16 + (row + 1) * 16 > height:
-        raise AssertionError("text would lie outside the framebuffer")
+    if row < 0 or column < 0 or 16 + (column + len(text)) * 12 > width or 16 + (row + 1) * 16 > height:
+        raise AssertionError("text outside framebuffer")
     for index, character in enumerate(text):
         bitmap = GLYPHS[character]
         for y in range(16):
@@ -64,9 +65,7 @@ def require_text(data: bytes, text: str, row: int, column: int = 0) -> None:
                 px, py = 16 + (column + index) * 12 + x, 16 + row * 16 + y
                 offset = (py * width + px) * 3
                 if pixels[offset:offset + 3] != expected:
-                    raise AssertionError(
-                        f"guest pixels do not show {text!r}: cell {index}, pixel ({px},{py})"
-                    )
+                    raise AssertionError(f"pixels do not show {text!r}: cell {index}, pixel ({px},{py})")
 
 
 def receive(client: socket.socket, count: int) -> bytes:
@@ -84,7 +83,7 @@ def vnc_connect(port: int) -> socket.socket:
     try:
         version = receive(client, 12)
         if version != b"RFB 003.008\n":
-            raise RuntimeError(f"unexpected local RFB version: {version!r}")
+            raise RuntimeError(f"unexpected RFB version: {version!r}")
         client.sendall(version)
         count = receive(client, 1)[0]
         if count == 0 or 1 not in receive(client, count):
@@ -106,7 +105,7 @@ def vnc_connect(port: int) -> socket.socket:
 
 
 def key(client: socket.socket, keysym: int) -> None:
-    # Real VNC KeyEvent -> QEMU PS/2 -> native decoder -> userspace TTY read.
+    # Actual RFB KeyEvent -> virtual PS/2 -> kernel TTY -> userspace read.
     for down in (1, 0):
         client.sendall(struct.pack(">BBHI", 4, down, 0, keysym))
         time.sleep(0.08)
@@ -166,11 +165,13 @@ def await_text(qmp: Qmp, name: str, expectations: list[tuple[str, int]]) -> None
 
 
 def integration() -> None:
-    env = os.environ.copy()
-    env.pop("VIBRIX_KERNEL_FEATURES", None)
-    env.pop("VIBRIX_QEMU_XHCI", None)
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    env = {name: value for name, value in os.environ.items() if not name.startswith("VIBRIX_")}
+    OUTPUT.mkdir(parents=True, exist_ok=True)
     launch_log = OUTPUT.parent / "userspace-display-launch.log"
+    serial = OUTPUT / "interactive-serial.log"
+    debug = OUTPUT / "interactive-debugcon.log"
+    for stale in (serial, debug, OUTPUT / "display-result.json"):
+        stale.unlink(missing_ok=True)
     with tempfile.TemporaryDirectory(prefix="vibrix-display-") as scratch:
         qmp_path = Path(scratch) / "qmp.sock"
         env["VIBRIX_QEMU_QMP_SOCKET"] = str(qmp_path)
@@ -183,8 +184,6 @@ def integration() -> None:
             )
             try:
                 deadline = time.monotonic() + 240
-                serial = OUTPUT / "interactive-serial.log"
-                debug = OUTPUT / "interactive-debugcon.log"
                 while time.monotonic() < deadline:
                     if process.poll() is not None:
                         raise RuntimeError(f"launcher exited: {process.returncode}")
@@ -197,24 +196,81 @@ def integration() -> None:
                     time.sleep(0.2)
                 else:
                     raise RuntimeError("automatic userspace boot timed out")
+                text = serial.read_text(errors="replace").replace("\r", "")
+                for expected in ("Vibrix / vfetch", "Privilege: ring 3", "PID: 1", "Memory usage: unavailable"):
+                    if expected not in text:
+                        raise AssertionError(f"missing automatic userspace fact: {expected}")
+                debug_text = debug.read_text(errors="replace")
+                for marker in ("kernel Rust shell ELF loaded", "kernel userspace CR3 activated"):
+                    if marker not in debug_text:
+                        raise AssertionError(f"missing real boot milestone: {marker}")
+                if "kernel console prompt ready" in debug_text:
+                    raise AssertionError("default boot entered the kernel console")
                 qmp = Qmp(qmp_path)
-                await_text(qmp, "display-boot.ppm", [("vibrix$ ", 1)])
+                await_text(qmp, "display-boot.ppm", [("vibrix$ ", 15)])
+                require_text((OUTPUT / "display-boot.ppm").read_bytes(), "vfetch", 2, 21)
                 with vnc_connect(5997) as client:
                     for character in "echo vnx":
                         key(client, ord(character))
                     key(client, 0xFF08)
                     key(client, ord("c"))
-                    # No Enter yet: this must be visible keyboard echo/editing.
-                    await_text(qmp, "display-edit.ppm", [("vibrix$ echo vnc", 1)])
+                    await_text(qmp, "display-edit.ppm", [("vibrix$ echo vnc", 15)])
                     key(client, 0xFF0D)
-                    await_text(qmp, "display-command.ppm", [("vnc", 2), ("vibrix$ ", 3)])
-                text = serial.read_text(errors="replace").replace("\r", "")
-                if "\nvnc\nvibrix$ " not in text:
-                    raise AssertionError("serial mirror lost the real shell response")
-                print("PASS: default launcher boots the compiled Ring 3 shell")
-                print("PASS: VNC keys and backspace appear before Enter")
-                print("PASS: syscall-backed command response and next prompt are guest pixels")
-                print("PASS: independent COM1 logging is retained")
+                    await_text(qmp, "display-command.ppm", [("vnc", 16), ("vibrix$ ", 17)])
+                    if "\nvnc\nvibrix$ " not in serial.read_text(errors="replace").replace("\r", ""):
+                        raise AssertionError("serial mirror lost the real shell response")
+
+                    def command(line: str, expected: str = "") -> str:
+                        offset = serial.stat().st_size
+                        for character in line:
+                            key(client, ord(character))
+                        key(client, 0xFF0D)
+                        deadline = time.monotonic() + 15
+                        while time.monotonic() < deadline:
+                            reply = serial.read_bytes()[offset:].decode(errors="replace").replace("\r", "")
+                            if "vibrix$ " in reply:
+                                if expected not in reply:
+                                    raise AssertionError(f"{line[:48]!r} missing {expected!r}: {reply!r}")
+                                return reply
+                            if process.poll() is not None:
+                                raise AssertionError("guest exited during command test")
+                            time.sleep(0.05)
+                        raise AssertionError(f"no userspace prompt after {line[:48]!r}")
+
+                    command("help", "vfetch (aliases: neofetch fastfetch)")
+                    for alias in ("vfetch", "neofetch", "fastfetch"):
+                        command(alias, "Privilege: ring 3")
+                    command("uname", "\nVibrix\n")
+                    command("uname -a", "Vibrix x86_64 native Rust userspace")
+                    command("pid", "\n1\n")
+                    command("vfetch -x", "sh: command failed")
+                    command("notacommand", "sh: unknown command")
+                    command("a" * 270, "sh: unknown command")
+                    command("echo recovered", "\nrecovered\n")
+                    command("cat /welcome", "Vibrix bootstrap filesystem: files live in RAM until reboot.")
+                    command("mkdir /tmp/session")
+                    command("cd /tmp/session")
+                    command("pwd", "\n/tmp/session\n")
+                    command("cp /welcome copy")
+                    command("cat copy", "Vibrix bootstrap filesystem: files live in RAM until reboot.")
+                    command("clear", "\n" * 32)
+                    # Clear is the documented bounded-scroll operation, not an
+                    # unimplemented ANSI home. Verify every visible cell above
+                    # the last-row prompt and then exercise real scrolling.
+                    await_text(qmp, "display-clear.ppm", [("vibrix$ ", 29)] + [(" " * 80, row) for row in range(29)])
+                    command("echo vnc", "\nvnc\n")
+                    await_text(qmp, "display-final.ppm", [("vibrix$ echo vnc", 27), ("vnc", 28), ("vibrix$ ", 29)])
+                evidence = {
+                    "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+                    "result": "passed",
+                    "input": "real localhost RFB keyboard events",
+                    "pixels": "automatic vfetch, prompt, pre-Enter editing, response, clear and scrolling",
+                }
+                (OUTPUT / "display-result.json").write_text(json.dumps(evidence, indent=2) + "\n")
+                print(json.dumps(evidence, indent=2))
+                print("PASS: automatic Ring-3 shell, vfetch and real VNC keyboard editing")
+                print("PASS: aliases, argument errors, full-line recovery and RAM file commands")
+                print("PASS: cleared cells, scrolling, command response and prompt are guest pixels")
             except BaseException:
                 if qmp is not None:
                     try:

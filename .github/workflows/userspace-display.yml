@@ -28,10 +28,12 @@ jobs:
         run: |
           toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
           rustup toolchain install "$toolchain" --profile minimal --component rust-src,rustfmt,clippy --target x86_64-unknown-uefi,x86_64-unknown-none
-      - name: Test production framebuffer bounds, cursor, editing and scrolling
+      - name: Test production framebuffer and shell commands
         run: |
           rustc --edition=2024 --test kernel/src/framebuffer.rs -o "$RUNNER_TEMP/vibrix-framebuffer-tests"
           "$RUNNER_TEMP/vibrix-framebuffer-tests"
+          cargo test --locked -p vibrix-shell --lib
+          cargo clippy --locked -p vibrix-shell --target x86_64-unknown-none -- -D warnings
           python3 tools/test_userspace_display.py --unit
       - name: Validate launcher syntax and fail-closed VNC options
         run: |
@@ -47,7 +49,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-system-x86 ovmf
-      - name: Prove default launch, real VNC typing and captured guest pixels
+      - name: Prove automatic vfetch, real VNC typing, commands and captured pixels
         run: python3 tools/test_userspace_display.py
       - name: Lint integrated kernel including the interactive frontend
         # Match the repository's strict all-feature Clippy policy; the actual
@@ -61,6 +63,7 @@ jobs:
           path: |
             build/userspace-display-launch.log
             build/qemu/display-*.ppm
+            build/qemu/display-result.json
             build/qemu/interactive-*.log
           if-no-files-found: warn
           retention-days: 7
