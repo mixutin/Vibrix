@@ -4,9 +4,11 @@
 //! addresses remain integers: validating metadata does not map their backing.
 
 pub const BOOTINFO_MAGIC: u64 = 0x4942_5849_5242_4956; // "VIBRIXBI" in little endian
-pub const BOOTINFO_VERSION: u32 = 3;
+pub const BOOTINFO_VERSION: u32 = 4;
 pub const SUPPORTED_MEMORY_DESCRIPTOR_VERSION: u32 = 1;
 pub const MEMORY_DESCRIPTOR_PREFIX_BYTES: u64 = 40;
+pub const BOOT_USB_IDENTITY_PRESENT: u32 = 1 << 0;
+pub const BOOT_USB_SYSTEM_GUID_PRESENT: u32 = 1 << 1;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,6 +29,13 @@ pub struct BootInfo {
     pub memory_descriptor_version: u32,
     pub _reserved_v2: u32,
     pub kernel_window_table: u64,
+    pub boot_identity_flags: u32,
+    pub _reserved_v4: u32,
+    pub boot_disk_guid: [u8; 16],
+    pub boot_esp_guid: [u8; 16],
+    pub boot_system_guid: [u8; 16],
+    pub boot_esp_first_lba: u64,
+    pub boot_esp_last_lba: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,6 +46,15 @@ pub struct FramebufferInfo {
     pub height: u32,
     pub stride: u32,
     pub pixel_format: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BootUsbIdentity {
+    pub disk_guid: [u8; 16],
+    pub esp_guid: [u8; 16],
+    pub system_guid: Option<[u8; 16]>,
+    pub esp_first_lba: u64,
+    pub esp_last_lba: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,6 +75,7 @@ pub enum BootInfoError {
     InvalidRsdp,
     InvalidMemoryMap,
     UnsupportedDescriptorVersion,
+    InvalidBootIdentity,
 }
 
 impl BootInfo {
@@ -88,13 +107,54 @@ impl BootInfo {
             memory_descriptor_version: map.descriptor_version,
             _reserved_v2: 0,
             kernel_window_table,
+            boot_identity_flags: 0,
+            _reserved_v4: 0,
+            boot_disk_guid: [0; 16],
+            boot_esp_guid: [0; 16],
+            boot_system_guid: [0; 16],
+            boot_esp_first_lba: 0,
+            boot_esp_last_lba: 0,
         };
         info.validate()?;
         Ok(info)
     }
 
+    pub fn with_boot_usb_identity(
+        mut self,
+        identity: BootUsbIdentity,
+    ) -> Result<Self, BootInfoError> {
+        self.boot_identity_flags = BOOT_USB_IDENTITY_PRESENT;
+        self.boot_disk_guid = identity.disk_guid;
+        self.boot_esp_guid = identity.esp_guid;
+        self.boot_esp_first_lba = identity.esp_first_lba;
+        self.boot_esp_last_lba = identity.esp_last_lba;
+        if let Some(system_guid) = identity.system_guid {
+            self.boot_identity_flags |= BOOT_USB_SYSTEM_GUID_PRESENT;
+            self.boot_system_guid = system_guid;
+        }
+        self.validate()?;
+        Ok(self)
+    }
+
+    pub fn boot_usb_identity(&self) -> Option<BootUsbIdentity> {
+        if self.boot_identity_flags & BOOT_USB_IDENTITY_PRESENT == 0 {
+            return None;
+        }
+        Some(BootUsbIdentity {
+            disk_guid: self.boot_disk_guid,
+            esp_guid: self.boot_esp_guid,
+            system_guid: if self.boot_identity_flags & BOOT_USB_SYSTEM_GUID_PRESENT != 0 {
+                Some(self.boot_system_guid)
+            } else {
+                None
+            },
+            esp_first_lba: self.boot_esp_first_lba,
+            esp_last_lba: self.boot_esp_last_lba,
+        })
+    }
+
     /// Validate scalar metadata only. The caller must separately prove that
-    /// this whole 96-byte object and its physical ranges are mapped/owned.
+    /// this whole 168-byte object and its physical ranges are mapped/owned.
     /// In particular, this does not dereference the memory-map address.
     pub fn validate(&self) -> Result<(), BootInfoError> {
         if self.magic != BOOTINFO_MAGIC {
@@ -111,7 +171,7 @@ impl BootInfo {
         {
             return Err(BootInfoError::InvalidWindowTable);
         }
-        if self._reserved != 0 || self._reserved_v2 != 0 {
+        if self._reserved != 0 || self._reserved_v2 != 0 || self._reserved_v4 != 0 {
             return Err(BootInfoError::NonzeroReserved);
         }
         let min_framebuffer_bytes = u64::from(self.framebuffer_stride)
@@ -137,6 +197,34 @@ impl BootInfo {
         if self.memory_descriptor_version != SUPPORTED_MEMORY_DESCRIPTOR_VERSION {
             return Err(BootInfoError::UnsupportedDescriptorVersion);
         }
+        let allowed_boot_flags = BOOT_USB_IDENTITY_PRESENT | BOOT_USB_SYSTEM_GUID_PRESENT;
+        if self.boot_identity_flags & !allowed_boot_flags != 0
+            || (self.boot_identity_flags & BOOT_USB_SYSTEM_GUID_PRESENT != 0
+                && self.boot_identity_flags & BOOT_USB_IDENTITY_PRESENT == 0)
+        {
+            return Err(BootInfoError::InvalidBootIdentity);
+        }
+        if self.boot_identity_flags & BOOT_USB_IDENTITY_PRESENT == 0 {
+            if self.boot_disk_guid != [0; 16]
+                || self.boot_esp_guid != [0; 16]
+                || self.boot_system_guid != [0; 16]
+                || self.boot_esp_first_lba != 0
+                || self.boot_esp_last_lba != 0
+            {
+                return Err(BootInfoError::InvalidBootIdentity);
+            }
+        } else if self.boot_disk_guid == [0; 16]
+            || self.boot_esp_guid == [0; 16]
+            || self.boot_esp_first_lba == 0
+            || self.boot_esp_first_lba > self.boot_esp_last_lba
+            || (self.boot_identity_flags & BOOT_USB_SYSTEM_GUID_PRESENT != 0
+                && self.boot_system_guid == [0; 16])
+            || (self.boot_identity_flags & BOOT_USB_SYSTEM_GUID_PRESENT == 0
+                && self.boot_system_guid != [0; 16])
+        {
+            return Err(BootInfoError::InvalidBootIdentity);
+        }
+
         if self.memory_map == 0
             || self.memory_map_len == 0
             || self.memory_descriptor_size < MEMORY_DESCRIPTOR_PREFIX_BYTES
@@ -180,9 +268,9 @@ mod tests {
     }
 
     #[test]
-    fn abi_is_exactly_96_bytes_with_stable_v1_prefix() {
+    fn abi_is_exactly_168_bytes_with_stable_v1_v3_prefixes() {
         assert_eq!(BOOTINFO_MAGIC.to_le_bytes(), *b"VIBRIXBI");
-        assert_eq!(size_of::<BootInfo>(), 96);
+        assert_eq!(size_of::<BootInfo>(), 168);
         assert_eq!(align_of::<BootInfo>(), 8);
         assert_eq!(offset_of!(BootInfo, magic), 0);
         assert_eq!(offset_of!(BootInfo, version), 8);
@@ -200,13 +288,20 @@ mod tests {
         assert_eq!(offset_of!(BootInfo, memory_descriptor_version), 80);
         assert_eq!(offset_of!(BootInfo, _reserved_v2), 84);
         assert_eq!(offset_of!(BootInfo, kernel_window_table), 88);
+        assert_eq!(offset_of!(BootInfo, boot_identity_flags), 96);
+        assert_eq!(offset_of!(BootInfo, _reserved_v4), 100);
+        assert_eq!(offset_of!(BootInfo, boot_disk_guid), 104);
+        assert_eq!(offset_of!(BootInfo, boot_esp_guid), 120);
+        assert_eq!(offset_of!(BootInfo, boot_system_guid), 136);
+        assert_eq!(offset_of!(BootInfo, boot_esp_first_lba), 152);
+        assert_eq!(offset_of!(BootInfo, boot_esp_last_lba), 160);
     }
 
     #[test]
     fn final_map_is_written_without_map_key_and_with_zero_reserved_fields() {
         let info = valid();
         assert_eq!(info.magic, BOOTINFO_MAGIC);
-        assert_eq!(info.version, 3);
+        assert_eq!(info.version, 4);
         assert_eq!(info._reserved, 0);
         assert_eq!(info._reserved_v2, 0);
         assert_eq!(info.memory_map_len, 144);
@@ -217,7 +312,7 @@ mod tests {
 
     #[test]
     fn corrupt_magic_version_and_reserved_fields_fail_closed() {
-        for value in [0, 1, 2, 4] {
+        for value in [0, 1, 2, 3, 5] {
             let mut info = valid();
             info.version = value;
             assert_eq!(info.validate(), Err(BootInfoError::UnsupportedVersion));
@@ -231,6 +326,40 @@ mod tests {
         let mut info = valid();
         info._reserved_v2 = 1;
         assert_eq!(info.validate(), Err(BootInfoError::NonzeroReserved));
+    }
+
+    #[test]
+    fn boot_usb_identity_tail_is_optional_and_fail_closed() {
+        let info = valid();
+        assert_eq!(info.boot_usb_identity(), None);
+
+        let identity = BootUsbIdentity {
+            disk_guid: [0x11; 16],
+            esp_guid: [0x22; 16],
+            system_guid: Some([0x33; 16]),
+            esp_first_lba: 2048,
+            esp_last_lba: 67583,
+        };
+        let info = info.with_boot_usb_identity(identity).unwrap();
+        assert_eq!(info.boot_usb_identity(), Some(identity));
+        assert_eq!(
+            info.boot_identity_flags,
+            BOOT_USB_IDENTITY_PRESENT | BOOT_USB_SYSTEM_GUID_PRESENT
+        );
+
+        let mut corrupt = info;
+        corrupt.boot_identity_flags = BOOT_USB_SYSTEM_GUID_PRESENT;
+        assert_eq!(
+            corrupt.validate(),
+            Err(BootInfoError::InvalidBootIdentity)
+        );
+
+        let mut corrupt = valid();
+        corrupt.boot_disk_guid = [1; 16];
+        assert_eq!(
+            corrupt.validate(),
+            Err(BootInfoError::InvalidBootIdentity)
+        );
     }
 
     #[test]
