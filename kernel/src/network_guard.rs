@@ -81,10 +81,7 @@ mod tests {
     #[test]
     fn valid_unfragmented_packet_within_limit_is_accepted() {
         let policy = Policy::new([10, 0, 0, 2], 1500);
-        assert_eq!(
-            policy.validate([10, 0, 0, 1], 512, 0, false),
-            Ok(())
-        );
+        assert_eq!(policy.validate([10, 0, 0, 1], 512, 0, false), Ok(()));
     }
 
     #[test]
