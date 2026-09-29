@@ -19,6 +19,9 @@ pub mod udp;
 #[path = "dhcp.rs"]
 pub mod dhcp;
 
+#[path = "dns.rs"]
+pub mod dns;
+
 pub const ETHERNET_HEADER: usize = 14;
 pub const MTU: usize = 1500;
 pub const MAX_FRAME: usize = ETHERNET_HEADER + MTU;
@@ -208,6 +211,10 @@ pub fn dhcp_self_test() -> Result<(), Error> {
     dhcp::self_test().map_err(|_| Error::Io)
 }
 
+pub fn dns_self_test() -> Result<(), Error> {
+    dns::self_test().map_err(|_| Error::Io)
+}
+
 pub fn self_test() -> Result<(), Error> {
     let address = MacAddress::new([2, 0, 0, 0, 0, 1])?;
     arp::self_test().map_err(|_| Error::Io)?;
@@ -272,6 +279,11 @@ mod tests {
     #[test]
     fn production_dhcp_client_path() {
         assert_eq!(dhcp_self_test(), Ok(()));
+    }
+
+    #[test]
+    fn production_dns_resolver_path() {
+        assert_eq!(dns_self_test(), Ok(()));
     }
 
     #[test]
