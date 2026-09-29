@@ -400,7 +400,15 @@ pub unsafe fn init(info: &BootInfo) -> Result<(), AddressSpaceError> {
 pub unsafe fn activate_probe() -> Result<ActivatedProbe, AddressSpaceError> {
     const CODE_GUARD: u64 = 0x003f_f000;
     const STACK_GUARD: u64 = 0x007f_e000;
-    #[cfg(feature = "process-syscall-probe")]
+    #[cfg(feature = "user-stack-guard-probe")]
+    const USER_CODE: &[u8] = &[
+        0xc6, 0x84, 0x24, 0xff, 0xef, 0xff, 0xff, 0x5a, // mov byte ptr [rsp - 4097], 0x5a
+        0x0f, 0x0b, // ud2: guard write must fault first
+    ];
+    #[cfg(all(
+        feature = "process-syscall-probe",
+        not(feature = "user-stack-guard-probe")
+    ))]
     const USER_CODE: &[u8] = &[
         0xb8, 0x02, 0x00, 0x00, 0x00, // mov eax, 2 (getpid)
         0x0f, 0x05, // syscall
@@ -423,9 +431,17 @@ pub unsafe fn activate_probe() -> Result<ActivatedProbe, AddressSpaceError> {
         0x0f, 0x05, // syscall; must not return
         0x0f, 0x0b, // ud2
     ];
-    #[cfg(all(not(feature = "process-syscall-probe"), not(feature = "syscall-probe")))]
+    #[cfg(all(
+        not(feature = "user-stack-guard-probe"),
+        not(feature = "process-syscall-probe"),
+        not(feature = "syscall-probe")
+    ))]
     const USER_CODE: &[u8] = &[0xcd, 0x80, 0x0f, 0x0b];
-    #[cfg(all(not(feature = "process-syscall-probe"), feature = "syscall-probe"))]
+    #[cfg(all(
+        not(feature = "user-stack-guard-probe"),
+        not(feature = "process-syscall-probe"),
+        feature = "syscall-probe"
+    ))]
     const USER_CODE: &[u8] = &[
         0x48, 0xc7, 0xc0, 0xff, 0xff, 0xff, 0xff, // mov rax, -1
         0x0f, 0x05, // syscall
