@@ -16,6 +16,7 @@ const IA32_PAT: u32 = 0x277;
 const CAPLENGTH: usize = 0x00;
 const HCSPARAMS1: usize = 0x04;
 const HCSPARAMS2: usize = 0x08;
+const HCCPARAMS1: usize = 0x10;
 const DBOFF: usize = 0x14;
 const RTSOFF: usize = 0x18;
 
@@ -30,6 +31,31 @@ const USBCMD_RUN: u32 = 1 << 0;
 const USBCMD_HCRST: u32 = 1 << 1;
 const USBSTS_HCH: u32 = 1 << 0;
 const USBSTS_CNR: u32 = 1 << 11;
+
+const PORTSC_BASE: usize = 0x400;
+const PORTSC_STRIDE: usize = 0x10;
+const PORTSC_CCS: u32 = 1 << 0;
+const PORTSC_PED: u32 = 1 << 1;
+const PORTSC_PR: u32 = 1 << 4;
+const PORTSC_PP: u32 = 1 << 9;
+const PORTSC_SPEED_SHIFT: u32 = 10;
+const PORTSC_SPEED_MASK: u32 = 0xf << PORTSC_SPEED_SHIFT;
+const PORTSC_RW1C: u32 = 0x7f << 17;
+
+const TRB_BYTES: usize = 16;
+const TRB_CYCLE: u32 = 1;
+const TRB_IDT: u32 = 1 << 6;
+const TRB_DIR_IN: u32 = 1 << 16;
+const TRB_TYPE_SHIFT: u32 = 10;
+const TRB_TYPE_ENABLE_SLOT: u32 = 9;
+const TRB_TYPE_ADDRESS_DEVICE: u32 = 11;
+const TRB_TYPE_SETUP_STAGE: u32 = 2;
+const TRB_TYPE_DATA_STAGE: u32 = 3;
+const TRB_TYPE_STATUS_STAGE: u32 = 4;
+const TRB_TYPE_TRANSFER_EVENT: u32 = 32;
+const TRB_TYPE_COMMAND_COMPLETION: u32 = 33;
+const COMPLETION_SUCCESS: u8 = 1;
+const COMPLETION_SHORT_PACKET: u8 = 13;
 
 const IMAN: usize = 0x00;
 const ERSTSZ: usize = 0x08;
@@ -56,6 +82,15 @@ pub enum InitError {
     ResetTimeout,
     ReadyTimeout,
     RunTimeout,
+    NoConnectedDevice,
+    PortResetTimeout,
+    UnsupportedContextSize,
+    InvalidControllerState,
+    CommandTimeout,
+    CommandFailed(u8),
+    TransferTimeout,
+    TransferFailed(u8),
+    DescriptorMalformed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,6 +105,18 @@ pub struct Summary {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UsbDeviceSummary {
+    pub port: u8,
+    pub slot_id: u8,
+    pub speed_id: u8,
+    pub vendor_id: u16,
+    pub product_id: u16,
+    pub class: u8,
+    pub subclass: u8,
+    pub protocol: u8,
+    pub max_packet_size0: u8,
+}
+
 pub struct Capability {
     pub cap_length: u8,
     pub version: u16,
