@@ -295,9 +295,7 @@ impl Database {
 
     pub fn validate_dependencies(&self, manifest: &Manifest) -> Result<(), Error> {
         for dependency in manifest.dependencies() {
-            let installed = self
-                .get(dependency.name)
-                .ok_or(Error::MissingDependency)?;
+            let installed = self.get(dependency.name).ok_or(Error::MissingDependency)?;
             if !installed.version.satisfies_minimum(dependency.minimum) {
                 return Err(Error::DependencyVersion);
             }
@@ -323,11 +321,9 @@ impl Database {
             .iter()
             .position(|slot| slot.is_some_and(|package| package.name == name))
             .ok_or(Error::NotInstalled)?;
-        if self.packages[..self.used]
-            .iter()
-            .flatten()
-            .any(|package| package.name != name && package.dependencies().iter().any(|dep| dep.name == name))
-        {
+        if self.packages[..self.used].iter().flatten().any(|package| {
+            package.name != name && package.dependencies().iter().any(|dep| dep.name == name)
+        }) {
             return Err(Error::RequiredByInstalled);
         }
         let removed = self.packages[index].take().ok_or(Error::NotInstalled)?;
@@ -380,7 +376,12 @@ mod tests {
 
     #[test]
     fn names_and_dependency_lists_are_strict() {
-        for invalid in [&b""[..], &b"Upper"[..], &b"space name"[..], &[b'a'; NAME_BYTES + 1][..]] {
+        for invalid in [
+            &b""[..],
+            &b"Upper"[..],
+            &b"space name"[..],
+            &[b'a'; NAME_BYTES + 1][..],
+        ] {
             assert_eq!(Name::new(invalid), Err(Error::Name));
         }
         let self_dep = Dependency {
@@ -388,7 +389,13 @@ mod tests {
             minimum: Version::new(0, 0, 1),
         };
         assert_eq!(
-            Manifest::new(name(b"same"), Version::new(1, 0, 0), 1, [0; 32], &[self_dep]),
+            Manifest::new(
+                name(b"same"),
+                Version::new(1, 0, 0),
+                1,
+                [0; 32],
+                &[self_dep]
+            ),
             Err(Error::SelfDependency)
         );
         assert_eq!(
