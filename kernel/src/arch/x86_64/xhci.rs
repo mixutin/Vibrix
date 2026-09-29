@@ -97,6 +97,7 @@ pub enum InitError {
     DescriptorMalformed,
     NotHub,
     NoDownstreamDevice,
+    #[cfg(feature = "usb-hid-keyboard-probe")]
     NotHidBootKeyboard,
     NotHidBootMouse,
     Hid(vibrix_kernel::usb_hid::Error),
