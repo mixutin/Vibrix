@@ -6,8 +6,12 @@ use vibrix_package::{Database, Dependency, Error, Manifest, Name, Version};
 use vibrix_syscall as syscall;
 
 fn package_runtime_self_test() -> bool {
-    let Ok(core_name) = Name::new(b"core") else { return false; };
-    let Ok(app_name) = Name::new(b"app") else { return false; };
+    let Ok(core_name) = Name::new(b"core") else {
+        return false;
+    };
+    let Ok(app_name) = Name::new(b"app") else {
+        return false;
+    };
     let Ok(core) = Manifest::new(core_name, Version::new(1, 4, 0), 4096, [0x11; 32], &[]) else {
         return false;
     };
@@ -15,7 +19,13 @@ fn package_runtime_self_test() -> bool {
         name: core_name,
         minimum: Version::new(1, 3, 0),
     };
-    let Ok(app) = Manifest::new(app_name, Version::new(2, 0, 1), 8192, [0x22; 32], &[dependency]) else {
+    let Ok(app) = Manifest::new(
+        app_name,
+        Version::new(2, 0, 1),
+        8192,
+        [0x22; 32],
+        &[dependency],
+    ) else {
         return false;
     };
 
