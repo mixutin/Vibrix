@@ -252,7 +252,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         not(feature = "usb-enum-probe"),
         not(feature = "usb-hub-probe"),
         not(feature = "usb-hid-keyboard-probe"),
-        not(feature = "usb-hid-mouse-probe")
+        not(feature = "usb-hid-mouse-probe"),
+        not(feature = "usb-storage-probe")
     ))]
     {
         // SAFETY: still single-BSP with IF=0. PCI discovery identified the
@@ -278,7 +279,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     #[cfg(all(
         feature = "usb-enum-probe",
         not(feature = "usb-hub-probe"),
-        not(feature = "usb-hid-keyboard-probe")
+        not(feature = "usb-hid-keyboard-probe"),
+        not(feature = "usb-storage-probe")
     ))]
     {
         // SAFETY: bounded single-BSP enumeration probe owns the directly
@@ -304,7 +306,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     #[cfg(all(
         feature = "usb-hub-probe",
         not(feature = "usb-hid-keyboard-probe"),
-        not(feature = "usb-hid-mouse-probe")
+        not(feature = "usb-hid-mouse-probe"),
+        not(feature = "usb-storage-probe")
     ))]
     {
         // SAFETY: the bounded probe exclusively owns the QEMU xHCI controller,
@@ -326,7 +329,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
 
     #[cfg(all(
         feature = "usb-hid-keyboard-probe",
-        not(feature = "usb-hid-mouse-probe")
+        not(feature = "usb-hid-mouse-probe"),
+        not(feature = "usb-storage-probe")
     ))]
     {
         // SAFETY: the bounded probe owns the directly attached QEMU USB
@@ -368,6 +372,35 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             mouse.y
         );
         debugcon::write("VIBRIX: kernel USB HID mouse motion observed\r\n");
+    }
+
+    #[cfg(all(
+        feature = "usb-storage-probe",
+        not(feature = "usb-hid-keyboard-probe"),
+        not(feature = "usb-hid-mouse-probe"),
+        not(feature = "usb-hub-probe")
+    ))]
+    {
+        // SAFETY: the bounded probe owns one directly attached QEMU USB
+        // mass-storage device. It configures native bulk endpoints, executes
+        // BOT/SCSI commands, restores the tested block, disables the slot and
+        // retires temporary mappings before later ACPI/APIC users.
+        let storage = unsafe { arch::x86_64::xhci::probe_mass_storage(&info) }
+            .unwrap_or_else(|error| panic!("USB mass-storage probe failed: {:?}", error));
+        crate::println!(
+            "kernel USB storage: root_port={} slot={} interface={} bulk_in={:#04x}/{} bulk_out={:#04x}/{} blocks={} block_bytes={} verified_lba={}",
+            storage.root_port,
+            storage.slot_id,
+            storage.interface,
+            storage.bulk_in_address,
+            storage.bulk_in_max_packet,
+            storage.bulk_out_address,
+            storage.bulk_out_max_packet,
+            storage.blocks,
+            storage.block_bytes,
+            storage.verified_lba
+        );
+        debugcon::write("VIBRIX: kernel USB mass-storage SCSI commands verified\r\n");
     }
 
     if device_model.devices == pci.devices {
