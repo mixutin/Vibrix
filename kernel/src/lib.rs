@@ -5,6 +5,7 @@ extern crate std;
 
 pub mod block;
 pub mod config_policy;
+pub mod klog;
 pub mod cpu_topology;
 pub mod nic;
 pub mod per_cpu;
@@ -19,6 +20,8 @@ pub mod vfs;
 /// A marker is emitted only after the corresponding behavior succeeds.
 pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     vfs::self_test(&mut report).expect("bootstrap VFS self-test failed");
+    klog::self_test().expect("structured kernel log self-test failed");
+    report("VIBRIX: kernel structured log verified");
     block::self_test().expect("block abstraction self-test failed");
     report("VIBRIX: kernel block abstraction verified");
     nic::self_test().expect("NIC abstraction self-test failed");
