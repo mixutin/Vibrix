@@ -687,8 +687,7 @@ pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary
     let command_virtual =
         unsafe { vm.map(4, command_ring, true) }.map_err(|_| InitError::Mapping)?;
     let command_base = usize::try_from(command_virtual).map_err(|_| InitError::Mapping)?;
-    let event_virtual =
-        unsafe { vm.map(5, event_ring, true) }.map_err(|_| InitError::Mapping)?;
+    let event_virtual = unsafe { vm.map(5, event_ring, true) }.map_err(|_| InitError::Mapping)?;
     let event_base = usize::try_from(event_virtual).map_err(|_| InitError::Mapping)?;
     let dcbaa_virtual = unsafe { vm.map(6, dcbaa, true) }.map_err(|_| InitError::Mapping)?;
     let dcbaa_base = usize::try_from(dcbaa_virtual).map_err(|_| InitError::Mapping)?;
@@ -717,7 +716,13 @@ pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary
     }
     let portsc = unsafe { read32(op_base, port_offset) };
     // Acknowledge reset/change status without disturbing live port state.
-    unsafe { write32(op_base, port_offset, (portsc & PORTSC_PP) | (portsc & PORTSC_RW1C)) };
+    unsafe {
+        write32(
+            op_base,
+            port_offset,
+            (portsc & PORTSC_PP) | (portsc & PORTSC_RW1C),
+        )
+    };
     let speed_id = port_speed(portsc);
     let max_packet_size = endpoint0_packet_size(speed_id).ok_or(InitError::DescriptorMalformed)?;
 
@@ -823,9 +828,7 @@ pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary
     if code != COMPLETION_SUCCESS && code != COMPLETION_SHORT_PACKET {
         return Err(InitError::TransferFailed(code));
     }
-    if event_slot_id(transfer_event[3]) != slot_id
-        || ((transfer_event[3] >> 16) & 0x1f) != 1
-    {
+    if event_slot_id(transfer_event[3]) != slot_id || ((transfer_event[3] >> 16) & 0x1f) != 1 {
         return Err(InitError::InvalidControllerState);
     }
     let remaining = transfer_event[2] & 0x00ff_ffff;
@@ -842,14 +845,12 @@ pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary
     let subclass = unsafe { read8(descriptor_base, 5) };
     let protocol = unsafe { read8(descriptor_base, 6) };
     let max_packet_size0 = unsafe { read8(descriptor_base, 7) };
-    let vendor_id = u16::from_le_bytes([
-        unsafe { read8(descriptor_base, 8) },
-        unsafe { read8(descriptor_base, 9) },
-    ]);
-    let product_id = u16::from_le_bytes([
-        unsafe { read8(descriptor_base, 10) },
-        unsafe { read8(descriptor_base, 11) },
-    ]);
+    let vendor_id = u16::from_le_bytes([unsafe { read8(descriptor_base, 8) }, unsafe {
+        read8(descriptor_base, 9)
+    }]);
+    let product_id = u16::from_le_bytes([unsafe { read8(descriptor_base, 10) }, unsafe {
+        read8(descriptor_base, 11)
+    }]);
 
     unsafe { vm.unmap(9) }.map_err(|_| InitError::Mapping)?;
     unsafe { vm.unmap(8) }.map_err(|_| InitError::Mapping)?;
@@ -879,7 +880,10 @@ mod tests {
 
     #[test]
     fn usb_enumeration_helpers_encode_architectural_fields() {
-        assert_eq!(trb_type(trb_control(TRB_TYPE_ENABLE_SLOT)), TRB_TYPE_ENABLE_SLOT);
+        assert_eq!(
+            trb_type(trb_control(TRB_TYPE_ENABLE_SLOT)),
+            TRB_TYPE_ENABLE_SLOT
+        );
         assert_eq!(completion_code(1 << 24), COMPLETION_SUCCESS);
         assert_eq!(event_slot_id(7 << 24), 7);
         assert_eq!(port_speed(3 << PORTSC_SPEED_SHIFT), 3);
