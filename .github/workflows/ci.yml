@@ -573,10 +573,10 @@ jobs:
           tr -d '\r' < build/qemu/serial.log | grep -Fq "2 1 zombie"
           tr -d '\r' < build/qemu/serial.log | grep -Fq "utilities-ok"
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: exit pid=1 status=0"
-          if tr -d '\r' < build/qemu/serial.log | grep -Fq "sh: command failed"; then
-            echo "at least one M6 core utility reported failure" >&2
-            exit 1
-          fi
+          # Exactly the four deliberate self-copy/move and invalid-parent
+          # operations fail. Source data must survive all four rejections.
+          test "$(tr -d '\r' < build/qemu/serial.log | grep -Fc 'sh: command failed')" -eq 4
+          test "$(tr -d '\r' < build/qemu/serial.log | grep -Fc 'Vibrix bootstrap filesystem: files live in RAM until reboot.')" -eq 3
           VIBRIX_KERNEL_FEATURES=qemu-debugcon bash tools/build-qemu.sh
       - name: QEMU supervisor write-protection fault
         run: |

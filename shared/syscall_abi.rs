@@ -119,6 +119,13 @@ impl ProcessInfo {
     };
 }
 
+// These structures are copied as bytes across the ABI. They must not contain
+// uninitialized padding, regardless of compiler layout changes elsewhere.
+const _: () = assert!(core::mem::size_of::<DirEntry>() == 40);
+const _: () = assert!(core::mem::align_of::<DirEntry>() == 1);
+const _: () = assert!(core::mem::size_of::<ProcessInfo>() == 16);
+const _: () = assert!(core::mem::offset_of!(ProcessInfo, status) == 12);
+
 #[repr(u16)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Errno {

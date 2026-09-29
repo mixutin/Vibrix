@@ -2,97 +2,15 @@
 #![no_main]
 
 use core::panic::PanicInfo;
-use vibrix_shell::{Builtin, Command, LINE_BYTES};
+use vibrix_shell::{
+    Builtin, Command, LINE_BYTES,
+    path::{PATH_BYTES, WorkingDir, same_path},
+};
 use vibrix_syscall::{self as syscall, abi};
 
 const STDIN: u64 = 0;
 const STDOUT: u64 = 1;
 const STDERR: u64 = 2;
-const PATH_BYTES: usize = 256;
-
-struct WorkingDir {
-    bytes: [u8; PATH_BYTES],
-    len: usize,
-}
-
-impl WorkingDir {
-    const fn root() -> Self {
-        let mut bytes = [0; PATH_BYTES];
-        bytes[0] = b'/';
-        Self { bytes, len: 1 }
-    }
-
-    fn as_bytes(&self) -> &[u8] {
-        &self.bytes[..self.len]
-    }
-
-    fn set(&mut self, path: &[u8]) {
-        self.bytes.fill(0);
-        self.bytes[..path.len()].copy_from_slice(path);
-        self.len = path.len();
-    }
-
-    fn resolve(&self, input: &[u8], output: &mut [u8; PATH_BYTES]) -> Option<usize> {
-        output.fill(0);
-        output[0] = b'/';
-        let mut len = 1usize;
-        if !input.starts_with(b"/") {
-            apply_components(self.as_bytes(), output, &mut len)?;
-        }
-        apply_components(input, output, &mut len)?;
-        Some(len)
-    }
-}
-
-fn apply_components(
-    source: &[u8],
-    output: &mut [u8; PATH_BYTES],
-    len: &mut usize,
-) -> Option<()> {
-    let mut cursor = 0usize;
-    while cursor < source.len() {
-        while cursor < source.len() && source[cursor] == b'/' {
-            cursor += 1;
-        }
-        if cursor == source.len() {
-            break;
-        }
-        let start = cursor;
-        while cursor < source.len() && source[cursor] != b'/' {
-            cursor += 1;
-        }
-        let component = &source[start..cursor];
-        if component == b"." || component.is_empty() {
-            continue;
-        }
-        if component == b".." {
-            if *len > 1 {
-                while *len > 1 && output[*len - 1] != b'/' {
-                    *len -= 1;
-                }
-                if *len > 1 {
-                    *len -= 1;
-                }
-            }
-            continue;
-        }
-        if component.contains(&0) || component.len() > 31 {
-            return None;
-        }
-        let separator = usize::from(*len > 1);
-        if *len + separator + component.len() > output.len() {
-            return None;
-        }
-        if separator != 0 {
-            output[*len] = b'/';
-            *len += 1;
-        }
-        output[*len..*len + component.len()].copy_from_slice(component);
-        *len += component.len();
-    }
-    Some(())
-}
-
 fn write_all(fd: u64, mut bytes: &[u8]) -> bool {
     while !bytes.is_empty() {
         match syscall::write(fd, bytes) {
@@ -212,8 +130,7 @@ fn command_cd(cwd: &mut WorkingDir, arg: &[u8]) -> bool {
     if syscall::read_dir(path, 0, &mut entry).is_err() {
         return false;
     }
-    cwd.set(path);
-    true
+    cwd.set(path).is_some()
 }
 
 fn command_mkdir(cwd: &WorkingDir, arg: &[u8]) -> bool {
@@ -235,6 +152,9 @@ fn copy_file(cwd: &WorkingDir, source: &[u8], destination: &[u8]) -> bool {
     let Some(destination_path) = resolve(cwd, destination, &mut destination_path) else {
         return false;
     };
+    if same_path(source_path, destination_path) {
+        return false;
+    }
     let Ok(source_fd) = syscall::open(source_path, abi::OPEN_READ) else {
         return false;
     };
@@ -330,12 +250,9 @@ fn dispatch(line: &[u8], cwd: &mut WorkingDir) -> bool {
         Some(Builtin::Cd) if command.argc == 2 => command_cd(cwd, command.args[1]),
         Some(Builtin::Mkdir) if command.argc == 2 => command_mkdir(cwd, command.args[1]),
         Some(Builtin::Rm) if command.argc == 2 => command_rm(cwd, command.args[1]),
-        Some(Builtin::Cp) if command.argc == 3 => {
-            copy_file(cwd, command.args[1], command.args[2])
-        }
+        Some(Builtin::Cp) if command.argc == 3 => copy_file(cwd, command.args[1], command.args[2]),
         Some(Builtin::Mv) if command.argc == 3 => {
-            copy_file(cwd, command.args[1], command.args[2])
-                && command_rm(cwd, command.args[1])
+            copy_file(cwd, command.args[1], command.args[2]) && command_rm(cwd, command.args[1])
         }
         Some(Builtin::Ps) if command.argc == 1 => command_ps(),
         Some(Builtin::Kill) if command.argc == 2 || command.argc == 3 => {

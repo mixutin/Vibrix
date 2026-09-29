@@ -213,6 +213,9 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
                 if metadata.kind == Kind::Directory {
                     return Err(Error::IsDirectory);
                 }
+                if buffer.is_empty() {
+                    return Ok(0);
+                }
                 let offset = if description.options.append {
                     metadata.len
                 } else {

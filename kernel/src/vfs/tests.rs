@@ -161,6 +161,7 @@ fn depth_limit_is_checked_on_actual_walk() {
     assert!(vfs.resolve(&path).is_ok());
     path.push_str("/a");
     assert_eq!(vfs.resolve(&path), Err(Error::NameTooLong));
+    assert_eq!(vfs.create(&path, Kind::Directory), Err(Error::NameTooLong));
 }
 
 #[test]

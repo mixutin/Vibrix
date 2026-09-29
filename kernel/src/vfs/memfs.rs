@@ -17,7 +17,7 @@ pub struct MemFs<const N: usize, const B: usize> {
 }
 
 impl<const N: usize, const B: usize> MemFs<N, B> {
-    pub fn new() -> Result<Self> {
+    pub const fn new() -> Result<Self> {
         if N == 0 || N > u32::MAX as usize {
             return Err(Error::NoSpace);
         }
@@ -25,9 +25,13 @@ impl<const N: usize, const B: usize> MemFs<N, B> {
             nodes: [None; N],
             generations: [1; N],
         };
+        let name = match Name::new("root") {
+            Ok(name) => name,
+            Err(error) => return Err(error),
+        };
         fs.nodes[0] = Some(Inode {
-            parent: fs.id(0),
-            name: Name::new("root")?,
+            parent: NodeId(1u64 << 32),
+            name,
             kind: Kind::Directory,
             len: 0,
             data: [0; B],

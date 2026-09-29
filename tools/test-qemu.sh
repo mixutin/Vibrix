@@ -86,6 +86,11 @@ while time.monotonic() < deadline:
                     commands = [
                         "pwd",
                         "cat /welcome",
+                        "cp /welcome /./welcome",
+                        "mv /welcome /welcome",
+                        "rm /welcome/.",
+                        "mkdir /tmp/missing/../bad",
+                        "cat /welcome",
                         "mkdir /tmp/u",
                         "cd /tmp/u",
                         "pwd",
@@ -144,7 +149,8 @@ QEMU_TIMEOUT=12s
 if [[ "${VIBRIX_QEMU_FILES_PROBE:-0}" == "1" ]]; then
   QEMU_TIMEOUT=40s
 elif [[ "${VIBRIX_QEMU_CORE_UTILS_PROBE:-0}" == "1" ]]; then
-  QEMU_TIMEOUT=35s
+  # The full command/failure transcript is paced at 0.18 seconds per key.
+  QEMU_TIMEOUT=65s
 elif [[ "${VIBRIX_QEMU_USER_SHELL_PROBE:-0}" == "1" ]]; then
   QEMU_TIMEOUT=25s
 fi

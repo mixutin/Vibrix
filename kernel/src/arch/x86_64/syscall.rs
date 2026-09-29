@@ -511,6 +511,9 @@ mod native {
                     }
                     user.name_len = name.len() as u8;
                     user.name[..name.len()].copy_from_slice(name);
+                    // SAFETY: DirEntry is repr(C), all fields are initialized
+                    // byte arrays/u8 values, and its asserted layout has no
+                    // padding. The slice lives only through checked copy-out.
                     let user_bytes = unsafe {
                         core::slice::from_raw_parts(
                             (&user as *const abi::DirEntry).cast::<u8>(),
@@ -532,9 +535,7 @@ mod native {
             Ok(Action::ProcessInfo { process, output }) => {
                 let (state, status) = match process.state {
                     vibrix_kernel::process::State::Running => (abi::PROCESS_RUNNING, 0),
-                    vibrix_kernel::process::State::Zombie(status) => {
-                        (abi::PROCESS_ZOMBIE, status)
-                    }
+                    vibrix_kernel::process::State::Zombie(status) => (abi::PROCESS_ZOMBIE, status),
                 };
                 let user = abi::ProcessInfo {
                     pid: process.pid.get(),
@@ -543,6 +544,9 @@ mod native {
                     reserved: [0; 3],
                     status,
                 };
+                // SAFETY: ProcessInfo is repr(C) with every field initialized
+                // and explicit reserved bytes filling the only alignment gap.
+                // ABI layout assertions exclude hidden padding.
                 let bytes = unsafe {
                     core::slice::from_raw_parts(
                         (&user as *const abi::ProcessInfo).cast::<u8>(),

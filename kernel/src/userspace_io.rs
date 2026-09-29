@@ -6,7 +6,6 @@
 
 use core::{
     cell::UnsafeCell,
-    mem::MaybeUninit,
     sync::atomic::{AtomicBool, Ordering},
 };
 
@@ -30,12 +29,18 @@ struct StaticCell<T>(UnsafeCell<T>);
 // from the same CPU with syscall FMASK keeping IF clear.
 unsafe impl<T> Sync for StaticCell<T> {}
 
-static ROOT: StaticCell<MaybeUninit<BootstrapRoot>> =
-    StaticCell(UnsafeCell::new(MaybeUninit::uninit()));
-static DEVICES: StaticCell<MaybeUninit<DevFs>> = StaticCell(UnsafeCell::new(MaybeUninit::uninit()));
+// A static initializer is evaluated at compile time. Constructing the RAM
+// filesystem through MaybeUninit::write at runtime still creates large stack
+// temporaries in debug builds before copying them into the static slot.
+static ROOT: StaticCell<BootstrapRoot> = StaticCell(UnsafeCell::new(match BootstrapRoot::new() {
+    Ok(root) => root,
+    Err(_) => panic!("invalid bootstrap filesystem capacity"),
+}));
+static DEVICES: StaticCell<DevFs> = StaticCell(UnsafeCell::new(DevFs::new()));
 static FILES: StaticCell<Option<BootstrapFiles<'static>>> = StaticCell(UnsafeCell::new(None));
 static KEYS: StaticCell<ps2::SetOne> = StaticCell(UnsafeCell::new(ps2::SetOne::new()));
 static READY: AtomicBool = AtomicBool::new(false);
+static INIT_STARTED: AtomicBool = AtomicBool::new(false);
 static INPUT_WAIT_REPORTED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,24 +58,17 @@ impl From<Error> for InitError {
 
 pub fn init() -> core::result::Result<(), InitError> {
     crate::debugcon::write("VIBRIX: userspace stdio initialization entered\r\n");
-    if READY.load(Ordering::SeqCst) {
+    if INIT_STARTED.swap(true, Ordering::SeqCst) {
         return Err(InitError::AlreadyInitialized);
     }
 
     let result = (|| {
-        // SAFETY: one-time initialization of static backing before any live
-        // references are published. These objects never move afterward.
-        let root: &'static mut BootstrapRoot = unsafe {
-            let slot = &mut *ROOT.0.get();
-            slot.write(BootstrapRoot::new()?);
-            &mut *slot.as_mut_ptr()
-        };
-        // SAFETY: identical one-time static initialization invariant as ROOT.
-        let devices: &'static mut DevFs = unsafe {
-            let slot = &mut *DEVICES.0.get();
-            slot.write(DevFs::new());
-            &mut *slot.as_mut_ptr()
-        };
+        // SAFETY: INIT_STARTED allows these exclusive static borrows only
+        // once, including after an initialization failure. Both objects are
+        // already valid, never move, and have no other reference owner.
+        let root: &'static mut BootstrapRoot = unsafe { &mut *ROOT.0.get() };
+        // SAFETY: identical one-time ownership invariant as ROOT.
+        let devices: &'static mut DevFs = unsafe { &mut *DEVICES.0.get() };
         let mut files = bootstrap(root, devices)?;
         crate::debugcon::write("VIBRIX: userspace stdio bootstrap VFS ready\r\n");
 
