@@ -12,7 +12,7 @@ The shell keeps the existing file/process builtins and adds:
 - `pid`
 - `clear`
 
-`clear` uses a bounded newline scroll rather than ANSI escape parsing, so it behaves consistently on both the native framebuffer terminal and COM1.
+`clear` emits a bounded form-feed control handled natively by the framebuffer terminal, clearing the visible cells and homing the cursor without adding an ANSI parser or repeated full-screen scrolling.
 
 ## vfetch
 
