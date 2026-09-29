@@ -36,6 +36,8 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel DHCPv4 client exchange verified");
     nic::dns_self_test().expect("DNS resolver self-test failed");
     report("VIBRIX: kernel DNS A resolver verified");
+    nic::tcp_self_test().expect("TCP transport self-test failed");
+    report("VIBRIX: kernel TCP active-open foundation verified");
     process::self_test().expect("process lifecycle self-test failed");
     report("VIBRIX: kernel process lifecycle verified");
     config_policy::self_test().expect("portable configuration policy self-test failed");
