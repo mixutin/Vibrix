@@ -7,19 +7,12 @@ name = "vibrix-boot"
 version = "0.0.2"
 
 [[package]]
-name = "vibrix-kernel"
+name = "vibrix-desktop"
 version = "0.0.1"
 dependencies = [
- "vibrix-vmm",
+ "vibrix-shell",
+ "vibrix-syscall",
 ]
-
-[[package]]
-name = "vibrix-vmm"
-version = "0.0.1"
-
-[[package]]
-name = "vibrix-syscall"
-version = "0.0.1"
 
 [[package]]
 name = "vibrix-init"
@@ -29,8 +22,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibrix-kernel"
+version = "0.0.1"
+dependencies = [
+ "vibrix-vmm",
+]
+
+[[package]]
 name = "vibrix-shell"
 version = "0.0.1"
 dependencies = [
  "vibrix-syscall",
 ]
+
+[[package]]
+name = "vibrix-syscall"
+version = "0.0.1"
+
+[[package]]
+name = "vibrix-vmm"
+version = "0.0.1"

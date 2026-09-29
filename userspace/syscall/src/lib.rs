@@ -10,6 +10,9 @@
 #[path = "../../../shared/syscall_abi.rs"]
 pub mod abi;
 
+#[path = "../../../shared/display_abi.rs"]
+pub mod display;
+
 pub type Result<T = u64> = core::result::Result<T, u16>;
 
 #[cfg(target_os = "none")]
@@ -208,6 +211,57 @@ pub fn kill(pid: u64, status: i32) -> Result<()> {
         [pid, u64::from(status as u32), 0, 0, 0, 0],
     )
     .map(|_| ())
+}
+
+/// Query the foreground desktop display; unsupported outside that boot profile.
+pub fn display_info(info: &mut display::DisplayInfo) -> Result<()> {
+    call(
+        abi::Syscall::DisplayInfo,
+        [info as *mut _ as u64, 0, 0, 0, 0, 0],
+    )
+    .map(|_| ())
+}
+
+pub fn display_fill(rect: display::Rect, color: u32) -> Result<()> {
+    call(
+        abi::Syscall::DisplayFill,
+        [
+            u64::from(rect.x),
+            u64::from(rect.y),
+            u64::from(rect.width),
+            u64::from(rect.height),
+            u64::from(color),
+            0,
+        ],
+    )
+    .map(|_| ())
+}
+
+pub fn display_blit(rect: display::Rect, pixels: &[u32]) -> Result<()> {
+    if rect.pixels() != Some(pixels.len()) || pixels.len() > display::MAX_BLIT_PIXELS {
+        return Err(abi::Errno::InvalidArgument.code());
+    }
+    call(
+        abi::Syscall::DisplayBlit,
+        [
+            u64::from(rect.x),
+            u64::from(rect.y),
+            u64::from(rect.width),
+            u64::from(rect.height),
+            pixels.as_ptr() as u64,
+            pixels.len() as u64,
+        ],
+    )
+    .map(|_| ())
+}
+
+/// Nonblocking event delivery. No event returns false and an empty event.
+pub fn input_poll(event: &mut display::InputEvent) -> Result<bool> {
+    call(
+        abi::Syscall::InputPoll,
+        [event as *mut _ as u64, 0, 0, 0, 0, 0],
+    )
+    .map(|v| v != 0)
 }
 
 #[cfg(test)]

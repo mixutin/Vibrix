@@ -15,3 +15,6 @@ target/
 
 # Raw hardware inventories may contain machine identifiers
 targets/raw/
+
+# Python regression-test bytecode is not source or boot evidence.
+__pycache__/

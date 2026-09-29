@@ -154,6 +154,11 @@ pub fn entry(path: &str, index: usize) -> Result<Option<Entry>> {
 }
 
 pub fn read(fd: usize, buffer: &mut [u8]) -> Result<usize> {
+    // The desktop is the only i8042 consumer in this profile. Its user-side
+    // line editor uses InputPoll; a raw canonical TTY read cannot steal input.
+    if cfg!(feature = "userspace-desktop") && fd == 0 {
+        return Err(Error::Unsupported);
+    }
     loop {
         match with_files(|files| files.read(fd, buffer)) {
             Ok(count) => return Ok(count),
@@ -165,12 +170,18 @@ pub fn read(fd: usize, buffer: &mut [u8]) -> Result<usize> {
                 if let Some(scan) = unsafe { ps2::poll_scancode() } {
                     // SAFETY: same single-BSP ownership as FILES.
                     if let Some(ascii) = unsafe { &mut *KEYS.0.get() }.feed(scan) {
-                        #[cfg(feature = "userspace-shell")]
+                        #[cfg(all(
+                            feature = "userspace-shell",
+                            not(feature = "userspace-desktop")
+                        ))]
                         if !frontend::input_fits(ascii) {
                             continue;
                         }
                         with_files(|files| files.device_input("/dev/tty", ascii))?;
-                        #[cfg(feature = "userspace-shell")]
+                        #[cfg(all(
+                            feature = "userspace-shell",
+                            not(feature = "userspace-desktop")
+                        ))]
                         frontend::echo(ascii);
                     }
                 } else {
@@ -192,14 +203,14 @@ pub fn write(fd: usize, buffer: &[u8]) -> Result<usize> {
         }
         // Only drained TTY bytes reach the display, not writes to RAM files.
         // The syscall layer has already copied this data into kernel memory.
-        #[cfg(feature = "userspace-shell")]
+        #[cfg(all(feature = "userspace-shell", not(feature = "userspace-desktop")))]
         crate::framebuffer::terminal::write(&drained[..n]);
         serial::write_bytes(&drained[..n]).map_err(|_| Error::BackendContract)?;
     }
     Ok(count)
 }
 
-#[cfg(feature = "userspace-shell")]
+#[cfg(all(feature = "userspace-shell", not(feature = "userspace-desktop")))]
 mod frontend {
     use crate::{arch::x86_64::serial, framebuffer::terminal};
     use core::sync::atomic::{AtomicUsize, Ordering};

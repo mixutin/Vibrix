@@ -1,0 +1,66 @@
+name: Userspace desktop
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: userspace-desktop-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  desktop:
+    name: Native desktop, terminal and pointer pixels
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact source without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the repository-pinned Rust toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rust-src,rustfmt,clippy --target x86_64-unknown-uefi,x86_64-unknown-none
+      - name: Test actual presentation, input and bounds policy
+        run: |
+          cargo fmt --all -- --check
+          cargo test --locked -p vibrix-desktop --lib
+          cargo test --locked -p vibrix-shell --lib
+          cargo test --locked -p vibrix-syscall
+          for source in shared/syscall_abi.rs shared/display_abi.rs shared/desktop_mouse.rs shared/desktop_queue.rs kernel/src/arch/x86_64/ps2.rs kernel/src/framebuffer.rs; do
+            rustc --edition=2024 -D warnings --test "$source" -o "$RUNNER_TEMP/desktop-tests"
+            "$RUNNER_TEMP/desktop-tests"
+          done
+          python3 tools/test_desktop_display.py --unit
+      - name: Check native target and strict kernel lint policy
+        run: |
+          cargo clippy --locked -p vibrix-desktop --target x86_64-unknown-none -- -D warnings
+          cargo clippy --locked -p vibrix-desktop --lib --tests -- -D warnings
+          cargo clippy --locked -p vibrix-kernel --all-features --target x86_64-unknown-none -- -D warnings
+          cargo check --locked -p vibrix-desktop --no-default-features --target x86_64-unknown-none
+          bash -n tools/run-qemu.sh tools/build-qemu.sh
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+      - name: Prove real CPL3 graphics, file commands, PS2 click and drag
+        run: python3 tools/test_desktop_display.py
+      - name: Preserve actual guest screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: userspace-desktop-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/desktop-display-launch.log
+            build/qemu/desktop-*.ppm
+            build/qemu/desktop-result.json
+            build/qemu/interactive-*.log
+          if-no-files-found: warn
+          retention-days: 7

@@ -17,7 +17,11 @@ use vibrix_vmm::frames::Frames;
 use vibrix_vmm::walk::{ADDRESS_MASK, Memory, USER};
 use vibrix_vmm::{Error, GuardedLayout, GuardedVm, Vm};
 
-const ADDRESS_SPACE_POOL_FRAMES: usize = 32;
+const ADDRESS_SPACE_POOL_FRAMES: usize = if cfg!(feature = "userspace-desktop") {
+    128
+} else {
+    32
+};
 const ADDRESS_SPACE_GUARDED_SLOTS: usize = 4;
 const ADDRESS_SPACE_SCRATCH_SLOT: usize = 510;
 const ADDRESS_SPACE_DATA_SLOT: usize = 509;
@@ -874,8 +878,11 @@ pub unsafe fn load_elf_probe() -> Result<ActivatedProbe, ElfProbeError> {
 
     // The interactive shell owns bounded history, parser and text buffers.
     // Keep both guard pages and user RW/NX permissions; other ELF probes
-    // retain their original one-page stack and the frame pool is unchanged.
-    let stack_pages = if cfg!(feature = "rust-shell-probe") {
+    // retain their original one-page stack. Only the desktop profile expands
+    // its stack and frame pool; both guards and W^X stay enforced.
+    let stack_pages = if cfg!(feature = "userspace-desktop") {
+        16
+    } else if cfg!(feature = "rust-shell-probe") {
         4
     } else {
         1
@@ -890,7 +897,13 @@ pub unsafe fn load_elf_probe() -> Result<ActivatedProbe, ElfProbeError> {
         .allocate_user(stack_layout)
         .map_err(|e| ElfProbeError::AddressSpace(e.into()))?;
 
-    #[cfg(all(feature = "rust-shell-probe", not(clippy)))]
+    #[cfg(all(feature = "userspace-desktop", not(clippy)))]
+    let image: &[u8] = include_bytes!("../../../target/x86_64-unknown-none/debug/vibrix-desktop");
+    #[cfg(all(
+        feature = "rust-shell-probe",
+        not(feature = "userspace-desktop"),
+        not(clippy)
+    ))]
     let image: &[u8] = include_bytes!("../../../target/x86_64-unknown-none/debug/vibrix-sh");
     #[cfg(all(
         feature = "rust-init-probe",

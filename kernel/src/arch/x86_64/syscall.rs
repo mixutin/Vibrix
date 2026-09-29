@@ -339,6 +339,10 @@ mod native {
         if !PROCESS_READY.load(Ordering::SeqCst) {
             return abi::encode_error(abi::Errno::NotSupported);
         }
+        #[cfg(feature = "userspace-desktop")]
+        if let Some(result) = crate::framebuffer::desktop::dispatch(number, args) {
+            return result;
+        }
         // SAFETY: one BSP, FMASK cleared IF on entry, and no nested syscall
         // path exists in this bounded process proof.
         let table = unsafe { &mut *PROCESS_TABLE.0.get() };

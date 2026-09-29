@@ -6,6 +6,8 @@ mod arch;
 #[cfg(not(feature = "panic-probe"))]
 mod console;
 mod debugcon;
+#[cfg(feature = "userspace-desktop")]
+mod desktop_input;
 mod device;
 mod framebuffer;
 mod memory;
@@ -456,6 +458,12 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         Err(()) => debugcon::write("VIBRIX: kernel framebuffer rejected\r\n"),
     }
 
+    #[cfg(feature = "userspace-desktop")]
+    // SAFETY: firmware exited; sole BSP with IF=0 before input publication.
+    unsafe {
+        desktop_input::init()
+    };
+
     #[cfg(any(feature = "vm-write-probe", feature = "vm-unmap-probe"))]
     unsafe {
         memory::virtual_memory::runtime::fault_probe(&info);
@@ -653,9 +661,17 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             // ELF before compiling the kernel; load_elf_probe validates it.
             let probe = unsafe { memory::address_space::load_elf_probe() }
                 .unwrap_or_else(|error| panic!("Rust shell ELF load failed: {:?}", error));
+            #[cfg(feature = "userspace-desktop")]
+            debugcon::write("VIBRIX: kernel Rust desktop ELF loaded\r\n");
+            #[cfg(not(feature = "userspace-desktop"))]
             debugcon::write("VIBRIX: kernel Rust shell ELF loaded\r\n");
             crate::println!(
-                "kernel Rust shell: kernel_cr3={:#x} user_cr3={:#x} entry={:#x} rsp={:#x}",
+                "kernel Rust {}: kernel_cr3={:#x} user_cr3={:#x} entry={:#x} rsp={:#x}",
+                if cfg!(feature = "userspace-desktop") {
+                    "desktop"
+                } else {
+                    "shell"
+                },
                 probe.kernel_root,
                 probe.user_root,
                 probe.user_rip,

@@ -941,6 +941,11 @@ package state, native USB storage and flash-write policy remain separate.
 - [ ] Target 001 8C/16T validation
 
 ## M13 — Audio and graphics
+
+Owner-requested early desktop slice (2026-09-29, GPT-6 Astra Pro): `./tools/run-qemu.sh --desktop` boots a real native Ring 3 session with checked copy-based graphics/input syscalls, a terminal using the existing shell, read-only RAM file browsing, buffered polled PS/2 keyboard/mouse input, title-bar dragging and maximize/restore. The dedicated [desktop workflow](.github/workflows/userspace-desktop.yml) checks actual guest pixels and input, including a terminal-created file opened in the viewer. See [DESKTOP.md](docs/DESKTOP.md) for exact limits and [CHROMIUM_PORT.md](docs/CHROMIUM_PORT.md) for the unimplemented browser gates.
+
+This is a single-process foreground desktop preview, **not completion of M13**, not Chromium, not GPU/USB desktop qualification and not persistent USB-root operation. It is opt-in; the early USB-root priorities and existing kernel/shell profiles remain intact.
+
 - [ ] HDA + basic PCM
 - [ ] USB audio
 - [ ] graphics architecture

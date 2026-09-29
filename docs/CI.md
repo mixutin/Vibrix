@@ -59,3 +59,10 @@ CI preserves the **most recent** QEMU `.log` files for seven days even on failur
 These runs prove their original narrower behavior, not the latest repository state: [initial handoff / BootInfo v2](https://github.com/mixutin/Vibrix/actions/runs/36337520346), [early frame issuance](https://github.com/mixutin/Vibrix/actions/runs/36339966455), [native IDT and fault diagnostics](https://github.com/mixutin/Vibrix/actions/runs/36340579141), and [kernel panic](https://github.com/mixutin/Vibrix/actions/runs/36337648665). Current BootInfo is v3. Earlier claims that IRQ/console work had not landed describe historical revisions, not current main.
 
 No emulator run establishes Target 001 support. Record a separate actual physical boot before making that claim. Exact-head evidence, not a badge or generated transcript, is the integration criterion.
+
+
+## Native desktop profile (2026-09-29)
+
+The [userspace-desktop workflow](../.github/workflows/userspace-desktop.yml) adds **Native desktop, terminal and pointer pixels**. It tests the actual shared ABI, stride/canaries and RGB/BGR conversion, keyboard/mouse/FIFO decoding, window/terminal state and bounded renderer, then boots `--desktop` and checks real CPL3 pointer rejection, terminal file commands, file previews, mouse clicks/dragging and maximize/restore against QEMU screendumps. The minimal-feature matrix also includes the new first-party desktop crate. Existing canonical, dependency and shell-display checks remain required.
+
+The artifact stores real `desktop-*.ppm`, `desktop-result.json` and boot logs. The JSON records the source commit and dirty-worktree status; it explicitly reports Chromium as not running. Desktop evidence must pass on the actual PR head before integration alongside **CI gate**, **Website checks** and the default shell regression. A busy-polling single-process QEMU preview does not establish browser isolation, physical hardware support, USB persistence or a production compositor. See [DESKTOP.md](DESKTOP.md).

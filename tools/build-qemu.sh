@@ -35,6 +35,12 @@ cargo rustc --locked -p vibrix-shell --bin vibrix-sh --target x86_64-unknown-non
   -C link-arg=-no-pie \
   -C link-arg=-Tuserspace/linker.ld
 
+if [[ ",${VIBRIX_KERNEL_FEATURES:-}," == *,userspace-desktop,* ]]; then
+  echo "[vibrix] building native desktop userspace ELF"
+  cargo rustc --locked -p vibrix-desktop --bin vibrix-desktop --target x86_64-unknown-none -- \
+    -C debuginfo=0 -C relocation-model=static -C link-arg=-no-pie -C link-arg=-Tuserspace/linker.ld
+fi
+
 echo "[vibrix] building kernel"
 cargo rustc --locked -p vibrix-kernel --bin vibrix-kernel --features "${VIBRIX_KERNEL_FEATURES:-qemu-debugcon}" --target x86_64-unknown-none -- -C code-model=kernel -C no-redzone=yes -C relocation-model=static -C link-arg=-no-pie -C link-arg=-Tkernel/linker.ld
 
