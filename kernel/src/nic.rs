@@ -32,6 +32,9 @@ impl MacAddress {
     }
 }
 
+#[path = "arp.rs"]
+pub mod arp;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LinkState {
     Down,
@@ -170,6 +173,7 @@ impl NetworkInterface for Loopback {
 
 pub fn self_test() -> Result<(), Error> {
     let address = MacAddress::new([2, 0, 0, 0, 0, 1])?;
+    arp::self_test().map_err(|_| Error::Io)?;
     let mut nic = Loopback::new(address);
     let interface: &mut dyn NetworkInterface = &mut nic;
     let mut frame = [0xa5; 60];
