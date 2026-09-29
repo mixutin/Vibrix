@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["boot", "kernel", "shared/vmm", "userspace/syscall", "userspace/init", "userspace/shell", "userspace/desktop"]
+members = ["boot", "kernel", "shared/vmm", "userspace/syscall", "userspace/init", "userspace/shell", "userspace/desktop", "userspace/package-core"]
 
 [workspace.package]
 license = "0BSD"
