@@ -60,7 +60,9 @@ impl Drop for RootGuard {
             // SAFETY: this is the exact root active at guard entry, still
             // retained. No interrupts, scheduling or user-memory access occurs
             // between switches. Restore it even after a rendering error.
-            unsafe { asm!("mov cr3, {}", in(reg) self.previous, options(nostack, preserves_flags)) };
+            unsafe {
+                asm!("mov cr3, {}", in(reg) self.previous, options(nostack, preserves_flags))
+            };
         }
     }
 }
