@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(target_os = "none", no_std)]
 
 #[path = "../kernel/src/device.rs"]
 mod device;
@@ -20,3 +20,5 @@ pub fn aarch64_boundary_smoke() -> bool {
     let mut binder = device::Binder::new();
     binder.bind_identity(identity).is_ok()
 }
+
+fn main() {}
