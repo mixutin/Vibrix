@@ -353,6 +353,10 @@ mod native {
                     #[cfg(feature = "rust-init-probe")]
                     crate::debugcon::write("VIBRIX: Rust init userspace syscall reached\r\n");
                     crate::println!("kernel process syscall: getpid={}", value);
+                } else if number == abi::Syscall::SetResUid.number() && value == 0 {
+                    crate::debugcon::write("VIBRIX: kernel setresuid syscall verified\r\n");
+                } else if number == abi::Syscall::SetResGid.number() && value == 0 {
+                    crate::debugcon::write("VIBRIX: kernel setresgid syscall verified\r\n");
                 }
                 value
             }
@@ -561,6 +565,31 @@ mod native {
                     abi::encode_error(abi::Errno::BadAddress)
                 } else {
                     1
+                }
+            }
+            Ok(Action::CredentialInfo {
+                real,
+                effective,
+                saved,
+                output,
+            }) => {
+                let user = abi::IdTriple {
+                    real,
+                    effective,
+                    saved,
+                };
+                // SAFETY: IdTriple is repr(C), consists of exactly three
+                // initialized u32 fields, and ABI assertions exclude padding.
+                let bytes = unsafe {
+                    core::slice::from_raw_parts(
+                        (&user as *const abi::IdTriple).cast::<u8>(),
+                        core::mem::size_of::<abi::IdTriple>(),
+                    )
+                };
+                if crate::memory::address_space::copy_to_user(output, bytes).is_err() {
+                    abi::encode_error(abi::Errno::BadAddress)
+                } else {
+                    0
                 }
             }
             Ok(Action::WaitReady {
