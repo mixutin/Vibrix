@@ -309,10 +309,7 @@ mod tests {
         assert_eq!(getpid(), Err(abi::Errno::NotSupported.code()));
         assert_eq!(yield_now(), Err(abi::Errno::NotSupported.code()));
         let mut ids = abi::IdTriple::ROOT;
-        assert_eq!(
-            getresuid(&mut ids),
-            Err(abi::Errno::NotSupported.code())
-        );
+        assert_eq!(getresuid(&mut ids), Err(abi::Errno::NotSupported.code()));
         assert_eq!(
             setresuid(None, Some(1000), None),
             Err(abi::Errno::NotSupported.code())
