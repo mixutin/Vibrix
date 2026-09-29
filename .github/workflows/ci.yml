@@ -562,6 +562,22 @@ jobs:
           tr -d '\r' < build/qemu/serial.log | grep -Fq "hi"
           tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: exit pid=1 status=0"
 
+      - name: QEMU Rust shell executes every M6 core utility backend
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,core-utils-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 VIBRIX_EXPECT_TIMER_IRQ=1 VIBRIX_QEMU_CORE_UTILS_PROBE=1 bash tools/test-qemu.sh
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "Vibrix bootstrap filesystem: files live in RAM until reboot."
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "/tmp/u"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "moved"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "2 1 running"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "2 1 zombie"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "utilities-ok"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: exit pid=1 status=0"
+          if tr -d '\r' < build/qemu/serial.log | grep -Fq "sh: command failed"; then
+            echo "at least one M6 core utility reported failure" >&2
+            exit 1
+          fi
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon bash tools/build-qemu.sh
       - name: QEMU supervisor write-protection fault
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,vm-write-probe bash tools/build-qemu.sh
