@@ -463,7 +463,9 @@ jobs:
           VIBRIX_SKIP_BUILD=1 VIBRIX_QEMU_USB_HID_KEYBOARD_PROBE=1 VIBRIX_EXPECT_TIMER_IRQ=1 bash tools/test-qemu.sh
           grep -Fq "VIBRIX: kernel USB HID keyboard ready" build/qemu/debugcon.log
           grep -Fq "VIBRIX: kernel USB HID keyboard input observed" build/qemu/debugcon.log
-          tr -d '\r' < build/qemu/serial.log | grep -Eq '^kernel USB HID keyboard: root_port=[1-9][0-9]* slot=[1-9][0-9]* interface=[0-9]+ endpoint=0x8[0-9a-f] mps=[8-9][0-9]*|^kernel USB HID keyboard: .* usage=0x0b      - name: QEMU real keyboard injection after ExitBootServices
+          tr -d '\r' < build/qemu/serial.log | grep -Eq '^kernel USB HID keyboard: root_port=[1-9][0-9]* slot=[1-9][0-9]* interface=[0-9]+ endpoint=0x8[0-9a-f] mps=[1-9][0-9]* interval=[1-9][0-9]* modifiers=0x[0-9a-f]{2} usage=0x0b$'
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon bash tools/build-qemu.sh
+      - name: QEMU real keyboard injection after ExitBootServices
         env:
           VIBRIX_SKIP_BUILD: "1"
           VIBRIX_QEMU_KEYBOARD_PROBE: "1"
