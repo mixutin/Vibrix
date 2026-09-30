@@ -195,8 +195,10 @@ impl System for Memory {
 
     fn read_dir(&mut self, path: &[u8], index: u64, entry: &mut abi::DirEntry) -> Result<bool> {
         let path = canonical(path);
-        if self.files.get(&path) != Some(&None) {
-            return Err(abi::Errno::InvalidArgument.code());
+        match self.files.get(&path) {
+            Some(None) => {}
+            Some(Some(_)) => return Err(abi::Errno::InvalidArgument.code()),
+            None => return Err(abi::Errno::NotFound.code()),
         }
         let mut prefix = path;
         if prefix != b"/" {
