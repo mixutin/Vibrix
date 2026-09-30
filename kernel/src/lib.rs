@@ -17,6 +17,7 @@ pub mod per_cpu;
 pub mod process;
 pub mod process_syscalls;
 pub mod resolver;
+pub mod routing;
 #[path = "../../shared/scsi.rs"]
 pub mod scsi;
 pub mod secure_random;
