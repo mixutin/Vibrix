@@ -9,6 +9,7 @@ repository.workspace = true
 [features]
 default = []
 qemu-debugcon = []
+verbose-boot = []
 panic-probe = []
 breakpoint-probe = []
 page-fault-probe = []
