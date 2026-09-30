@@ -105,6 +105,7 @@ pub unsafe fn init() {
 
 extern "x86-interrupt" fn timer_handler(_frame: InterruptStackFrame) {
     crate::arch::x86_64::irq::record_timer_tick();
+    vibrix_kernel::boot_clock::record_tick();
     // SAFETY: the timer vector is unmasked only after activate_pit_timer()
     // permanently maps the LAPIC page on this sole BSP. EOI happens before
     // any scheduler stack switch so the suspended handler owns no live LAPIC
