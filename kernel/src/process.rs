@@ -7,6 +7,7 @@
 
 use crate::credentials::Credentials;
 
+#[allow(dead_code)]
 #[path = "../../shared/syscall_abi.rs"]
 mod abi;
 
