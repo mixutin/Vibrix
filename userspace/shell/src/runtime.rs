@@ -393,7 +393,7 @@ impl Shell {
                 let result = echo(io, fd, &args[1..], true);
                 finish(io, fd, result)?;
             }
-            Builtin::Cp | Builtin::Mv => {
+            Builtin::Cp => {
                 let args = operands(raw)?;
                 if args.len() != 2 {
                     return Err(Error::Usage);
@@ -413,8 +413,31 @@ impl Shell {
                     Err(error) => Err(error),
                 };
                 finish(io, source_fd, result)?;
-                if kind == Builtin::Mv {
-                    io.remove(source.bytes())?;
+            }
+            Builtin::Mv => {
+                let args = operands(raw)?;
+                if args.len() != 2 {
+                    return Err(Error::Usage);
+                }
+                let source = Path::resolve(&self.cwd, args[0])?;
+                let destination = Path::resolve(&self.cwd, args[1])?;
+                if same_path(source.bytes(), destination.bytes()) {
+                    return Err(Error::Message(b"source and destination are the same file"));
+                }
+                io.rename(source.bytes(), destination.bytes())?;
+            }
+            Builtin::Config => {
+                match args {
+                    [b"show"] => {
+                        let fd = io.open(b"/etc/vibrix.conf", abi::OPEN_READ)?;
+                        let result = stream(io, fd, out);
+                        finish(io, fd, result)?;
+                    }
+                    [b"apply", assignments @ ..] if !assignments.is_empty() => {
+                        atomic_config_apply(io, assignments)?;
+                        write_all(io, out, b"config: applied atomically\n")?;
+                    }
+                    _ => return Err(Error::Usage),
                 }
             }
             Builtin::Head
@@ -845,6 +868,57 @@ fn collect_vibrix_doctor(io: &mut dyn System) -> Result<DoctorSnapshot> {
     null_close?;
 
     Ok(DoctorSnapshot { process_count })
+}
+
+fn valid_config_assignment(assignment: &[u8]) -> bool {
+    let Some((key, value)) = assignment.split_once(|&byte| byte == b'=') else {
+        return false;
+    };
+    !key.is_empty()
+        && key
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-'))
+        && value.iter().all(|byte| matches!(byte, b' '..=b'~'))
+}
+
+fn atomic_config_apply(io: &mut dyn System, assignments: &[&[u8]]) -> Result<()> {
+    if assignments.iter().any(|assignment| !valid_config_assignment(assignment)) {
+        return Err(Error::Message(b"config: expected printable KEY=VALUE assignments"));
+    }
+
+    const TEMP: &[u8] = b"/etc/.vibrix.conf.new";
+    const CURRENT: &[u8] = b"/etc/vibrix.conf";
+    let fd = match io.open(TEMP, abi::OPEN_WRITE | abi::OPEN_TRUNCATE) {
+        Ok(fd) => fd,
+        Err(code) if code == abi::Errno::NotFound.code() => {
+            io.create(TEMP)?;
+            io.open(TEMP, abi::OPEN_WRITE | abi::OPEN_TRUNCATE)?
+        }
+        Err(code) => return Err(code.into()),
+    };
+
+    let result = (|| {
+        write_all(io, fd, b"# Vibrix system configuration\n")?;
+        for assignment in assignments {
+            write_all(io, fd, assignment)?;
+            write_all(io, fd, b"\n")?;
+        }
+        Ok(())
+    })();
+    let closed = io.close(fd);
+    if let Err(error) = result {
+        let _ = io.remove(TEMP);
+        return Err(error);
+    }
+    if let Err(code) = closed {
+        let _ = io.remove(TEMP);
+        return Err(code.into());
+    }
+    if let Err(code) = io.rename(TEMP, CURRENT) {
+        let _ = io.remove(TEMP);
+        return Err(code.into());
+    }
+    Ok(())
 }
 
 fn render_vibrix_doctor(io: &mut dyn System, fd: u64) -> Result<()> {
