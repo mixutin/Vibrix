@@ -572,14 +572,19 @@ mod native {
                     abi::encode_error(abi::Errno::NotSupported)
                 }
             }
-            Ok(Action::ProcessInfo { process, output }) => {
-                let (state, status) = match process.state {
+            Ok(Action::ProcessInfo {
+                pid,
+                parent,
+                state,
+                output,
+            }) => {
+                let (state, status) = match state {
                     vibrix_kernel::process::State::Running => (abi::PROCESS_RUNNING, 0),
                     vibrix_kernel::process::State::Zombie(status) => (abi::PROCESS_ZOMBIE, status),
                 };
                 let user = abi::ProcessInfo {
-                    pid: process.pid.get(),
-                    parent: process.parent.map_or(0, vibrix_kernel::process::Pid::get),
+                    pid: pid.get(),
+                    parent: parent.map_or(0, vibrix_kernel::process::Pid::get),
                     state,
                     reserved: [0; 3],
                     status,

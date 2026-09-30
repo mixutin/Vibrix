@@ -63,7 +63,9 @@ pub enum Action {
         output: u64,
     },
     ProcessInfo {
-        process: process::Process,
+        pid: Pid,
+        parent: Option<Pid>,
+        state: process::State,
         output: u64,
     },
     CredentialInfo {
@@ -269,8 +271,11 @@ pub fn dispatch<const N: usize>(
         }),
         abi::Syscall::ProcessInfo => {
             let index = usize::try_from(args[0]).map_err(|_| abi::Errno::InvalidArgument)?;
+            let process = table.entry(index).ok_or(abi::Errno::NotFound)?;
             Ok(Action::ProcessInfo {
-                process: table.entry(index).ok_or(abi::Errno::NotFound)?,
+                pid: process.pid,
+                parent: process.parent,
+                state: process.state,
                 output: args[1],
             })
         }
@@ -464,7 +469,9 @@ mod tests {
                 [1, 0x8000, 0, 0, 0, 0]
             ),
             Ok(Action::ProcessInfo {
-                process: table.get(child).unwrap(),
+                pid: child,
+                parent: Some(init),
+                state: process::State::Running,
                 output: 0x8000
             })
         );

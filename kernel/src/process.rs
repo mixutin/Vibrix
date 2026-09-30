@@ -5,7 +5,7 @@
 //! address-space owner and syscall dispatcher so those can be connected without
 //! weakening lifetime rules. No heap allocation or unsafe Rust is used.
 
-use crate::{credentials::Credentials, syscall_abi as abi};
+use crate::{credentials::Credentials, path_policy::Policy as PathPolicy, syscall_abi as abi};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Pid(u32);
@@ -40,6 +40,7 @@ pub struct Process {
     pub credentials: Credentials,
     pub no_new_privileges: bool,
     pub promises: u64,
+    pub path_policy: PathPolicy,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -139,6 +140,23 @@ impl<const N: usize> Table<N> {
         Ok(())
     }
 
+    /// Replace the process path policy with an equal-or-narrower allow-list.
+    pub fn restrict_paths(
+        &mut self,
+        pid: Pid,
+        rules: &[crate::path_policy::Rule],
+    ) -> Result<(), Error> {
+        let index = self.index_of(pid).ok_or(Error::NotFound)?;
+        let process = self.slots[index].as_mut().ok_or(Error::NotFound)?;
+        if process.state != State::Running {
+            return Err(Error::ParentNotRunning);
+        }
+        process
+            .path_policy
+            .restrict(rules)
+            .map_err(|_| Error::PromiseExpansion)
+    }
+
     /// Permanently prevent this process and descendants from gaining privileges
     /// through future execution transitions.
     pub fn set_no_new_privileges(&mut self, pid: Pid) -> Result<(), Error> {
@@ -170,7 +188,13 @@ impl<const N: usize> Table<N> {
         if self.get(Pid::INIT).is_some() || self.next_pid != Pid::INIT.get() {
             return Err(Error::ParentNotRunning);
         }
-        self.spawn(None, Credentials::root(), false, abi::PROMISE_ALL)
+        self.spawn(
+            None,
+            Credentials::root(),
+            false,
+            abi::PROMISE_ALL,
+            PathPolicy::unrestricted(),
+        )
     }
 
     pub fn spawn_child(&mut self, parent: Pid) -> Result<Pid, Error> {
@@ -185,6 +209,7 @@ impl<const N: usize> Table<N> {
                 process.credentials,
                 process.no_new_privileges,
                 process.promises,
+                process.path_policy,
             ),
             Some(_) => Err(Error::ParentNotRunning),
             None => Err(Error::NotFound),
@@ -197,6 +222,7 @@ impl<const N: usize> Table<N> {
         credentials: Credentials,
         no_new_privileges: bool,
         promises: u64,
+        path_policy: PathPolicy,
     ) -> Result<Pid, Error> {
         let slot = self
             .slots
@@ -211,6 +237,7 @@ impl<const N: usize> Table<N> {
             credentials,
             no_new_privileges,
             promises,
+            path_policy,
         });
         Ok(pid)
     }
@@ -314,7 +341,7 @@ impl<const N: usize> Table<N> {
 /// self-test. It exercises identity allocation, zombie retention, reaping,
 /// parent validation and orphan adoption without touching scheduler state.
 pub fn self_test() -> Result<(), Error> {
-    let mut table = Table::<4>::new();
+    let mut table = Table::<6>::new();
     let init = table.spawn_init()?;
     if init != Pid::INIT {
         return Err(Error::NotFound);
@@ -360,6 +387,20 @@ pub fn self_test() -> Result<(), Error> {
         return Err(Error::InvalidPromises);
     }
     if table.restrict_promises(init, abi::PROMISE_ALL) != Err(Error::PromiseExpansion) {
+        return Err(Error::PromiseExpansion);
+    }
+    let tmp = crate::path_policy::Rule::new(
+        b"/tmp",
+        crate::path_policy::ACCESS_READ | crate::path_policy::ACCESS_WRITE,
+    )
+    .map_err(|_| Error::PromiseExpansion)?;
+    table.restrict_paths(init, &[tmp])?;
+    let path_child = table.spawn_child(init)?;
+    if !table.get(path_child).is_some_and(|process| {
+        process
+            .path_policy
+            .permits(b"/tmp/file", crate::path_policy::ACCESS_READ)
+    }) {
         return Err(Error::PromiseExpansion);
     }
     Ok(())
@@ -417,6 +458,45 @@ mod tests {
         assert_eq!(table.get(child).unwrap().promises, reduced);
         table.restrict_promises(child, abi::PROMISE_IO).unwrap();
         assert_eq!(table.get(child).unwrap().promises, abi::PROMISE_IO);
+    }
+
+    #[test]
+    fn path_policy_is_monotonic_and_inherited() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+        let rw = crate::path_policy::Rule::new(
+            b"/tmp",
+            crate::path_policy::ACCESS_READ | crate::path_policy::ACCESS_WRITE,
+        )
+        .unwrap();
+        table.restrict_paths(init, &[rw]).unwrap();
+        assert!(
+            table
+                .get(init)
+                .unwrap()
+                .path_policy
+                .permits(b"/tmp/file", crate::path_policy::ACCESS_WRITE)
+        );
+
+        let child = table.spawn_child(init).unwrap();
+        assert_eq!(
+            table.get(child).unwrap().path_policy,
+            table.get(init).unwrap().path_policy
+        );
+
+        let read = crate::path_policy::Rule::new(b"/tmp", crate::path_policy::ACCESS_READ).unwrap();
+        table.restrict_paths(child, &[read]).unwrap();
+        assert!(
+            !table
+                .get(child)
+                .unwrap()
+                .path_policy
+                .permits(b"/tmp/file", crate::path_policy::ACCESS_WRITE)
+        );
+        assert_eq!(
+            table.restrict_paths(child, &[rw]),
+            Err(Error::PromiseExpansion)
+        );
     }
 
     #[test]
