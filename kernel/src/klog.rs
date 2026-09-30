@@ -86,6 +86,10 @@ impl Filter {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Record {
     pub sequence: u64,
+    pub boot_id_hi: u64,
+    pub boot_id_lo: u64,
+    pub monotonic_ticks: u64,
+    pub wall_clock_seconds: u64,
     pub level: Level,
     pub subsystem: Subsystem,
     pub event: u16,
@@ -96,6 +100,10 @@ pub struct Record {
 impl Record {
     const EMPTY: Self = Self {
         sequence: 0,
+        boot_id_hi: 0,
+        boot_id_lo: 0,
+        monotonic_ticks: 0,
+        wall_clock_seconds: 0,
         level: Level::Trace,
         subsystem: Subsystem::Kernel,
         event: 0,
@@ -171,8 +179,13 @@ impl<const N: usize> Buffer<N> {
             })
             .map_err(|_| Full)?;
 
+        let stamp = crate::boot_clock::stamp();
         let record = Record {
             sequence: index as u64,
+            boot_id_hi: stamp.boot_id_hi,
+            boot_id_lo: stamp.boot_id_lo,
+            monotonic_ticks: stamp.monotonic_ticks,
+            wall_clock_seconds: stamp.wall_clock_seconds,
             level,
             subsystem,
             event,
@@ -259,17 +272,23 @@ pub fn self_test() -> Result<(), &'static str> {
     let record = KERNEL_LOG
         .get(sequence)
         .ok_or("published structured record is not readable")?;
-    if record
-        != (Record {
-            sequence,
-            level: Level::Error,
-            subsystem: Subsystem::Kernel,
-            event: EVENT_SELF_TEST,
-            value0: 0x56,
-            value1: 0x4258,
-        })
+    if record.sequence != sequence
+        || record.level != Level::Error
+        || record.subsystem != Subsystem::Kernel
+        || record.event != EVENT_SELF_TEST
+        || record.value0 != 0x56
+        || record.value1 != 0x4258
     {
         return Err("structured record changed after publication");
+    }
+    let stamp = crate::boot_clock::stamp();
+    if crate::boot_clock::initialized()
+        && ((record.boot_id_hi == 0 && record.boot_id_lo == 0)
+            || record.wall_clock_seconds == 0
+            || record.boot_id_hi != stamp.boot_id_hi
+            || record.boot_id_lo != stamp.boot_id_lo)
+    {
+        return Err("structured record lost boot identity or wall-clock metadata");
     }
     Ok(())
 }
@@ -307,6 +326,10 @@ mod tests {
             log.get(first),
             Some(Record {
                 sequence: 0,
+                boot_id_hi: 0,
+                boot_id_lo: 0,
+                monotonic_ticks: 0,
+                wall_clock_seconds: 0,
                 level: Level::Info,
                 subsystem: Subsystem::Vfs,
                 event: 7,
@@ -318,6 +341,10 @@ mod tests {
             log.get(second),
             Some(Record {
                 sequence: 1,
+                boot_id_hi: 0,
+                boot_id_lo: 0,
+                monotonic_ticks: 0,
+                wall_clock_seconds: 0,
                 level: Level::Warn,
                 subsystem: Subsystem::Network,
                 event: 9,
