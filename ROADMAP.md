@@ -1612,7 +1612,7 @@ persistent resolver state, or a complete network service manager.
 
 ## M23 — Process hardening and sandboxing
 
-- [ ] monotonic process-operation promise API inspired by capability reduction
+- [x] monotonic process-operation promise API inspired by capability reduction
 - [ ] path visibility/access allow-list API
 - [ ] descriptor-rights restriction
 - [x] no-new-privileges process flag
@@ -1654,6 +1654,21 @@ bounded credential transition model.
 This checks **no-new-privileges process flag** only. It does not claim pledge-
 style syscall promises, path allow-lists, descriptor-right reduction, service
 jails, namespaces, or complete privilege-separated daemon integration.
+
+**Verified M23 monotonic process-operation promises (PR #295):**
+all 37 exact-head workflows passed implementation head
+`a4ffc62e90413618f143f45863fa9c2fe16259b3`, including dedicated
+[process-promises run 36674421844](https://github.com/mixutin/Vibrix/actions/runs/36674421844).
+The additive ABI v1 promise syscall starts processes with four bounded operation
+classes (I/O, filesystem, process and credentials), permits only monotonic mask
+reduction, inherits the reduced mask across child creation, rejects attempts to
+regain removed authority, and enforces the mask before process-facing syscall
+actions are constructed.
+
+This checks the bounded **monotonic process-operation promise API** primitive.
+It does not claim path visibility, per-descriptor rights, network/device
+namespaces, service jails, resource limits, or complete daemon sandboxing; those
+remain separate M19/M23 work.
 
 **Exit:** ordinary applications and daemons can permanently discard ambient
 authority, and the base system uses those mechanisms by default where practical.
