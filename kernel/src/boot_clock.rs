@@ -145,7 +145,10 @@ mod tests {
 
     #[test]
     fn invalid_dates_fail_closed() {
-        assert_eq!(unix_seconds(1969, 12, 31, 23, 59, 59), Err(Error::BeforeUnixEpoch));
+        assert_eq!(
+            unix_seconds(1969, 12, 31, 23, 59, 59),
+            Err(Error::BeforeUnixEpoch)
+        );
         assert_eq!(unix_seconds(2026, 2, 29, 0, 0, 0), Err(Error::InvalidDate));
         assert_eq!(unix_seconds(2026, 13, 1, 0, 0, 0), Err(Error::InvalidDate));
         assert_eq!(unix_seconds(2026, 1, 1, 24, 0, 0), Err(Error::InvalidDate));
