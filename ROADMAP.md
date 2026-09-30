@@ -1626,7 +1626,7 @@ persistent resolver state, or a complete network service manager.
 - [x] kernel address randomization design and threat model
 - [ ] RELRO-like relocation hardening when dynamic linking exists
 - [x] exploit-mitigation regression suite
-- [ ] fuzz and hostile-input tests for every privileged daemon/parser
+- [x] fuzz and hostile-input tests for every privileged daemon/parser
 
 **Verified M23 exploit-mitigation regression suite (PR #261):**
 the exact-head repository matrix passed before merge. The dedicated suite
@@ -1669,6 +1669,22 @@ This checks the bounded **monotonic process-operation promise API** primitive.
 It does not claim path visibility, per-descriptor rights, network/device
 namespaces, service jails, resource limits, or complete daemon sandboxing; those
 remain separate M19/M23 work.
+
+**Verified M23 privileged-parser hostile-input coverage (PR #292):**
+all exact-head workflows passed implementation head
+`7aa687cd6b8fcbba42f193fb54c157bfe12e032e`, including dedicated
+[hostile-input run 36666696289](https://github.com/mixutin/Vibrix/actions/runs/36666696289).
+The maintained inventory covers every privileged parser/state-machine class
+currently present in the tree: ELF/BootInfo/ACPI/PCI, USB/SCSI/VibrixFS,
+kernel networking parsers, package metadata and the native shell parser, and
+the umbrella workflow reuses their production-linked hostile/malformed-input
+tests while requiring the inventory to stay explicit as new parser classes are
+added.
+
+This checks the current **fuzz and hostile-input tests for every privileged
+daemon/parser** roadmap item for parser classes that exist today. It does not
+claim coverage for future daemons/parsers, formal verification, exhaustive
+state-space exploration, or memory-unsafe external components.
 
 **Exit:** ordinary applications and daemons can permanently discard ambient
 authority, and the base system uses those mechanisms by default where practical.
