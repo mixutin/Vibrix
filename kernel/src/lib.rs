@@ -13,6 +13,7 @@ pub mod device;
 pub mod ipv6;
 pub mod klog;
 pub mod local_ipc;
+pub mod nat;
 pub mod network_guard;
 pub mod network_services;
 pub mod nic;
@@ -76,6 +77,8 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel IPv4 ICMP echo verified");
     nic::udp_self_test().expect("UDP self-test failed");
     report("VIBRIX: kernel UDP datagram verified");
+    nat::self_test().expect("NAT and port-redirection self-test failed");
+    report("VIBRIX: kernel NAT and port redirection verified");
     nic::ethernet_arp_self_test().expect("Ethernet/ARP self-test failed");
     report("VIBRIX: kernel Ethernet ARP responder verified");
     credentials::self_test().expect("credential policy self-test failed");
