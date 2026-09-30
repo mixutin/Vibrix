@@ -19,7 +19,14 @@ const FLAG_ACK: u16 = 0x010;
 const OPTION_END: u8 = 0;
 const OPTION_NOP: u8 = 1;
 const OPTION_MSS: u8 = 2;
+const OPTION_WINDOW_SCALE: u8 = 3;
+const OPTION_SACK_PERMITTED: u8 = 4;
+const OPTION_TIMESTAMP: u8 = 8;
 const MSS_OPTION_BYTES: usize = 4;
+const WINDOW_SCALE_OPTION_BYTES: usize = 3;
+const SACK_PERMITTED_OPTION_BYTES: usize = 2;
+const TIMESTAMP_OPTION_BYTES: usize = 10;
+const MAX_WINDOW_SCALE_SHIFT: u8 = 14;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Error {
@@ -102,13 +109,25 @@ impl<'a> Segment<'a> {
         self.options
     }
 
+    pub fn parsed_options(&self) -> Result<ParsedOptions, Error> {
+        parse_options(self.options)
+    }
+
     pub fn maximum_segment_size(&self) -> Result<Option<u16>, Error> {
-        parse_mss_option(self.options)
+        Ok(self.parsed_options()?.maximum_segment_size)
     }
 
     pub const fn window(&self) -> u16 {
         self.window
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ParsedOptions {
+    pub maximum_segment_size: Option<u16>,
+    pub window_scale: Option<u8>,
+    pub sack_permitted: bool,
+    pub timestamp: Option<(u32, u32)>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1114,7 +1133,7 @@ pub fn parse(source: [u8; 4], destination: [u8; 4], input: &[u8]) -> Result<Segm
         return Err(Error::Header);
     }
     let options = &input[HEADER_BYTES..header_len];
-    parse_mss_option(options)?;
+    parse_options(options)?;
 
     Ok(Segment {
         source_port: u16::from_be_bytes([input[0], input[1]]),
@@ -1141,9 +1160,9 @@ fn mss_option(mss: u16) -> [u8; MSS_OPTION_BYTES] {
     [OPTION_MSS, MSS_OPTION_BYTES as u8, bytes[0], bytes[1]]
 }
 
-fn parse_mss_option(options: &[u8]) -> Result<Option<u16>, Error> {
+fn parse_options(options: &[u8]) -> Result<ParsedOptions, Error> {
+    let mut parsed = ParsedOptions::default();
     let mut offset = 0usize;
-    let mut mss = None;
     while offset < options.len() {
         match options[offset] {
             OPTION_END => {
@@ -1165,21 +1184,60 @@ fn parse_mss_option(options: &[u8]) -> Result<Option<u16>, Error> {
                 {
                     return Err(Error::Header);
                 }
-                if kind == OPTION_MSS {
-                    if length != MSS_OPTION_BYTES || mss.is_some() {
-                        return Err(Error::Header);
+                match kind {
+                    OPTION_MSS => {
+                        if length != MSS_OPTION_BYTES || parsed.maximum_segment_size.is_some() {
+                            return Err(Error::Header);
+                        }
+                        let value =
+                            u16::from_be_bytes([options[offset + 2], options[offset + 3]]);
+                        if value == 0 {
+                            return Err(Error::Header);
+                        }
+                        parsed.maximum_segment_size = Some(value);
                     }
-                    let value = u16::from_be_bytes([options[offset + 2], options[offset + 3]]);
-                    if value == 0 {
-                        return Err(Error::Header);
+                    OPTION_WINDOW_SCALE => {
+                        if length != WINDOW_SCALE_OPTION_BYTES || parsed.window_scale.is_some() {
+                            return Err(Error::Header);
+                        }
+                        parsed.window_scale =
+                            Some(options[offset + 2].min(MAX_WINDOW_SCALE_SHIFT));
                     }
-                    mss = Some(value);
+                    OPTION_SACK_PERMITTED => {
+                        if length != SACK_PERMITTED_OPTION_BYTES || parsed.sack_permitted {
+                            return Err(Error::Header);
+                        }
+                        parsed.sack_permitted = true;
+                    }
+                    OPTION_TIMESTAMP => {
+                        if length != TIMESTAMP_OPTION_BYTES || parsed.timestamp.is_some() {
+                            return Err(Error::Header);
+                        }
+                        let value = u32::from_be_bytes([
+                            options[offset + 2],
+                            options[offset + 3],
+                            options[offset + 4],
+                            options[offset + 5],
+                        ]);
+                        let echo = u32::from_be_bytes([
+                            options[offset + 6],
+                            options[offset + 7],
+                            options[offset + 8],
+                            options[offset + 9],
+                        ]);
+                        parsed.timestamp = Some((value, echo));
+                    }
+                    _ => {}
                 }
                 offset += length;
             }
         }
     }
-    Ok(mss)
+    Ok(parsed)
+}
+
+fn parse_mss_option(options: &[u8]) -> Result<Option<u16>, Error> {
+    Ok(parse_options(options)?.maximum_segment_size)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1202,7 +1260,7 @@ fn encode_with_options(
     if options.len() > 40 || !options.len().is_multiple_of(4) || payload.len() > MAX_PAYLOAD {
         return Err(Error::Length);
     }
-    parse_mss_option(options)?;
+    parse_options(options)?;
     let header_len = HEADER_BYTES
         .checked_add(options.len())
         .ok_or(Error::Length)?;
@@ -1551,6 +1609,114 @@ mod tests {
         assert_eq!(
             parse_mss_option(&[OPTION_MSS, 4, 0x04, 0xb0, OPTION_MSS, 4, 0x04, 0xb0,]),
             Err(Error::Header)
+        );
+    }
+
+    #[test]
+    fn common_negotiation_options_parse_and_fail_closed() {
+        let options = [
+            OPTION_MSS,
+            MSS_OPTION_BYTES as u8,
+            0x04,
+            0xb0,
+            OPTION_WINDOW_SCALE,
+            WINDOW_SCALE_OPTION_BYTES as u8,
+            7,
+            OPTION_NOP,
+            OPTION_SACK_PERMITTED,
+            SACK_PERMITTED_OPTION_BYTES as u8,
+            OPTION_NOP,
+            OPTION_NOP,
+            OPTION_TIMESTAMP,
+            TIMESTAMP_OPTION_BYTES as u8,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            2,
+            OPTION_END,
+            OPTION_END,
+        ];
+        assert_eq!(
+            parse_options(&options),
+            Ok(ParsedOptions {
+                maximum_segment_size: Some(1200),
+                window_scale: Some(7),
+                sack_permitted: true,
+                timestamp: Some((1, 2)),
+            })
+        );
+
+        assert_eq!(
+            parse_options(&[OPTION_WINDOW_SCALE, 3, 30]),
+            Ok(ParsedOptions {
+                window_scale: Some(MAX_WINDOW_SCALE_SHIFT),
+                ..ParsedOptions::default()
+            })
+        );
+        assert_eq!(
+            parse_options(&[
+                OPTION_WINDOW_SCALE,
+                3,
+                1,
+                OPTION_WINDOW_SCALE,
+                3,
+                2,
+            ]),
+            Err(Error::Header)
+        );
+        assert_eq!(
+            parse_options(&[
+                OPTION_SACK_PERMITTED,
+                2,
+                OPTION_SACK_PERMITTED,
+                2,
+            ]),
+            Err(Error::Header)
+        );
+        assert_eq!(
+            parse_options(&[
+                OPTION_TIMESTAMP,
+                10,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                2,
+                OPTION_TIMESTAMP,
+                10,
+                0,
+                0,
+                0,
+                3,
+                0,
+                0,
+                0,
+                4,
+            ]),
+            Err(Error::Header)
+        );
+        assert_eq!(
+            parse_options(&[OPTION_WINDOW_SCALE, 2]),
+            Err(Error::Header)
+        );
+        assert_eq!(
+            parse_options(&[OPTION_SACK_PERMITTED, 3, 0]),
+            Err(Error::Header)
+        );
+        assert_eq!(
+            parse_options(&[OPTION_TIMESTAMP, 9, 0, 0, 0, 0, 0, 0, 0, 0]),
+            Err(Error::Header)
+        );
+        assert_eq!(
+            parse_options(&[30, 4, 0xaa, 0xbb]),
+            Ok(ParsedOptions::default())
         );
     }
 
