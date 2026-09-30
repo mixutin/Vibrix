@@ -284,21 +284,45 @@ fn developer_manual_sections_are_installed_and_searchable() {
     let mut shell = Shell::new();
 
     for (line, heading) in [
-        (&b"man 2 syscall"[..], &b"syscall(2) - Vibrix developer reference"[..]),
-        (b"man 3 syscall-rust", b"syscall-rust(3) - Vibrix developer reference"),
+        (
+            &b"man 2 syscall"[..],
+            &b"syscall(2) - Vibrix developer reference"[..],
+        ),
+        (
+            b"man 3 syscall-rust",
+            b"syscall-rust(3) - Vibrix developer reference",
+        ),
         (b"man 5 vpkg", b"vpkg(5) - Vibrix developer reference"),
-        (b"man 5 vibrixfs", b"vibrixfs(5) - Vibrix developer reference"),
+        (
+            b"man 5 vibrixfs",
+            b"vibrixfs(5) - Vibrix developer reference",
+        ),
         (b"man 7 abi", b"abi(7) - Vibrix developer reference"),
-        (b"man 7 bootinfo", b"bootinfo(7) - Vibrix developer reference"),
+        (
+            b"man 7 bootinfo",
+            b"bootinfo(7) - Vibrix developer reference",
+        ),
     ] {
         assert_eq!(io.run(&mut shell, line), 0);
         assert!(io.stdout.windows(heading.len()).any(|part| part == heading));
-        assert!(io.stdout.windows(b"SEE ALSO\n".len()).any(|part| part == b"SEE ALSO\n"));
+        assert!(
+            io.stdout
+                .windows(b"SEE ALSO\n".len())
+                .any(|part| part == b"SEE ALSO\n")
+        );
     }
 
     assert_eq!(io.run(&mut shell, b"man -k syscall"), 0);
-    assert!(io.stdout.windows(b"syscall(2)".len()).any(|part| part == b"syscall(2)"));
-    assert!(io.stdout.windows(b"syscall-rust(3)".len()).any(|part| part == b"syscall-rust(3)"));
+    assert!(
+        io.stdout
+            .windows(b"syscall(2)".len())
+            .any(|part| part == b"syscall(2)")
+    );
+    assert!(
+        io.stdout
+            .windows(b"syscall-rust(3)".len())
+            .any(|part| part == b"syscall-rust(3)")
+    );
     assert_eq!(io.run(&mut shell, b"man 4 nope"), 2);
     assert_eq!(io.run(&mut shell, b"man 7 missing"), 1);
     assert_eq!(io.mutations, 0);
