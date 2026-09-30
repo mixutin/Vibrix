@@ -39,6 +39,11 @@ pub enum Action {
     Close {
         fd: u64,
     },
+    FdRights {
+        fd: u64,
+        operation: u64,
+        rights: u64,
+    },
     Create {
         path: u64,
         length: u64,
@@ -91,7 +96,9 @@ fn credential_errno(error: credentials::Error) -> abi::Errno {
 
 fn required_promise(call: abi::Syscall) -> Option<u64> {
     match call {
-        abi::Syscall::Read | abi::Syscall::Write | abi::Syscall::Close => Some(abi::PROMISE_IO),
+        abi::Syscall::Read | abi::Syscall::Write | abi::Syscall::Close | abi::Syscall::FdRights => {
+            Some(abi::PROMISE_IO)
+        },
         abi::Syscall::Open
         | abi::Syscall::Create
         | abi::Syscall::Mkdir
@@ -232,6 +239,16 @@ pub fn dispatch<const N: usize>(
             flags: args[2],
         }),
         abi::Syscall::Close => Ok(Action::Close { fd: args[0] }),
+        abi::Syscall::FdRights => {
+            if args[1] > 1 || args[2] & !abi::FD_RIGHT_ALL != 0 {
+                return Err(abi::Errno::InvalidArgument);
+            }
+            Ok(Action::FdRights {
+                fd: args[0],
+                operation: args[1],
+                rights: args[2],
+            })
+        },
         abi::Syscall::Create => Ok(Action::Create {
             path: args[0],
             length: args[1],
@@ -359,6 +376,56 @@ mod tests {
                 address: 0x8000,
                 length: 9
             })
+        );
+    }
+
+    #[test]
+    fn descriptor_rights_action_validates_operation_and_mask() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::FdRights.number(),
+                [3, 0, 0, 0, 0, 0]
+            ),
+            Ok(Action::FdRights {
+                fd: 3,
+                operation: 0,
+                rights: 0
+            })
+        );
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::FdRights.number(),
+                [3, 1, abi::FD_RIGHT_READ, 0, 0, 0]
+            ),
+            Ok(Action::FdRights {
+                fd: 3,
+                operation: 1,
+                rights: abi::FD_RIGHT_READ
+            })
+        );
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::FdRights.number(),
+                [3, 2, 0, 0, 0, 0]
+            ),
+            Err(abi::Errno::InvalidArgument)
+        );
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::FdRights.number(),
+                [3, 1, 1 << 63, 0, 0, 0]
+            ),
+            Err(abi::Errno::InvalidArgument)
         );
     }
 
