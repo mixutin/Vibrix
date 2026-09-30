@@ -372,13 +372,13 @@ fn sysctl_queries_live_kernel_and_vfs_state_read_only() {
     assert_eq!(io.stdout, b"kern.processes = 1\n");
     assert_eq!(io.run(&mut shell, b"sysctl vfs.root"), 0);
     assert_eq!(io.stdout, b"vfs.root = mounted-volatile\n");
-    assert_eq!(io.run(&mut shell, b"sysctl vfs.dev"), 1);
-    assert!(io.stderr.windows(20).any(|part| part == b"sysctl: unknown name")
-        || io.stderr.windows(12).any(|part| part == b"operation failed"));
+    assert_eq!(io.run(&mut shell, b"sysctl vfs.dev"), 0);
+    assert_eq!(io.stdout, b"vfs.dev = unavailable\n");
 
-    // The host fixture does not mount /dev, so -a must fail rather than
-    // manufacture a healthy state. Assignment is deliberately unsupported.
-    assert_ne!(io.run(&mut shell, b"sysctl -a"), 0);
+    // The host fixture deliberately lacks /dev; -a reports that state instead
+    // of manufacturing a healthy mount. Assignment remains unsupported.
+    assert_eq!(io.run(&mut shell, b"sysctl -a"), 0);
+    assert!(io.stdout.windows(b"vfs.dev = unavailable".len()).any(|part| part == b"vfs.dev = unavailable"));
     assert_eq!(io.run(&mut shell, b"sysctl kern.pid=9"), 2);
     assert_eq!(io.run(&mut shell, b"sysctl missing.name"), 1);
     assert_eq!(io.mutations, 0);
