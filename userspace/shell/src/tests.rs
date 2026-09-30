@@ -378,7 +378,11 @@ fn sysctl_queries_live_kernel_and_vfs_state_read_only() {
     // The host fixture deliberately lacks /dev; -a reports that state instead
     // of manufacturing a healthy mount. Assignment remains unsupported.
     assert_eq!(io.run(&mut shell, b"sysctl -a"), 0);
-    assert!(io.stdout.windows(b"vfs.dev = unavailable".len()).any(|part| part == b"vfs.dev = unavailable"));
+    assert!(
+        io.stdout
+            .windows(b"vfs.dev = unavailable".len())
+            .any(|part| part == b"vfs.dev = unavailable")
+    );
     assert_eq!(io.run(&mut shell, b"sysctl kern.pid=9"), 2);
     assert_eq!(io.run(&mut shell, b"sysctl missing.name"), 1);
     assert_eq!(io.mutations, 0);
