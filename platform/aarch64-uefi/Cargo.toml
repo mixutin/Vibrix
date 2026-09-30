@@ -1,0 +1,16 @@
+[package]
+name = "vibrix-aarch64-uefi"
+version = "0.0.1"
+edition = "2024"
+publish = false
+license = "0BSD"
+
+[workspace]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1
