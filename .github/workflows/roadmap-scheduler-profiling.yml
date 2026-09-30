@@ -24,7 +24,7 @@ jobs:
         run: |
           cargo fmt --all -- --check
           cargo test --locked -p vibrix-kernel --lib thread::
-          cargo clippy --locked -p vibrix-kernel --target x86_64-unknown-none -- -D warnings
+          cargo clippy --locked -p vibrix-kernel --lib --target x86_64-unknown-none -- -D warnings
       - name: Install QEMU and OVMF
         run: |
           sudo apt-get update
