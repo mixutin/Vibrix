@@ -374,6 +374,17 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
         self.vfs.create(path, Kind::Directory).map(|_| ())
     }
 
+    pub fn rename(&mut self, from: &str, to: &str) -> Result<()> {
+        if let Ok(destination) = self.vfs.resolve(to)
+            && self.descriptions.iter().flatten().any(
+                |description| matches!(description.object, Object::Node(open) if open == destination),
+            )
+        {
+            return Err(Error::Busy);
+        }
+        self.vfs.rename(from, to)
+    }
+
     pub fn remove(&mut self, path: &str) -> Result<()> {
         let node = self.vfs.resolve(path)?;
         if self
