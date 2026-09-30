@@ -9,6 +9,7 @@ pub mod cpu_topology;
 pub mod credentials;
 pub mod device;
 pub mod klog;
+pub mod local_ipc;
 pub mod network_guard;
 pub mod network_services;
 pub mod nic;
@@ -43,6 +44,8 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     vfs::self_test(&mut report).expect("bootstrap VFS self-test failed");
     klog::self_test().expect("structured kernel log self-test failed");
     report("VIBRIX: kernel structured log verified");
+    local_ipc::self_test().expect("loopback/Unix datagram self-test failed");
+    report("VIBRIX: kernel loopback and Unix datagrams verified");
     block::self_test().expect("block abstraction self-test failed");
     report("VIBRIX: kernel block abstraction verified");
     nic::self_test().expect("NIC abstraction self-test failed");
