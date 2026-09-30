@@ -76,6 +76,7 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel TCP active-open foundation verified");
     process::self_test().expect("process lifecycle self-test failed");
     report("VIBRIX: kernel process lifecycle verified");
+    report("VIBRIX: kernel process promises verified");
     config_policy::self_test().expect("portable configuration policy self-test failed");
     report("VIBRIX: kernel portable configuration policy verified");
     update_history::self_test().expect("update history self-test failed");
