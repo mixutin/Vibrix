@@ -55,12 +55,19 @@ enum Object {
     PipeWrite(usize),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AdvisoryLock {
+    Shared,
+    Exclusive,
+}
+
 #[derive(Clone, Copy)]
 struct Description {
     object: Object,
     offset: usize,
     options: Open,
     references: usize,
+    lock: Option<AdvisoryLock>,
 }
 
 pub const RIGHT_READ: u8 = 1 << 0;
@@ -130,6 +137,7 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
             offset: 0,
             options,
             references: 1,
+            lock: None,
         });
         self.descriptors[fd] = Some(description);
         self.descriptor_rights[fd] = match options.access {
@@ -197,6 +205,62 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
         self.descriptors[target] = Some(index);
         self.descriptor_rights[target] = self.descriptor_rights[source];
         Ok(target)
+    }
+
+    /// Acquire a non-blocking advisory lock on a regular file.
+    ///
+    /// Locks are attached to the shared open description, so duplicated
+    /// descriptors share one lock and the lock is released only when the final
+    /// reference closes. They are advisory: read/write syscalls do not consult
+    /// them automatically.
+    pub fn lock(&mut self, fd: usize, requested: AdvisoryLock) -> Result<()> {
+        let index = self.description_index(fd)?;
+        let description = self.descriptions[index].expect("live description");
+        let node = match description.object {
+            Object::Node(node) if self.vfs.metadata(node)?.kind == Kind::File => node,
+            _ => return Err(Error::NotSeekable),
+        };
+        if description.lock == Some(requested) {
+            return Ok(());
+        }
+
+        for (other_index, other) in self.descriptions.iter().enumerate() {
+            if other_index == index {
+                continue;
+            }
+            let Some(other) = other else {
+                continue;
+            };
+            if !matches!(other.object, Object::Node(other_node) if other_node == node) {
+                continue;
+            }
+            match (requested, other.lock) {
+                (AdvisoryLock::Shared, Some(AdvisoryLock::Exclusive))
+                | (AdvisoryLock::Exclusive, Some(_)) => return Err(Error::WouldBlock),
+                _ => {}
+            }
+        }
+
+        self.descriptions[index]
+            .as_mut()
+            .expect("live description")
+            .lock = Some(requested);
+        Ok(())
+    }
+
+    pub fn unlock(&mut self, fd: usize) -> Result<()> {
+        let index = self.description_index(fd)?;
+        self.descriptions[index]
+            .as_mut()
+            .expect("live description")
+            .lock = None;
+        Ok(())
+    }
+
+    pub fn advisory_lock(&self, fd: usize) -> Result<Option<AdvisoryLock>> {
+        Ok(self.descriptions[self.description_index(fd)?]
+            .expect("live description")
+            .lock)
     }
 
     pub fn close(&mut self, fd: usize) -> Result<()> {
@@ -349,6 +413,7 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
             offset: 0,
             options: Open::READ,
             references: 1,
+            lock: None,
         });
         self.descriptions[write_description] = Some(Description {
             object: Object::PipeWrite(pipe),
@@ -359,6 +424,7 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
                 append: false,
             },
             references: 1,
+            lock: None,
         });
         self.descriptors[read_fd] = Some(read_description);
         self.descriptor_rights[read_fd] = RIGHT_READ;
@@ -413,5 +479,89 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
             return Err(Error::Unsupported);
         }
         self.vfs.device_output(node, buffer)
+    }
+}
+
+#[cfg(test)]
+mod advisory_lock_tests {
+    use super::*;
+    use crate::vfs::{Kind, Vfs, memfs::MemFs};
+
+    #[test]
+    fn shared_locks_coexist_and_exclusive_conflicts() {
+        let mut root = MemFs::<8, 64>::new().unwrap();
+        let mut vfs = Vfs::<1>::new(&mut root).unwrap();
+        vfs.create("/file", Kind::File).unwrap();
+        let mut files = Files::<1, 8, 1, 16>::new(vfs);
+
+        let first = files.open("/file", Open::READ_WRITE).unwrap();
+        let second = files.open("/file", Open::READ_WRITE).unwrap();
+        let third = files.open("/file", Open::READ_WRITE).unwrap();
+
+        files.lock(first, AdvisoryLock::Shared).unwrap();
+        files.lock(second, AdvisoryLock::Shared).unwrap();
+        assert_eq!(
+            files.lock(third, AdvisoryLock::Exclusive),
+            Err(Error::WouldBlock)
+        );
+        assert_eq!(
+            files.lock(first, AdvisoryLock::Exclusive),
+            Err(Error::WouldBlock)
+        );
+
+        files.unlock(second).unwrap();
+        files.unlock(first).unwrap();
+        files.lock(first, AdvisoryLock::Exclusive).unwrap();
+        assert_eq!(
+            files.lock(second, AdvisoryLock::Shared),
+            Err(Error::WouldBlock)
+        );
+    }
+
+    #[test]
+    fn duplicate_descriptors_share_lock_until_final_close() {
+        let mut root = MemFs::<8, 64>::new().unwrap();
+        let mut vfs = Vfs::<1>::new(&mut root).unwrap();
+        vfs.create("/file", Kind::File).unwrap();
+        let mut files = Files::<1, 8, 1, 16>::new(vfs);
+
+        let owner = files.open("/file", Open::READ_WRITE).unwrap();
+        files.lock(owner, AdvisoryLock::Exclusive).unwrap();
+        let duplicate = files.dup(owner).unwrap();
+        assert_eq!(
+            files.advisory_lock(duplicate),
+            Ok(Some(AdvisoryLock::Exclusive))
+        );
+
+        let contender = files.open("/file", Open::READ_WRITE).unwrap();
+        assert_eq!(
+            files.lock(contender, AdvisoryLock::Shared),
+            Err(Error::WouldBlock)
+        );
+
+        files.close(owner).unwrap();
+        assert_eq!(
+            files.lock(contender, AdvisoryLock::Shared),
+            Err(Error::WouldBlock)
+        );
+        files.close(duplicate).unwrap();
+        files.lock(contender, AdvisoryLock::Exclusive).unwrap();
+    }
+
+    #[test]
+    fn pipes_and_directories_are_not_lockable_files() {
+        let mut root = MemFs::<8, 64>::new().unwrap();
+        let vfs = Vfs::<1>::new(&mut root).unwrap();
+        let mut files = Files::<1, 8, 1, 16>::new(vfs);
+        let directory = files.open("/", Open::READ).unwrap();
+        assert_eq!(
+            files.lock(directory, AdvisoryLock::Shared),
+            Err(Error::NotSeekable)
+        );
+        let (reader, _) = files.pipe().unwrap();
+        assert_eq!(
+            files.lock(reader, AdvisoryLock::Shared),
+            Err(Error::NotSeekable)
+        );
     }
 }

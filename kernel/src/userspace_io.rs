@@ -13,7 +13,7 @@ use vibrix_kernel::vfs::{
     Entry, Error, Result,
     console::{BootstrapFiles, bootstrap},
     devfs::DevFs,
-    files::{Access, Open, RIGHT_READ, RIGHT_SEEK, RIGHT_WRITE, RIGHTS_ALL},
+    files::{Access, AdvisoryLock, Open, RIGHT_READ, RIGHT_SEEK, RIGHT_WRITE, RIGHTS_ALL},
     memfs::MemFs,
 };
 
@@ -157,6 +157,15 @@ pub fn restrict_descriptor_rights(fd: usize, rights: u64) -> Result<()> {
     }
     debug_assert_eq!(RIGHTS_ALL, RIGHT_READ | RIGHT_WRITE | RIGHT_SEEK);
     with_files(|files| files.restrict_rights(fd, native))
+}
+
+pub fn advisory_lock(fd: usize, operation: u64) -> Result<()> {
+    with_files(|files| match operation {
+        abi::FD_LOCK_UNLOCK => files.unlock(fd),
+        abi::FD_LOCK_SHARED => files.lock(fd, AdvisoryLock::Shared),
+        abi::FD_LOCK_EXCLUSIVE => files.lock(fd, AdvisoryLock::Exclusive),
+        _ => Err(Error::Unsupported),
+    })
 }
 
 pub fn create(path: &str) -> Result<()> {
