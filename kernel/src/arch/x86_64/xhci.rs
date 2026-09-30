@@ -6,7 +6,7 @@
 //! evidence path configures one MSC/SCSI BOT bulk pair and proves reversible
 //! block I/O; persistent storage ownership and general scheduling remain later.
 
-use crate::{BootInfo, memory};
+use crate::{BootInfo, bootinfo::BootUsbIdentity, memory};
 use core::arch::{asm, x86_64::__cpuid_count};
 
 use super::pci::{self, Bar, Device};
@@ -110,6 +110,9 @@ pub enum InitError {
     Bot(vibrix_kernel::usb_mass_bulk::Error),
     Scsi(vibrix_kernel::scsi::Error),
     StorageCommandFailed,
+    GptIdentity,
+    BootIdentityMissing,
+    BootIdentityMismatch,
     Hid(vibrix_kernel::usb_hid::Error),
 }
 
@@ -184,6 +187,7 @@ pub struct UsbStorageSummary {
     pub blocks: u64,
     pub block_bytes: u32,
     pub verified_lba: u32,
+    pub boot_identity_matched: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -821,7 +825,7 @@ unsafe fn enumerate_first_device_inner(
     info: &BootInfo,
     inspect_hub: bool,
     hid_probe: Option<HidProbe>,
-    storage_probe: bool,
+    storage_probe: Option<storage::Mode>,
 ) -> Result<UsbProbeResult, InitError> {
     let initialized = unsafe { initialize(info) }?;
 
@@ -1279,7 +1283,7 @@ unsafe fn enumerate_first_device_inner(
     }
 
     let mut storage_summary = None;
-    if storage_probe {
+    if let Some(storage_mode) = storage_probe {
         // SAFETY: sole BSP, IF=0, completed EP0 descriptor transfer. The
         // helper borrows the same exclusive controller/event-ring ownership,
         // configures one BOT bulk pair, restores its test block, and disables
@@ -1297,6 +1301,7 @@ unsafe fn enumerate_first_device_inner(
                     descriptor_base,
                     device: device_summary,
                 },
+                storage_mode,
             )
         }?;
         storage_summary = Some(UsbStorageSummary {
@@ -1310,6 +1315,7 @@ unsafe fn enumerate_first_device_inner(
             blocks: evidence.capacity.blocks().map_err(InitError::Scsi)?,
             block_bytes: evidence.capacity.block_bytes,
             verified_lba: evidence.verified_lba,
+            boot_identity_matched: evidence.boot_identity_matched,
         });
     }
 
@@ -1341,7 +1347,7 @@ unsafe fn enumerate_first_device_inner(
     not(feature = "usb-hub-probe")
 ))]
 pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary, InitError> {
-    Ok(unsafe { enumerate_first_device_inner(info, false, None, false) }?.0)
+    Ok(unsafe { enumerate_first_device_inner(info, false, None, None) }?.0)
 }
 
 /// Address a directly attached USB2 hub and prove downstream port management.
@@ -1354,7 +1360,7 @@ pub unsafe fn enumerate_first_device(info: &BootInfo) -> Result<UsbDeviceSummary
     not(feature = "usb-hid-keyboard-probe")
 ))]
 pub unsafe fn inspect_first_hub(info: &BootInfo) -> Result<UsbHubSummary, InitError> {
-    unsafe { enumerate_first_device_inner(info, true, None, false) }?
+    unsafe { enumerate_first_device_inner(info, true, None, None) }?
         .1
         .ok_or(InitError::NotHub)
 }
@@ -1382,7 +1388,7 @@ pub unsafe fn probe_hid_boot_keyboard(
                 keyboard: true,
                 expected_usage,
             }),
-            false,
+            None,
         )
     }?
     .2
@@ -1405,7 +1411,7 @@ pub unsafe fn probe_hid_boot_mouse(info: &BootInfo) -> Result<UsbHidMouseSummary
                 keyboard: false,
                 expected_usage: 0,
             }),
-            false,
+            None,
         )
     }?
     .3
@@ -1422,11 +1428,42 @@ pub unsafe fn probe_hid_boot_mouse(info: &BootInfo) -> Result<UsbHidMouseSummary
 #[cfg(all(target_os = "none", feature = "usb-storage-probe"))]
 #[allow(dead_code)] // all-features Clippy enables mutually exclusive USB evidence profiles together
 pub unsafe fn probe_mass_storage(info: &BootInfo) -> Result<UsbStorageSummary, InitError> {
-    unsafe { enumerate_first_device_inner(info, false, None, true) }?
-        .4
-        .ok_or(InitError::Storage(
-            vibrix_kernel::usb_storage::Error::Missing,
-        ))
+    unsafe {
+        enumerate_first_device_inner(info, false, None, Some(storage::Mode::ReversibleWrite))
+    }?
+    .4
+    .ok_or(InitError::Storage(
+        vibrix_kernel::usb_storage::Error::Missing,
+    ))
+}
+
+/// Reacquire the firmware-selected boot USB through native xHCI/BOT/SCSI and
+/// require its validated GPT identity to equal the BootInfo v4 handoff.
+///
+/// This path is read-only: unlike the disposable mass-storage proof it never
+/// issues WRITE(10) or SYNCHRONIZE CACHE against the boot disk.
+///
+/// # Safety
+/// Same exclusive single-BSP xHCI ownership as device enumeration. BootInfo
+/// must be the validated loader-owned handoff for this boot.
+#[cfg(all(target_os = "none", feature = "usb-boot-reacquire-probe"))]
+#[allow(dead_code)] // all-features Clippy enables mutually exclusive USB evidence profiles together
+pub unsafe fn reacquire_boot_storage(info: &BootInfo) -> Result<UsbStorageSummary, InitError> {
+    let identity: BootUsbIdentity = info
+        .boot_usb_identity()
+        .ok_or(InitError::BootIdentityMissing)?;
+    unsafe {
+        enumerate_first_device_inner(
+            info,
+            false,
+            None,
+            Some(storage::Mode::BootIdentity(identity)),
+        )
+    }?
+    .4
+    .ok_or(InitError::Storage(
+        vibrix_kernel::usb_storage::Error::Missing,
+    ))
 }
 
 #[cfg(test)]

@@ -292,7 +292,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         not(feature = "usb-hub-probe"),
         not(feature = "usb-hid-keyboard-probe"),
         not(feature = "usb-hid-mouse-probe"),
-        not(feature = "usb-storage-probe")
+        not(feature = "usb-storage-probe"),
+        not(feature = "usb-boot-reacquire-probe")
     ))]
     {
         // SAFETY: still single-BSP with IF=0. PCI discovery identified the
@@ -319,7 +320,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         feature = "usb-enum-probe",
         not(feature = "usb-hub-probe"),
         not(feature = "usb-hid-keyboard-probe"),
-        not(feature = "usb-storage-probe")
+        not(feature = "usb-storage-probe"),
+        not(feature = "usb-boot-reacquire-probe")
     ))]
     {
         // SAFETY: bounded single-BSP enumeration probe owns the directly
@@ -346,7 +348,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         feature = "usb-hub-probe",
         not(feature = "usb-hid-keyboard-probe"),
         not(feature = "usb-hid-mouse-probe"),
-        not(feature = "usb-storage-probe")
+        not(feature = "usb-storage-probe"),
+        not(feature = "usb-boot-reacquire-probe")
     ))]
     {
         // SAFETY: the bounded probe exclusively owns the QEMU xHCI controller,
@@ -369,7 +372,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     #[cfg(all(
         feature = "usb-hid-keyboard-probe",
         not(feature = "usb-hid-mouse-probe"),
-        not(feature = "usb-storage-probe")
+        not(feature = "usb-storage-probe"),
+        not(feature = "usb-boot-reacquire-probe")
     ))]
     {
         // SAFETY: the bounded probe owns the directly attached QEMU USB
@@ -417,7 +421,8 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         feature = "usb-storage-probe",
         not(feature = "usb-hid-keyboard-probe"),
         not(feature = "usb-hid-mouse-probe"),
-        not(feature = "usb-hub-probe")
+        not(feature = "usb-hub-probe"),
+        not(feature = "usb-boot-reacquire-probe")
     ))]
     {
         // SAFETY: the bounded probe owns one directly attached QEMU USB
@@ -440,6 +445,31 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             storage.verified_lba
         );
         debugcon::write("VIBRIX: kernel USB mass-storage SCSI commands verified\r\n");
+    }
+
+    #[cfg(all(
+        feature = "usb-boot-reacquire-probe",
+        not(feature = "usb-hid-keyboard-probe"),
+        not(feature = "usb-hid-mouse-probe"),
+        not(feature = "usb-hub-probe")
+    ))]
+    {
+        // SAFETY: the native xHCI/BOT/SCSI path is still single-BSP with IF=0.
+        // This mode is read-only and accepts the device only after both GPT
+        // copies validate and match the loader's BootInfo v4 identity tuple.
+        let storage = unsafe { arch::x86_64::xhci::reacquire_boot_storage(&info) }
+            .unwrap_or_else(|error| panic!("boot USB reacquisition failed: {:?}", error));
+        if !storage.boot_identity_matched {
+            panic!("boot USB reacquisition returned without an identity match");
+        }
+        crate::println!(
+            "kernel boot USB: root_port={} slot={} blocks={} block_bytes={} identity_match=true",
+            storage.root_port,
+            storage.slot_id,
+            storage.blocks,
+            storage.block_bytes
+        );
+        debugcon::write("VIBRIX: kernel boot USB native identity match verified\r\n");
     }
 
     if device_model.devices == pci.devices {

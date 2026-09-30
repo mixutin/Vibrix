@@ -1,0 +1,116 @@
+name: Boot USB native reacquisition evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  boot-usb-reacquire:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rust-src,rustfmt,clippy --target x86_64-unknown-uefi,x86_64-unknown-none
+      - name: Check native boot-device matching code
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked -p vibrix-kernel --all-features --target x86_64-unknown-none -- -D warnings
+          rustfmt --edition 2024 --check shared/gpt_identity.rs
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+      - name: Build loader and kernel identity probes
+        run: |
+          VIBRIX_BOOT_FEATURES=qemu-debugcon,boot-usb-identity-probe \
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,usb-boot-reacquire-probe \
+            bash tools/build-qemu.sh
+          rustc --edition=2024 -D warnings tools/create-usb-image.rs -o "$RUNNER_TEMP/vibrix-create-usb-image"
+          rustc --edition=2024 -D warnings tools/populate-esp.rs -o "$RUNNER_TEMP/vibrix-populate-esp"
+      - name: Prove the firmware boot USB is reacquired read-only after ExitBootServices
+        run: |
+          image="$RUNNER_TEMP/vibrix-boot-native.img"
+          "$RUNNER_TEMP/vibrix-create-usb-image" "$image" 64 512
+          "$RUNNER_TEMP/vibrix-populate-esp" \
+            "$image" \
+            target/x86_64-unknown-uefi/debug/vibrix-boot.efi \
+            target/x86_64-unknown-none/debug/vibrix-kernel \
+            512
+          before="$(sha256sum "$image" | awk '{print $1}')"
+          source tools/ovmf.inc
+          vibrix_find_ovmf
+          cp -- "$OVMF_VARS" build/qemu/OVMF_VARS.boot-reacquire.fd
+          rm -f build/qemu/boot-reacquire-debugcon.log build/qemu/boot-reacquire-serial.log
+          set +e
+          timeout 15s qemu-system-x86_64 \
+            -machine q35 -accel tcg -cpu max -m 512M \
+            -drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE" \
+            -drive "if=pflash,format=raw,file=build/qemu/OVMF_VARS.boot-reacquire.fd" \
+            -drive "if=none,id=vibrixdisk,format=raw,readonly=on,file=$image" \
+            -device "qemu-xhci,id=vibrix-boot-xhci" \
+            -device "usb-storage,drive=vibrixdisk,bus=vibrix-boot-xhci.0,port=1,bootindex=1" \
+            -display none -serial file:build/qemu/boot-reacquire-serial.log \
+            -monitor none -no-reboot \
+            -chardev file,id=vibrixdbg,path=build/qemu/boot-reacquire-debugcon.log \
+            -device isa-debugcon,iobase=0xe9,chardev=vibrixdbg
+          rc=$?
+          set -e
+          test "$rc" -eq 124
+          after="$(sha256sum "$image" | awk '{print $1}')"
+          test "$before" = "$after"
+          grep -Fq "VIBRIX: boot USB GPT identity validated" build/qemu/boot-reacquire-debugcon.log
+          grep -Fq "VIBRIX: kernel boot USB reacquired by GPT identity" build/qemu/boot-reacquire-debugcon.log
+          grep -Fq "VIBRIX: kernel boot USB native identity match verified" build/qemu/boot-reacquire-debugcon.log
+          grep -Fq "identity_match=true" build/qemu/boot-reacquire-serial.log
+      - name: Reject a different USB disk even when it is enumerated first
+        run: |
+          boot="$RUNNER_TEMP/vibrix-boot-native.img"
+          decoy="$RUNNER_TEMP/vibrix-decoy.img"
+          "$RUNNER_TEMP/vibrix-create-usb-image" "$decoy" 64 512
+          boot_before="$(sha256sum "$boot" | awk '{print $1}')"
+          decoy_before="$(sha256sum "$decoy" | awk '{print $1}')"
+          source tools/ovmf.inc
+          vibrix_find_ovmf
+          cp -- "$OVMF_VARS" build/qemu/OVMF_VARS.boot-mismatch.fd
+          rm -f build/qemu/boot-mismatch-debugcon.log build/qemu/boot-mismatch-serial.log
+          set +e
+          timeout 15s qemu-system-x86_64 \
+            -machine q35 -accel tcg -cpu max -m 512M \
+            -drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE" \
+            -drive "if=pflash,format=raw,file=build/qemu/OVMF_VARS.boot-mismatch.fd" \
+            -drive "if=none,id=decoy,format=raw,readonly=on,file=$decoy" \
+            -drive "if=none,id=bootdisk,format=raw,readonly=on,file=$boot" \
+            -device "qemu-xhci,id=vibrix-boot-xhci" \
+            -device "usb-storage,drive=decoy,bus=vibrix-boot-xhci.0,port=1,bootindex=2" \
+            -device "usb-storage,drive=bootdisk,bus=vibrix-boot-xhci.0,port=2,bootindex=1" \
+            -display none -serial file:build/qemu/boot-mismatch-serial.log \
+            -monitor none -no-reboot \
+            -chardev file,id=vibrixdbg,path=build/qemu/boot-mismatch-debugcon.log \
+            -device isa-debugcon,iobase=0xe9,chardev=vibrixdbg
+          rc=$?
+          set -e
+          test "$rc" -eq 124
+          test "$boot_before" = "$(sha256sum "$boot" | awk '{print $1}')"
+          test "$decoy_before" = "$(sha256sum "$decoy" | awk '{print $1}')"
+          grep -Fq "VIBRIX: boot USB GPT identity validated" build/qemu/boot-mismatch-debugcon.log
+          grep -Fq "VIBRIX: kernel boot USB identity mismatch rejected" build/qemu/boot-mismatch-debugcon.log
+          ! grep -Fq "VIBRIX: kernel boot USB native identity match verified" build/qemu/boot-mismatch-debugcon.log
+      - name: Preserve boot-device evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: boot-usb-reacquire-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/qemu/boot-reacquire-*.log
+            build/qemu/boot-mismatch-*.log
+          if-no-files-found: warn
+          retention-days: 7
