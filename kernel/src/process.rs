@@ -7,6 +7,9 @@
 
 use crate::credentials::Credentials;
 
+#[path = "../../shared/syscall_abi.rs"]
+mod abi;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Pid(u32);
 
@@ -39,6 +42,7 @@ pub struct Process {
     pub state: State,
     pub credentials: Credentials,
     pub no_new_privileges: bool,
+    pub promises: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -67,6 +71,8 @@ pub enum Error {
     ParentNotRunning,
     AlreadyExited,
     NoChild,
+    InvalidPromises,
+    PromiseExpansion,
 }
 
 pub struct Table<const N: usize> {
@@ -118,6 +124,24 @@ impl<const N: usize> Table<N> {
         Ok(())
     }
 
+    /// Permanently restrict the process operation classes available through
+    /// the process-facing syscall dispatcher. A process may only remove bits.
+    pub fn restrict_promises(&mut self, pid: Pid, promises: u64) -> Result<(), Error> {
+        if promises & !abi::PROMISE_ALL != 0 {
+            return Err(Error::InvalidPromises);
+        }
+        let index = self.index_of(pid).ok_or(Error::NotFound)?;
+        let process = self.slots[index].as_mut().ok_or(Error::NotFound)?;
+        if process.state != State::Running {
+            return Err(Error::ParentNotRunning);
+        }
+        if promises & !process.promises != 0 {
+            return Err(Error::PromiseExpansion);
+        }
+        process.promises = promises;
+        Ok(())
+    }
+
     /// Permanently prevent this process and descendants from gaining privileges
     /// through future execution transitions.
     pub fn set_no_new_privileges(&mut self, pid: Pid) -> Result<(), Error> {
@@ -149,7 +173,7 @@ impl<const N: usize> Table<N> {
         if self.get(Pid::INIT).is_some() || self.next_pid != Pid::INIT.get() {
             return Err(Error::ParentNotRunning);
         }
-        self.spawn(None, Credentials::root(), false)
+        self.spawn(None, Credentials::root(), false, abi::PROMISE_ALL)
     }
 
     pub fn spawn_child(&mut self, parent: Pid) -> Result<Pid, Error> {
@@ -159,7 +183,12 @@ impl<const N: usize> Table<N> {
                     state: State::Running,
                     ..
                 },
-            ) => self.spawn(Some(parent), process.credentials, process.no_new_privileges),
+            ) => self.spawn(
+                Some(parent),
+                process.credentials,
+                process.no_new_privileges,
+                process.promises,
+            ),
             Some(_) => Err(Error::ParentNotRunning),
             None => Err(Error::NotFound),
         }
@@ -170,6 +199,7 @@ impl<const N: usize> Table<N> {
         parent: Option<Pid>,
         credentials: Credentials,
         no_new_privileges: bool,
+        promises: u64,
     ) -> Result<Pid, Error> {
         let slot = self
             .slots
@@ -183,6 +213,7 @@ impl<const N: usize> Table<N> {
             state: State::Running,
             credentials,
             no_new_privileges,
+            promises,
         });
         Ok(pid)
     }
@@ -324,8 +355,15 @@ pub fn self_test() -> Result<(), Error> {
     if table.wait(init, WaitTarget::Pid(grandchild))? != WaitResult::Pending {
         return Err(Error::NoChild);
     }
-    if table.len() != 3 {
-        return Err(Error::Capacity);
+    table.restrict_promises(init, abi::PROMISE_IO | abi::PROMISE_FILESYSTEM)?;
+    let child = table.spawn_child(init)?;
+    if table.get(child).map(|process| process.promises)
+        != Some(abi::PROMISE_IO | abi::PROMISE_FILESYSTEM)
+    {
+        return Err(Error::InvalidPromises);
+    }
+    if table.restrict_promises(init, abi::PROMISE_ALL) != Err(Error::PromiseExpansion) {
+        return Err(Error::PromiseExpansion);
     }
     Ok(())
 }
@@ -356,6 +394,32 @@ mod tests {
             table.get(child).unwrap().credentials,
             table.get(init).unwrap().credentials
         );
+    }
+
+    #[test]
+    fn process_promises_only_shrink_and_are_inherited() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+        assert_eq!(table.get(init).unwrap().promises, abi::PROMISE_ALL);
+
+        let reduced = abi::PROMISE_IO | abi::PROMISE_FILESYSTEM;
+        table.restrict_promises(init, reduced).unwrap();
+        assert_eq!(table.get(init).unwrap().promises, reduced);
+
+        assert_eq!(
+            table.restrict_promises(init, abi::PROMISE_ALL),
+            Err(Error::PromiseExpansion)
+        );
+        assert_eq!(
+            table.restrict_promises(init, abi::PROMISE_ALL | (1 << 31)),
+            Err(Error::InvalidPromises)
+        );
+        assert_eq!(table.get(init).unwrap().promises, reduced);
+
+        let child = table.spawn_child(init).unwrap();
+        assert_eq!(table.get(child).unwrap().promises, reduced);
+        table.restrict_promises(child, abi::PROMISE_IO).unwrap();
+        assert_eq!(table.get(child).unwrap().promises, abi::PROMISE_IO);
     }
 
     #[test]
