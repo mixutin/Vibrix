@@ -152,8 +152,14 @@ fn read_only_mount_blocks_every_mutation_before_backend_entry() {
     assert_eq!(&bytes, b"snapshot");
     assert_eq!(vfs.write(node, 0, b"x"), Err(Error::ReadOnly));
     assert_eq!(vfs.truncate(node), Err(Error::ReadOnly));
-    assert_eq!(vfs.set_file_flags(node, FLAG_IMMUTABLE), Err(Error::ReadOnly));
-    assert_eq!(vfs.create("/evidence/new", Kind::File), Err(Error::ReadOnly));
+    assert_eq!(
+        vfs.set_file_flags(node, FLAG_IMMUTABLE),
+        Err(Error::ReadOnly)
+    );
+    assert_eq!(
+        vfs.create("/evidence/new", Kind::File),
+        Err(Error::ReadOnly)
+    );
     assert_eq!(vfs.remove("/evidence/disk"), Err(Error::ReadOnly));
 }
 
