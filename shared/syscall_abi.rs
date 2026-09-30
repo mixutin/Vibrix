@@ -47,6 +47,7 @@ pub enum Syscall {
     SetResUid = 20,
     GetResGid = 21,
     SetResGid = 22,
+    NoNewPrivileges = 23,
 }
 
 impl Syscall {
@@ -75,6 +76,7 @@ impl Syscall {
             20 => Some(Self::SetResUid),
             21 => Some(Self::GetResGid),
             22 => Some(Self::SetResGid),
+            23 => Some(Self::NoNewPrivileges),
             _ => None,
         }
     }
@@ -249,6 +251,7 @@ mod tests {
             Syscall::SetResUid,
             Syscall::GetResGid,
             Syscall::SetResGid,
+            Syscall::NoNewPrivileges,
         ];
         for (expected, call) in calls.into_iter().enumerate() {
             assert_eq!(call.number(), expected as u64);
