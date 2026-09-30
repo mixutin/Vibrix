@@ -7,7 +7,7 @@ use memfs::MemFs;
 fn guest_behavior_proof_runs_on_production_code() {
     let mut markers = std::vec::Vec::new();
     self_test(|marker| markers.push(std::string::String::from(marker))).unwrap();
-    assert_eq!(markers.len(), 8);
+    assert_eq!(markers.len(), 9);
 }
 
 #[test]
@@ -132,6 +132,29 @@ fn mounted_backend_overrides_only_the_exact_directory() {
             .kind,
         Kind::Device
     );
+}
+
+#[test]
+fn read_only_mount_blocks_every_mutation_before_backend_entry() {
+    let mut root = MemFs::<8, 32>::new().unwrap();
+    let mut evidence = MemFs::<4, 32>::new().unwrap();
+    let evidence_root = evidence.root();
+    let file = evidence.create(evidence_root, "disk", Kind::File).unwrap();
+    evidence.write(file, 0, b"snapshot").unwrap();
+
+    let mut vfs = Vfs::<2>::new(&mut root).unwrap();
+    vfs.create("/evidence", Kind::Directory).unwrap();
+    vfs.mount_read_only("/evidence", &mut evidence).unwrap();
+
+    let node = vfs.resolve("/evidence/disk").unwrap();
+    let mut bytes = [0u8; 8];
+    assert_eq!(vfs.read(node, 0, &mut bytes), Ok(8));
+    assert_eq!(&bytes, b"snapshot");
+    assert_eq!(vfs.write(node, 0, b"x"), Err(Error::ReadOnly));
+    assert_eq!(vfs.truncate(node), Err(Error::ReadOnly));
+    assert_eq!(vfs.set_file_flags(node, FLAG_IMMUTABLE), Err(Error::ReadOnly));
+    assert_eq!(vfs.create("/evidence/new", Kind::File), Err(Error::ReadOnly));
+    assert_eq!(vfs.remove("/evidence/disk"), Err(Error::ReadOnly));
 }
 
 #[test]
