@@ -396,10 +396,11 @@ pub fn self_test() -> Result<(), Error> {
     .map_err(|_| Error::PromiseExpansion)?;
     table.restrict_paths(init, &[tmp])?;
     let path_child = table.spawn_child(init)?;
-    if !table
-        .get(path_child)
-        .is_some_and(|process| process.path_policy.permits(b"/tmp/file", crate::path_policy::ACCESS_READ))
-    {
+    if !table.get(path_child).is_some_and(|process| {
+        process
+            .path_policy
+            .permits(b"/tmp/file", crate::path_policy::ACCESS_READ)
+    }) {
         return Err(Error::PromiseExpansion);
     }
     Ok(())
@@ -469,11 +470,13 @@ mod tests {
         )
         .unwrap();
         table.restrict_paths(init, &[rw]).unwrap();
-        assert!(table
-            .get(init)
-            .unwrap()
-            .path_policy
-            .permits(b"/tmp/file", crate::path_policy::ACCESS_WRITE));
+        assert!(
+            table
+                .get(init)
+                .unwrap()
+                .path_policy
+                .permits(b"/tmp/file", crate::path_policy::ACCESS_WRITE)
+        );
 
         let child = table.spawn_child(init).unwrap();
         assert_eq!(
@@ -483,11 +486,13 @@ mod tests {
 
         let read = crate::path_policy::Rule::new(b"/tmp", crate::path_policy::ACCESS_READ).unwrap();
         table.restrict_paths(child, &[read]).unwrap();
-        assert!(!table
-            .get(child)
-            .unwrap()
-            .path_policy
-            .permits(b"/tmp/file", crate::path_policy::ACCESS_WRITE));
+        assert!(
+            !table
+                .get(child)
+                .unwrap()
+                .path_policy
+                .permits(b"/tmp/file", crate::path_policy::ACCESS_WRITE)
+        );
         assert_eq!(
             table.restrict_paths(child, &[rw]),
             Err(Error::PromiseExpansion)
