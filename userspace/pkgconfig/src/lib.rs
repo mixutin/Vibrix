@@ -27,7 +27,10 @@ struct Pair<'a> {
     value: &'a [u8],
 }
 
-const EMPTY: Pair<'static> = Pair { key: b"", value: b"" };
+const EMPTY: Pair<'static> = Pair {
+    key: b"",
+    value: b"",
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Field {
@@ -62,9 +65,15 @@ pub struct Package<'a> {
 impl<'a> Package<'a> {
     pub fn parse(input: &'a [u8]) -> Result<Self, Error> {
         let mut out = Self {
-            variables: [Pair { key: b"", value: b"" }; MAX_VARIABLES],
+            variables: [Pair {
+                key: b"",
+                value: b"",
+            }; MAX_VARIABLES],
             variable_len: 0,
-            fields: [Pair { key: b"", value: b"" }; MAX_FIELDS],
+            fields: [Pair {
+                key: b"",
+                value: b"",
+            }; MAX_FIELDS],
             field_len: 0,
         };
 
@@ -250,7 +259,10 @@ mod tests {
     fn fails_closed_on_undefined_variable_and_small_output() {
         let pkg = Package::parse(b"Name: x\nLibs: -L${missing}\n").unwrap();
         let mut out = [0u8; 8];
-        assert_eq!(pkg.field(Field::Libs, &mut out), Err(Error::MissingVariable));
+        assert_eq!(
+            pkg.field(Field::Libs, &mut out),
+            Err(Error::MissingVariable)
+        );
 
         let pkg = Package::parse(PC).unwrap();
         assert_eq!(pkg.field(Field::Libs, &mut out), Err(Error::OutputTooSmall));
@@ -266,6 +278,9 @@ mod tests {
             Package::parse(b"bad name=value\n"),
             Err(Error::InvalidName)
         ));
-        assert!(matches!(Package::parse(b"not-a-record\n"), Err(Error::InvalidLine)));
+        assert!(matches!(
+            Package::parse(b"not-a-record\n"),
+            Err(Error::InvalidLine)
+        ));
     }
 }
