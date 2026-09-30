@@ -187,7 +187,9 @@ pub fn self_test() -> Result<(), &'static str> {
     {
         return Err("audit record publication mismatch");
     }
-    let held = log.reserve().map_err(|_| "second audit reservation failed")?;
+    let held = log
+        .reserve()
+        .map_err(|_| "second audit reservation failed")?;
     if log.reserve() != Err(Full) || log.get(1).is_some() {
         return Err("audit capacity/reservation policy failed");
     }
@@ -221,14 +223,7 @@ mod tests {
         assert_eq!(log.reserved(), 1);
         assert_eq!(log.get(0), None);
         assert_eq!(log.reserve(), Err(Full));
-        let sequence = log.commit(
-            reservation,
-            1,
-            Action::SetResUid,
-            Outcome::Allowed,
-            0,
-            1000,
-        );
+        let sequence = log.commit(reservation, 1, Action::SetResUid, Outcome::Allowed, 0, 1000);
         let saved = log.get(sequence).unwrap();
         assert_eq!(log.reserve(), Err(Full));
         assert_eq!(log.get(sequence), Some(saved));
