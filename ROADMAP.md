@@ -1594,7 +1594,7 @@ must already exist before third-party software is trusted.
 - [x] Audit log for security-sensitive operations
 - [ ] Security-lab disposable environment integration
 - [ ] Read-only forensic mounting mode
-- [ ] Package permission review before installation
+- [x] Package permission review before installation
 - [x] Hardened developer/debug mode separation
 
 **Verified M19 package/application capability declarations (PR #306):**
@@ -1610,6 +1610,21 @@ inside Vibrix Ring 3.
 This checks **Package/application capability declarations** as a declaration
 format/API. Package permission review and actual sandbox enforcement remain
 separate M19 work.
+
+**Verified M19 package permission review before installation (PRs #356 and #365):**
+all 59 exact-head workflows passed implementation head
+`ac8fab2d644b9603a30423f0ce00b8b4374d283d` in PR #356, including
+[package-permission review run 36719423340](https://github.com/mixutin/Vibrix/actions/runs/36719423340).
+PR #365 rebuilt those four files unchanged on newer `main` and merged the
+same fail-closed policy. The package path renders declared filesystem, network,
+device and process-control authority before installation and requires explicit
+operator acceptance for nonzero capability declarations; malformed or unknown
+capability data is rejected rather than silently accepted.
+
+This checks **Package permission review before installation** for the current
+bounded package capability model. It does not claim package signature
+verification, repository trust, sandbox enforcement of every declared
+permission, or unattended package installation.
 
 **Exit:** optional engineering/security tooling can be used without automatically
 receiving unrestricted access to the persistent Vibrix system.
