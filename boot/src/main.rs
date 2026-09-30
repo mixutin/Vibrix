@@ -102,7 +102,6 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
         }
     };
 
-
     let kernel = match unsafe { uefi::load_kernel(image, system_table) } {
         Ok(kernel) => kernel,
         Err(status) => {
