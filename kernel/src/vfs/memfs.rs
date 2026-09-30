@@ -140,6 +140,70 @@ impl<const N: usize, const B: usize> Filesystem for MemFs<N, B> {
         Ok(self.id(index))
     }
 
+    fn rename(&mut self, from_dir: NodeId, from: &str, to_dir: NodeId, to: &str) -> Result<()> {
+        self.directory(from_dir)?;
+        self.directory(to_dir)?;
+        let new_name = Name::new(to)?;
+        let source = self.lookup(from_dir, from)?;
+        let source_index = self.index(source)?;
+        let source_node = *self.nodes[source_index].as_ref().expect("live source");
+        if source_node.flags & (super::FLAG_IMMUTABLE | super::FLAG_APPEND_ONLY) != 0 {
+            return Err(Error::AccessDenied);
+        }
+
+        if source_node.kind == Kind::Directory {
+            let mut cursor = to_dir;
+            loop {
+                if cursor == source {
+                    return Err(Error::InvalidPath);
+                }
+                if cursor == self.root() {
+                    break;
+                }
+                cursor = self.node(cursor)?.parent;
+            }
+        }
+
+        let destination = match self.lookup(to_dir, to) {
+            Ok(id) if id == source => return Ok(()),
+            Ok(id) => Some(id),
+            Err(Error::NotFound) => None,
+            Err(error) => return Err(error),
+        };
+
+        let destination_index = if let Some(id) = destination {
+            let index = self.index(id)?;
+            let node = self.nodes[index].as_ref().expect("live destination");
+            if node.flags & (super::FLAG_IMMUTABLE | super::FLAG_APPEND_ONLY) != 0 {
+                return Err(Error::AccessDenied);
+            }
+            if source_node.kind != node.kind {
+                return Err(if source_node.kind == Kind::Directory {
+                    Error::NotDirectory
+                } else {
+                    Error::IsDirectory
+                });
+            }
+            if node.kind == Kind::Directory && self.nodes.iter().flatten().any(|child| child.parent == id) {
+                return Err(Error::NotEmpty);
+            }
+            Some(index)
+        } else {
+            None
+        };
+
+        // Every fallible validation is complete. Exclusive filesystem ownership
+        // makes the replacement and source relink one indivisible namespace step.
+        if let Some(index) = destination_index {
+            self.nodes[index] = None;
+            self.generations[index] = self.generations[index].checked_add(1).unwrap_or(0);
+        }
+        let node = self.nodes[source_index].as_mut().expect("validated live source");
+        node.parent = to_dir;
+        node.name = new_name;
+        Ok(())
+    }
+
     fn remove(&mut self, dir: NodeId, name: &str) -> Result<()> {
         let id = self.lookup(dir, name)?;
         let flags = self.node(id)?.flags;
