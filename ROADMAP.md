@@ -1137,7 +1137,7 @@ execution and VFS DAC enforcement remain separate work.
 - [ ] AP startup
 - [x] per-CPU structures
 - [ ] SMP scheduler
-- [ ] synchronization
+- [x] synchronization
 - [ ] TLB shootdowns
 - [x] profiling
 - [ ] Target 001 8C/16T validation
@@ -1170,6 +1170,18 @@ resetting counters or changing scheduling decisions.
 This checks the bounded **profiling** item for the current single-BSP scheduler.
 It does not claim whole-system profiling, sampling profilers, SMP aggregation,
 userspace tooling, hardware performance counters or Target 001 validation.
+
+**Verified M12 bounded synchronization primitives (PR #320):**
+all 48 exact-head workflows passed implementation head
+`ddb4d50c26e7ad3b25f42846ea2ec3986144c67a`, including dedicated
+[synchronization evidence run 36689474841](https://github.com/mixutin/Vibrix/actions/runs/36689474841).
+The kernel provides a fair ticket lock and a fixed-participant boot barrier with
+explicit Acquire/Release ordering, host contention/ordering tests, and the normal
+post-firmware self-test marker.
+
+This checks **synchronization** for the current bounded primitives. It does not
+claim an SMP scheduler, cross-CPU interrupt coordination, TLB shootdowns, lock
+debugging, priority inheritance, or physical Target 001 multicore validation.
 
 ## M13 — Audio and graphics
 
@@ -1720,7 +1732,7 @@ persistent resolver state, or a complete network service manager.
 ## M23 — Process hardening and sandboxing
 
 - [x] monotonic process-operation promise API inspired by capability reduction
-- [ ] path visibility/access allow-list API
+- [x] path visibility/access allow-list API
 - [x] descriptor-rights restriction
 - [x] no-new-privileges process flag
 - [ ] privilege-separated daemon patterns in the base system
@@ -1757,6 +1769,17 @@ regained.
 This checks **descriptor-rights restriction** for the current file-descriptor
 model. It does not claim path allow-lists, namespaces, service jails or a general
 capability object system.
+
+**Verified M23 monotonic path visibility/access allow-list (PR #309):**
+all 48 exact-head workflows passed implementation head
+`71b9f49eded8dadf76391f0ca2c2304c4ab6dcb0`, including dedicated
+[path-visibility evidence run 36689891400](https://github.com/mixutin/Vibrix/actions/runs/36689891400).
+The fixed-capacity per-process policy uses component-aware path matching,
+permits restrictions only to shrink, and is inherited by child processes.
+
+This checks the bounded **path visibility/access allow-list API** primitive.
+It does not claim pathname-syscall enforcement across every VFS operation,
+mount namespaces, chroot/service jails, or complete application sandboxing.
 
 OpenBSD documents monotonic syscall restriction with `pledge(2)` and
 path visibility restriction with `unveil(2)`. Vibrix may adopt comparable
