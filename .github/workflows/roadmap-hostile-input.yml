@@ -1,0 +1,53 @@
+name: Privileged parser hostile-input evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  hostile-input:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rust-src,rustfmt,clippy --target x86_64-unknown-none
+      - name: Reject malformed boot and firmware structures
+        run: |
+          rustc --edition=2024 --test boot/src/elf.rs -o "$RUNNER_TEMP/elf-tests"
+          "$RUNNER_TEMP/elf-tests"
+          rustc --edition=2024 --test shared/bootinfo.rs -o "$RUNNER_TEMP/bootinfo-tests"
+          "$RUNNER_TEMP/bootinfo-tests"
+          rustc --edition=2024 --test kernel/src/arch/x86_64/acpi.rs -o "$RUNNER_TEMP/acpi-tests"
+          "$RUNNER_TEMP/acpi-tests"
+          rustc --edition=2024 --test kernel/src/arch/x86_64/pci.rs -o "$RUNNER_TEMP/pci-tests"
+          "$RUNNER_TEMP/pci-tests"
+      - name: Reject malformed storage and USB wire input
+        run: |
+          rustc --edition=2024 -D warnings --test shared/usb_mass_bulk.rs -o "$RUNNER_TEMP/usb-bot-tests"
+          "$RUNNER_TEMP/usb-bot-tests"
+          rustc --edition=2024 -D warnings --test shared/scsi.rs -o "$RUNNER_TEMP/scsi-tests"
+          "$RUNNER_TEMP/scsi-tests"
+          rustc --edition=2024 -D warnings --test shared/vibrixfs_wire.rs -o "$RUNNER_TEMP/vibrixfs-wire-tests"
+          "$RUNNER_TEMP/vibrixfs-wire-tests"
+      - name: Exercise privileged kernel parsers and state machines
+        run: |
+          cargo test --locked --package vibrix-kernel --lib
+      - name: Exercise package and shell parsers
+        run: |
+          cargo test --locked --package vibrix-package --lib
+          cargo test --locked --package vibrix-shell --lib
+      - name: Ensure coverage inventory stays explicit
+        run: |
+          test -f docs/HOSTILE_INPUT_COVERAGE.md
+          for token in ELF64 BootInfo ACPI PCI USB SCSI VibrixFS IPv4 UDP DHCP DNS TCP package shell; do
+            grep -Fq "$token" docs/HOSTILE_INPUT_COVERAGE.md
+          done
