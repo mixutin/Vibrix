@@ -6,7 +6,7 @@ use core::arch::asm;
 pub enum Error {
     Unstable,
     InvalidBcd,
-    Date(crate::boot_clock::Error),
+    Date(vibrix_kernel::boot_clock::Error),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -120,7 +120,7 @@ pub unsafe fn read_unix_seconds() -> Result<u64, Error> {
             continue;
         }
         let (year, month, day, hour, minute, second) = decode(first)?;
-        return crate::boot_clock::unix_seconds(year, month, day, hour, minute, second)
+        return vibrix_kernel::boot_clock::unix_seconds(year, month, day, hour, minute, second)
             .map_err(Error::Date);
     }
     Err(Error::Unstable)
