@@ -33,6 +33,58 @@ pub enum State {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ResourceLimits {
+    pub cpu_ticks: u64,
+    pub memory_pages: u32,
+    pub open_files: u16,
+    pub sockets: u16,
+    pub children: u16,
+}
+
+impl ResourceLimits {
+    pub const UNLIMITED: Self = Self {
+        cpu_ticks: u64::MAX,
+        memory_pages: u32::MAX,
+        open_files: u16::MAX,
+        sockets: u16::MAX,
+        children: u16::MAX,
+    };
+
+    pub const fn bounded(
+        cpu_ticks: u64,
+        memory_pages: u32,
+        open_files: u16,
+        sockets: u16,
+        children: u16,
+    ) -> Self {
+        Self {
+            cpu_ticks,
+            memory_pages,
+            open_files,
+            sockets,
+            children,
+        }
+    }
+
+    const fn no_wider_than(self, other: Self) -> bool {
+        self.cpu_ticks <= other.cpu_ticks
+            && self.memory_pages <= other.memory_pages
+            && self.open_files <= other.open_files
+            && self.sockets <= other.sockets
+            && self.children <= other.children
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ResourceUsage {
+    pub cpu_ticks: u64,
+    pub memory_pages: u32,
+    pub open_files: u16,
+    pub sockets: u16,
+    pub children: u16,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Process {
     pub pid: Pid,
     pub parent: Option<Pid>,
@@ -41,6 +93,8 @@ pub struct Process {
     pub no_new_privileges: bool,
     pub promises: u64,
     pub path_policy: PathPolicy,
+    pub resource_limits: ResourceLimits,
+    pub resource_usage: ResourceUsage,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -71,6 +125,7 @@ pub enum Error {
     NoChild,
     InvalidPromises,
     PromiseExpansion,
+    ResourceLimit,
 }
 
 pub struct Table<const N: usize> {
@@ -157,6 +212,126 @@ impl<const N: usize> Table<N> {
             .map_err(|_| Error::PromiseExpansion)
     }
 
+    /// Replace the process resource budget with an equal-or-narrower one.
+    /// Limits may not be lowered beneath already-accounted usage.
+    pub fn restrict_resource_limits(
+        &mut self,
+        pid: Pid,
+        limits: ResourceLimits,
+    ) -> Result<(), Error> {
+        let index = self.index_of(pid).ok_or(Error::NotFound)?;
+        let process = self.slots[index].as_mut().ok_or(Error::NotFound)?;
+        if process.state != State::Running {
+            return Err(Error::ParentNotRunning);
+        }
+        if !limits.no_wider_than(process.resource_limits)
+            || limits.cpu_ticks < process.resource_usage.cpu_ticks
+            || limits.memory_pages < process.resource_usage.memory_pages
+            || limits.open_files < process.resource_usage.open_files
+            || limits.sockets < process.resource_usage.sockets
+            || limits.children < process.resource_usage.children
+        {
+            return Err(Error::ResourceLimit);
+        }
+        process.resource_limits = limits;
+        Ok(())
+    }
+
+    pub fn charge_cpu(&mut self, pid: Pid, ticks: u64) -> Result<(), Error> {
+        let process = self.process_mut_running(pid)?;
+        let next = process
+            .resource_usage
+            .cpu_ticks
+            .checked_add(ticks)
+            .ok_or(Error::ResourceLimit)?;
+        if next > process.resource_limits.cpu_ticks {
+            return Err(Error::ResourceLimit);
+        }
+        process.resource_usage.cpu_ticks = next;
+        Ok(())
+    }
+
+    pub fn reserve_memory_pages(&mut self, pid: Pid, pages: u32) -> Result<(), Error> {
+        let process = self.process_mut_running(pid)?;
+        let next = process
+            .resource_usage
+            .memory_pages
+            .checked_add(pages)
+            .ok_or(Error::ResourceLimit)?;
+        if next > process.resource_limits.memory_pages {
+            return Err(Error::ResourceLimit);
+        }
+        process.resource_usage.memory_pages = next;
+        Ok(())
+    }
+
+    pub fn release_memory_pages(&mut self, pid: Pid, pages: u32) -> Result<(), Error> {
+        let process = self.process_mut_running(pid)?;
+        process.resource_usage.memory_pages = process
+            .resource_usage
+            .memory_pages
+            .checked_sub(pages)
+            .ok_or(Error::ResourceLimit)?;
+        Ok(())
+    }
+
+    pub fn reserve_file(&mut self, pid: Pid) -> Result<(), Error> {
+        let process = self.process_mut_running(pid)?;
+        let next = process
+            .resource_usage
+            .open_files
+            .checked_add(1)
+            .ok_or(Error::ResourceLimit)?;
+        if next > process.resource_limits.open_files {
+            return Err(Error::ResourceLimit);
+        }
+        process.resource_usage.open_files = next;
+        Ok(())
+    }
+
+    pub fn release_file(&mut self, pid: Pid) -> Result<(), Error> {
+        let process = self.process_mut_running(pid)?;
+        process.resource_usage.open_files = process
+            .resource_usage
+            .open_files
+            .checked_sub(1)
+            .ok_or(Error::ResourceLimit)?;
+        Ok(())
+    }
+
+    pub fn reserve_socket(&mut self, pid: Pid) -> Result<(), Error> {
+        let process = self.process_mut_running(pid)?;
+        let next = process
+            .resource_usage
+            .sockets
+            .checked_add(1)
+            .ok_or(Error::ResourceLimit)?;
+        if next > process.resource_limits.sockets {
+            return Err(Error::ResourceLimit);
+        }
+        process.resource_usage.sockets = next;
+        Ok(())
+    }
+
+    pub fn release_socket(&mut self, pid: Pid) -> Result<(), Error> {
+        let process = self.process_mut_running(pid)?;
+        process.resource_usage.sockets = process
+            .resource_usage
+            .sockets
+            .checked_sub(1)
+            .ok_or(Error::ResourceLimit)?;
+        Ok(())
+    }
+
+    fn process_mut_running(&mut self, pid: Pid) -> Result<&mut Process, Error> {
+        let index = self.index_of(pid).ok_or(Error::NotFound)?;
+        let process = self.slots[index].as_mut().ok_or(Error::NotFound)?;
+        if process.state != State::Running {
+            return Err(Error::ParentNotRunning);
+        }
+        Ok(process)
+    }
+
     /// Permanently prevent this process and descendants from gaining privileges
     /// through future execution transitions.
     pub fn set_no_new_privileges(&mut self, pid: Pid) -> Result<(), Error> {
@@ -194,26 +369,39 @@ impl<const N: usize> Table<N> {
             false,
             abi::PROMISE_ALL,
             PathPolicy::unrestricted(),
+            ResourceLimits::UNLIMITED,
         )
     }
 
     pub fn spawn_child(&mut self, parent: Pid) -> Result<Pid, Error> {
-        match self.get(parent) {
+        let process = match self.get(parent) {
             Some(
                 process @ Process {
                     state: State::Running,
                     ..
                 },
-            ) => self.spawn(
-                Some(parent),
-                process.credentials,
-                process.no_new_privileges,
-                process.promises,
-                process.path_policy,
-            ),
-            Some(_) => Err(Error::ParentNotRunning),
-            None => Err(Error::NotFound),
+            ) => process,
+            Some(_) => return Err(Error::ParentNotRunning),
+            None => return Err(Error::NotFound),
+        };
+        let child_count = process
+            .resource_usage
+            .children
+            .checked_add(1)
+            .ok_or(Error::ResourceLimit)?;
+        if child_count > process.resource_limits.children {
+            return Err(Error::ResourceLimit);
         }
+        let child = self.spawn(
+            Some(parent),
+            process.credentials,
+            process.no_new_privileges,
+            process.promises,
+            process.path_policy,
+            process.resource_limits,
+        )?;
+        self.process_mut_running(parent)?.resource_usage.children = child_count;
+        Ok(child)
     }
 
     fn spawn(
@@ -223,6 +411,7 @@ impl<const N: usize> Table<N> {
         no_new_privileges: bool,
         promises: u64,
         path_policy: PathPolicy,
+        resource_limits: ResourceLimits,
     ) -> Result<Pid, Error> {
         let slot = self
             .slots
@@ -238,6 +427,8 @@ impl<const N: usize> Table<N> {
             no_new_privileges,
             promises,
             path_policy,
+            resource_limits,
+            resource_usage: ResourceUsage::default(),
         });
         Ok(pid)
     }
@@ -322,6 +513,15 @@ impl<const N: usize> Table<N> {
             return Err(Error::AlreadyExited);
         };
         self.slots[index] = None;
+        if let Some(parent_index) = self.index_of(parent)
+            && let Some(parent_process) = self.slots[parent_index].as_mut()
+        {
+            parent_process.resource_usage.children = parent_process
+                .resource_usage
+                .children
+                .checked_sub(1)
+                .ok_or(Error::ResourceLimit)?;
+        }
         Ok(status)
     }
 
@@ -511,6 +711,65 @@ mod tests {
         assert!(table.get(child).unwrap().no_new_privileges);
         table.set_no_new_privileges(child).unwrap();
         assert!(table.get(child).unwrap().no_new_privileges);
+    }
+
+    #[test]
+    fn resource_limits_only_shrink_and_failed_reservations_do_not_mutate_usage() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+        let limits = ResourceLimits::bounded(10, 4, 2, 1, 1);
+        table.restrict_resource_limits(init, limits).unwrap();
+
+        table.charge_cpu(init, 6).unwrap();
+        assert_eq!(table.charge_cpu(init, 5), Err(Error::ResourceLimit));
+        assert_eq!(table.get(init).unwrap().resource_usage.cpu_ticks, 6);
+
+        table.reserve_memory_pages(init, 4).unwrap();
+        assert_eq!(
+            table.reserve_memory_pages(init, 1),
+            Err(Error::ResourceLimit)
+        );
+        assert_eq!(table.get(init).unwrap().resource_usage.memory_pages, 4);
+        table.release_memory_pages(init, 2).unwrap();
+
+        table.reserve_file(init).unwrap();
+        table.reserve_file(init).unwrap();
+        assert_eq!(table.reserve_file(init), Err(Error::ResourceLimit));
+        table.release_file(init).unwrap();
+
+        table.reserve_socket(init).unwrap();
+        assert_eq!(table.reserve_socket(init), Err(Error::ResourceLimit));
+        table.release_socket(init).unwrap();
+
+        assert_eq!(
+            table.restrict_resource_limits(init, ResourceLimits::UNLIMITED),
+            Err(Error::ResourceLimit)
+        );
+        assert_eq!(
+            table.restrict_resource_limits(init, ResourceLimits::bounded(5, 2, 1, 1, 1)),
+            Err(Error::ResourceLimit)
+        );
+    }
+
+    #[test]
+    fn child_limit_is_inherited_and_released_only_on_reap() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+        let limits = ResourceLimits::bounded(100, 10, 4, 2, 1);
+        table.restrict_resource_limits(init, limits).unwrap();
+
+        let child = table.spawn_child(init).unwrap();
+        assert_eq!(table.get(child).unwrap().resource_limits, limits);
+        assert_eq!(table.get(init).unwrap().resource_usage.children, 1);
+        assert_eq!(table.spawn_child(init), Err(Error::ResourceLimit));
+
+        table.exit(child, 0).unwrap();
+        assert_eq!(table.get(init).unwrap().resource_usage.children, 1);
+        assert_eq!(table.spawn_child(init), Err(Error::ResourceLimit));
+
+        assert_eq!(table.reap(init, child), Ok(0));
+        assert_eq!(table.get(init).unwrap().resource_usage.children, 0);
+        table.spawn_child(init).unwrap();
     }
 
     #[test]
