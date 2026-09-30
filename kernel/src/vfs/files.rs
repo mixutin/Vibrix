@@ -241,13 +241,19 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
             }
         }
 
-        self.descriptions[index].as_mut().expect("live description").lock = Some(requested);
+        self.descriptions[index]
+            .as_mut()
+            .expect("live description")
+            .lock = Some(requested);
         Ok(())
     }
 
     pub fn unlock(&mut self, fd: usize) -> Result<()> {
         let index = self.description_index(fd)?;
-        self.descriptions[index].as_mut().expect("live description").lock = None;
+        self.descriptions[index]
+            .as_mut()
+            .expect("live description")
+            .lock = None;
         Ok(())
     }
 
@@ -475,7 +481,6 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
         self.vfs.device_output(node, buffer)
     }
 }
-
 
 #[cfg(test)]
 mod advisory_lock_tests {
