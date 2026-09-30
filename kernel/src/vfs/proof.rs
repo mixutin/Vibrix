@@ -1,6 +1,6 @@
 //! The same assertions run as host tests and in the real post-firmware kernel.
 use super::{
-    Error, Filesystem, Kind, Result, Vfs,
+    Error, FLAG_APPEND_ONLY, FLAG_IMMUTABLE, Filesystem, Kind, Result, Vfs,
     devfs::DevFs,
     files::{Access, Files, Open, RIGHT_READ, RIGHT_SEEK},
     memfs::MemFs,
@@ -40,6 +40,19 @@ pub fn self_test(mut report: impl FnMut(&str)) -> Result<()> {
     assert_eq!(vfs.resolve("/missing/../tmp"), Err(Error::NotFound));
     assert_eq!(vfs.resolve("/tmp/note/.."), Err(Error::NotDirectory));
     assert_eq!(vfs.remove("/dev"), Err(Error::Busy));
+
+    vfs.set_file_flags(file, FLAG_APPEND_ONLY)?;
+    assert_eq!(vfs.file_flags(file)?, FLAG_APPEND_ONLY);
+    assert_eq!(vfs.write(file, 0, b"x"), Err(Error::AccessDenied));
+    assert_eq!(vfs.write(file, 9, b"!")?, 1);
+    assert_eq!(vfs.truncate(file), Err(Error::AccessDenied));
+    assert_eq!(vfs.remove("/tmp/note"), Err(Error::AccessDenied));
+    vfs.set_file_flags(file, FLAG_IMMUTABLE)?;
+    assert_eq!(vfs.write(file, 10, b"?"), Err(Error::AccessDenied));
+    assert_eq!(vfs.truncate(file), Err(Error::AccessDenied));
+    assert_eq!(vfs.remove("/tmp/note"), Err(Error::AccessDenied));
+    vfs.set_file_flags(file, 0)?;
+    report("VIBRIX: kernel immutable and append-only file flags verified");
     report("VIBRIX: kernel VFS and memory filesystem verified");
 
     let mut files = Files::<2, 8, 1, 8>::new(vfs);
