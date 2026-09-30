@@ -7,13 +7,18 @@ It intentionally refuses generic device paths. The operator must select a
 `/dev/disk/by-id/usb-*` symlink that resolves to a whole block device which the
 kernel reports as removable. The tool refuses partitions, mounted targets or
 mounted child partitions, empty/non-regular source images, and devices smaller
-than the image.
+than the image. Before target inspection or writing, it compiles and executes
+the repository's independent read-only GPT inspector and requires the image to
+pass its primary/backup GPT, CRC, partition-role and geometry validation for the
+selected 512- or 4096-byte logical-sector model.
 
 A normal write additionally requires `--confirm` with the exact resolved
 canonical device (for example `/dev/sdb`). Writes are synchronous, followed by
 a read-back SHA-256 over exactly the image length. A mismatch is an error.
 
-Use `--dry-run` to perform the safety checks without writing.
+Use `--dry-run` to perform the safety checks without writing. `rustc` is required
+because the destructive boundary deliberately reuses the repository's existing
+independent GPT inspector rather than maintaining a weaker second parser.
 
 This tool does not decide which physical drive should contain Vibrix, format the
 Vibrix System partition, create persistent root, resize partitions, or bypass
