@@ -13,7 +13,7 @@ use vibrix_kernel::vfs::{
     Entry, Error, Result,
     console::{BootstrapFiles, bootstrap},
     devfs::DevFs,
-    files::{Access, Open},
+    files::{Access, Open, RIGHT_READ, RIGHT_SEEK, RIGHT_WRITE, RIGHTS_ALL},
     memfs::MemFs,
 };
 
@@ -135,6 +135,28 @@ pub fn open(path: &str, flags: u64) -> Result<usize> {
 
 pub fn close(fd: usize) -> Result<()> {
     with_files(|files| files.close(fd))
+}
+
+pub fn descriptor_rights(fd: usize) -> Result<u64> {
+    with_files(|files| files.rights(fd)).map(|rights| u64::from(rights))
+}
+
+pub fn restrict_descriptor_rights(fd: usize, rights: u64) -> Result<()> {
+    if rights & !abi::FD_RIGHT_ALL != 0 {
+        return Err(Error::AccessDenied);
+    }
+    let mut native = 0u8;
+    if rights & abi::FD_RIGHT_READ != 0 {
+        native |= RIGHT_READ;
+    }
+    if rights & abi::FD_RIGHT_WRITE != 0 {
+        native |= RIGHT_WRITE;
+    }
+    if rights & abi::FD_RIGHT_SEEK != 0 {
+        native |= RIGHT_SEEK;
+    }
+    debug_assert_eq!(RIGHTS_ALL, RIGHT_READ | RIGHT_WRITE | RIGHT_SEEK);
+    with_files(|files| files.restrict_rights(fd, native))
 }
 
 pub fn create(path: &str) -> Result<()> {
