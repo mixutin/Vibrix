@@ -125,7 +125,9 @@ pub fn response(
 
     let client_path = signed_delta(destination, request_transmit);
     let server_path = signed_delta(transmit, receive);
-    let delay = client_path.checked_sub(server_path).ok_or(Error::NegativeDelay)?;
+    let delay = client_path
+        .checked_sub(server_path)
+        .ok_or(Error::NegativeDelay)?;
     if delay < 0 {
         return Err(Error::NegativeDelay);
     }
