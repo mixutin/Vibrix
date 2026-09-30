@@ -10,6 +10,7 @@ pub trait System {
     fn create(&mut self, path: &[u8]) -> Result<()>;
     fn mkdir(&mut self, path: &[u8]) -> Result<()>;
     fn remove(&mut self, path: &[u8]) -> Result<()>;
+    fn rename(&mut self, from: &[u8], to: &[u8]) -> Result<()>;
     fn read_dir(&mut self, path: &[u8], index: u64, entry: &mut abi::DirEntry) -> Result<bool>;
     fn process_info(&mut self, index: u64, info: &mut abi::ProcessInfo) -> Result<bool>;
     fn getpid(&mut self) -> Result<u64>;
@@ -45,6 +46,10 @@ impl System for Native {
 
     fn remove(&mut self, path: &[u8]) -> Result<()> {
         syscall::remove(path)
+    }
+
+    fn rename(&mut self, from: &[u8], to: &[u8]) -> Result<()> {
+        syscall::rename(from, to)
     }
 
     fn read_dir(&mut self, path: &[u8], index: u64, entry: &mut abi::DirEntry) -> Result<bool> {
