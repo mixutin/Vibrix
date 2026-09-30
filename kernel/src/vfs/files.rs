@@ -63,9 +63,15 @@ struct Description {
     references: usize,
 }
 
+pub const RIGHT_READ: u8 = 1 << 0;
+pub const RIGHT_WRITE: u8 = 1 << 1;
+pub const RIGHT_SEEK: u8 = 1 << 2;
+pub const RIGHTS_ALL: u8 = RIGHT_READ | RIGHT_WRITE | RIGHT_SEEK;
+
 pub struct Files<'a, const M: usize, const D: usize, const P: usize, const B: usize> {
     vfs: Vfs<'a, M>,
     descriptors: [Option<usize>; D],
+    descriptor_rights: [u8; D],
     descriptions: [Option<Description>; D],
     pipes: [Option<Pipe<B>>; P],
 }
@@ -75,6 +81,7 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
         Self {
             vfs,
             descriptors: [None; D],
+            descriptor_rights: [0; D],
             descriptions: [None; D],
             pipes: core::array::from_fn(|_| None),
         }
@@ -125,7 +132,26 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
             references: 1,
         });
         self.descriptors[fd] = Some(description);
+        self.descriptor_rights[fd] = match options.access {
+            Access::Read => RIGHT_READ | RIGHT_SEEK,
+            Access::Write => RIGHT_WRITE | RIGHT_SEEK,
+            Access::ReadWrite => RIGHTS_ALL,
+        };
         Ok(fd)
+    }
+
+    pub fn rights(&self, fd: usize) -> Result<u8> {
+        self.description_index(fd)?;
+        Ok(self.descriptor_rights[fd])
+    }
+
+    pub fn restrict_rights(&mut self, fd: usize, rights: u8) -> Result<()> {
+        self.description_index(fd)?;
+        if rights & !RIGHTS_ALL != 0 || rights & !self.descriptor_rights[fd] != 0 {
+            return Err(Error::AccessDenied);
+        }
+        self.descriptor_rights[fd] = rights;
+        Ok(())
     }
 
     pub fn dup(&mut self, fd: usize) -> Result<usize> {
@@ -140,6 +166,7 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
             .expect("live description")
             .references += 1;
         self.descriptors[free] = Some(index);
+        self.descriptor_rights[free] = self.descriptor_rights[fd];
         Ok(free)
     }
 
@@ -168,12 +195,14 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
             .expect("source remains live")
             .references = references;
         self.descriptors[target] = Some(index);
+        self.descriptor_rights[target] = self.descriptor_rights[source];
         Ok(target)
     }
 
     pub fn close(&mut self, fd: usize) -> Result<()> {
         let index = self.description_index(fd)?;
         self.descriptors[fd] = None;
+        self.descriptor_rights[fd] = 0;
         let description = self.descriptions[index].as_mut().expect("live description");
         description.references -= 1;
         if description.references != 0 {
@@ -201,7 +230,7 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
 
     pub fn read(&mut self, fd: usize, buffer: &mut [u8]) -> Result<usize> {
         let description = self.description(fd)?;
-        if !description.options.access.readable() {
+        if self.descriptor_rights[fd] & RIGHT_READ == 0 || !description.options.access.readable() {
             return Err(Error::AccessDenied);
         }
         match description.object {
@@ -234,7 +263,7 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
 
     pub fn write(&mut self, fd: usize, buffer: &[u8]) -> Result<usize> {
         let description = self.description(fd)?;
-        if !description.options.access.writable() {
+        if self.descriptor_rights[fd] & RIGHT_WRITE == 0 || !description.options.access.writable() {
             return Err(Error::AccessDenied);
         }
         match description.object {
@@ -277,6 +306,9 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
         match description.object {
             Object::Node(node) if self.vfs.metadata(node)?.kind == Kind::File => {}
             _ => return Err(Error::NotSeekable),
+        }
+        if self.descriptor_rights[fd] & RIGHT_SEEK == 0 {
+            return Err(Error::AccessDenied);
         }
         self.descriptions[index]
             .as_mut()
@@ -329,7 +361,9 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
             references: 1,
         });
         self.descriptors[read_fd] = Some(read_description);
+        self.descriptor_rights[read_fd] = RIGHT_READ;
         self.descriptors[write_fd] = Some(write_description);
+        self.descriptor_rights[write_fd] = RIGHT_WRITE;
         Ok((read_fd, write_fd))
     }
 

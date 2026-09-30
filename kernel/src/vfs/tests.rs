@@ -7,7 +7,7 @@ use memfs::MemFs;
 fn guest_behavior_proof_runs_on_production_code() {
     let mut markers = std::vec::Vec::new();
     self_test(|marker| markers.push(std::string::String::from(marker))).unwrap();
-    assert_eq!(markers.len(), 6);
+    assert_eq!(markers.len(), 7);
 }
 
 #[test]
@@ -252,6 +252,42 @@ fn duplicated_offsets_and_independent_opens_are_distinct() {
     assert_eq!(byte, [b'c']);
     files.read(separate, &mut byte).unwrap();
     assert_eq!(byte, [b'a']);
+}
+
+#[test]
+fn descriptor_rights_only_shrink_and_duplicates_inherit_restrictions() {
+    let mut fs = MemFs::<3, 16>::new().unwrap();
+    let vfs = Vfs::<1>::new(&mut fs).unwrap();
+    let mut files = Files::<1, 8, 1, 4>::new(vfs);
+    files.create("/file").unwrap();
+    let fd = files.open("/file", Open::READ_WRITE).unwrap();
+    assert_eq!(
+        files.rights(fd),
+        Ok(files::RIGHT_READ | files::RIGHT_WRITE | files::RIGHT_SEEK)
+    );
+
+    files
+        .restrict_rights(fd, files::RIGHT_READ | files::RIGHT_SEEK)
+        .unwrap();
+    assert_eq!(files.write(fd, b"x"), Err(Error::AccessDenied));
+    assert_eq!(files.seek(fd, 0), Ok(()));
+
+    let duplicate = files.dup(fd).unwrap();
+    assert_eq!(
+        files.rights(duplicate),
+        Ok(files::RIGHT_READ | files::RIGHT_SEEK)
+    );
+    assert_eq!(
+        files.restrict_rights(duplicate, files::RIGHTS_ALL),
+        Err(Error::AccessDenied)
+    );
+    files.restrict_rights(duplicate, files::RIGHT_READ).unwrap();
+    assert_eq!(files.seek(duplicate, 0), Err(Error::AccessDenied));
+
+    let mut byte = [0u8; 1];
+    assert_eq!(files.read(duplicate, &mut byte), Ok(0));
+    files.close(duplicate).unwrap();
+    assert_eq!(files.rights(duplicate), Err(Error::BadDescriptor));
 }
 
 #[test]

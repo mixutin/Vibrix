@@ -168,6 +168,17 @@ pub fn restrict_promises(promises: u64) -> Result<()> {
     call(abi::Syscall::Promises, [1, promises, 0, 0, 0, 0]).map(|_| ())
 }
 
+pub fn descriptor_rights(fd: u64) -> Result<u64> {
+    call(abi::Syscall::FdRights, [fd, 0, 0, 0, 0, 0])
+}
+
+pub fn restrict_descriptor_rights(fd: u64, rights: u64) -> Result<()> {
+    if rights & !abi::FD_RIGHT_ALL != 0 {
+        return Err(abi::Errno::InvalidArgument.code());
+    }
+    call(abi::Syscall::FdRights, [fd, 1, rights, 0, 0, 0]).map(|_| ())
+}
+
 pub fn read(fd: u64, buffer: &mut [u8]) -> Result<usize> {
     let raw = call(
         abi::Syscall::Read,
@@ -328,6 +339,15 @@ mod tests {
         assert_eq!(getpid(), Err(abi::Errno::NotSupported.code()));
         assert_eq!(yield_now(), Err(abi::Errno::NotSupported.code()));
         assert_eq!(promises(), Err(abi::Errno::NotSupported.code()));
+        assert_eq!(descriptor_rights(1), Err(abi::Errno::NotSupported.code()));
+        assert_eq!(
+            restrict_descriptor_rights(1, abi::FD_RIGHT_READ),
+            Err(abi::Errno::NotSupported.code())
+        );
+        assert_eq!(
+            restrict_descriptor_rights(1, 1 << 63),
+            Err(abi::Errno::InvalidArgument.code())
+        );
         assert_eq!(
             restrict_promises(abi::PROMISE_IO),
             Err(abi::Errno::NotSupported.code())
@@ -378,5 +398,6 @@ mod tests {
         assert_eq!(abi::Syscall::SetResGid.number(), 22);
         assert_eq!(abi::Syscall::NoNewPrivileges.number(), 23);
         assert_eq!(abi::Syscall::Promises.number(), 24);
+        assert_eq!(abi::Syscall::FdRights.number(), 25);
     }
 }

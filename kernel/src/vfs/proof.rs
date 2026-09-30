@@ -2,7 +2,7 @@
 use super::{
     Error, Filesystem, Kind, Result, Vfs,
     devfs::DevFs,
-    files::{Access, Files, Open},
+    files::{Access, Files, Open, RIGHT_READ, RIGHT_SEEK},
     memfs::MemFs,
 };
 
@@ -75,7 +75,13 @@ pub fn self_test(mut report: impl FnMut(&str)) -> Result<()> {
     assert_eq!(files.write(append, b"")?, 0);
     assert_eq!(files.read(append, &mut data[..2])?, 2);
     assert_eq!(&data[..2], b"vi");
+    files.restrict_rights(append, RIGHT_READ | RIGHT_SEEK)?;
+    assert_eq!(files.write(append, b"x"), Err(Error::AccessDenied));
+    assert_eq!(files.seek(append, 0), Ok(()));
+    files.restrict_rights(append, RIGHT_READ)?;
+    assert_eq!(files.seek(append, 0), Err(Error::AccessDenied));
     files.close(append)?;
+    report("VIBRIX: kernel descriptor rights verified");
     report("VIBRIX: kernel file descriptors verified");
 
     let null = files.open("/dev/null", Open::READ_WRITE)?;
