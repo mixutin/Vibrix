@@ -336,8 +336,7 @@ unsafe fn read_boot_identity(
     transport: &mut BulkTransport<'_>,
     capacity: scsi::Capacity10,
 ) -> Result<gpt_identity::Identity, InitError> {
-    let block_bytes =
-        usize::try_from(capacity.block_bytes).map_err(|_| InitError::GptIdentity)?;
+    let block_bytes = usize::try_from(capacity.block_bytes).map_err(|_| InitError::GptIdentity)?;
     if !matches!(block_bytes, 512 | 4096) {
         return Err(InitError::GptIdentity);
     }
@@ -632,8 +631,7 @@ pub(super) unsafe fn run(
             unsafe { transport.command_out(restore, capacity.block_bytes) }?;
             unsafe { transport.command_none(scsi::synchronize_cache_10()) }?;
             let restored = scsi::read_10(verified_lba, 1).map_err(InitError::Scsi)?;
-            let restored_bytes =
-                unsafe { transport.command_in(restored, capacity.block_bytes) }?;
+            let restored_bytes = unsafe { transport.command_in(restored, capacity.block_bytes) }?;
             if restored_bytes != capacity.block_bytes {
                 return Err(InitError::StorageCommandFailed);
             }
@@ -651,14 +649,10 @@ pub(super) unsafe fn run(
         Mode::BootIdentity(expected) => {
             let actual = unsafe { read_boot_identity(&mut transport, capacity) }?;
             if !identity_matches(expected, actual) {
-                crate::debugcon::write(
-                    "VIBRIX: kernel boot USB identity mismatch rejected\r\n",
-                );
+                crate::debugcon::write("VIBRIX: kernel boot USB identity mismatch rejected\r\n");
                 return Err(InitError::BootIdentityMismatch);
             }
-            crate::debugcon::write(
-                "VIBRIX: kernel boot USB reacquired by GPT identity\r\n",
-            );
+            crate::debugcon::write("VIBRIX: kernel boot USB reacquired by GPT identity\r\n");
             (0, true)
         }
     };
