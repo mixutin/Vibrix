@@ -46,6 +46,19 @@ fn package_runtime_self_test() -> bool {
     if database.install(core).is_err() || database.install(app).is_err() || database.len() != 2 {
         return false;
     }
+    let Ok(dependencies) = database.direct_dependencies(app_name) else {
+        return false;
+    };
+    if dependencies != [dependency] {
+        return false;
+    }
+    let mut dependents = [Name::EMPTY; vibrix_package::DATABASE_CAPACITY];
+    let Ok(dependent_count) = database.direct_dependents(core_name, &mut dependents) else {
+        return false;
+    };
+    if dependent_count != 1 || dependents[0] != app_name {
+        return false;
+    }
     if database.remove(core_name) != Err(Error::RequiredByInstalled) {
         return false;
     }
