@@ -156,12 +156,8 @@ impl Table {
             Protocol::Tcp => {
                 transport[16] = 0;
                 transport[17] = 0;
-                let checksum = transport_checksum(
-                    &packet[12..16],
-                    &packet[16..20],
-                    PROTO_TCP,
-                    transport,
-                );
+                let checksum =
+                    transport_checksum(&packet[12..16], &packet[16..20], PROTO_TCP, transport);
                 transport[16..18].copy_from_slice(&checksum.to_be_bytes());
             }
             Protocol::Udp => {
@@ -169,12 +165,8 @@ impl Table {
                 if had_checksum {
                     transport[6] = 0;
                     transport[7] = 0;
-                    let mut checksum = transport_checksum(
-                        &packet[12..16],
-                        &packet[16..20],
-                        PROTO_UDP,
-                        transport,
-                    );
+                    let mut checksum =
+                        transport_checksum(&packet[12..16], &packet[16..20], PROTO_UDP, transport);
                     if checksum == 0 {
                         checksum = 0xffff;
                     }
@@ -390,7 +382,12 @@ mod tests {
         assert_eq!(u16::from_be_bytes([packet[20], packet[21]]), outside.port);
         assert_eq!(internet_checksum(&packet[..20]), 0);
         assert_eq!(
-            transport_checksum(&packet[12..16], &packet[16..20], PROTO_UDP, &packet[20..len]),
+            transport_checksum(
+                &packet[12..16],
+                &packet[16..20],
+                PROTO_UDP,
+                &packet[20..len]
+            ),
             0
         );
 
