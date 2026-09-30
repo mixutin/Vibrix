@@ -108,6 +108,7 @@ Every name below has a built-in `man NAME` page and `NAME --help` path. Options 
 | `vibrix` | `vibrix status | vibrix doctor [--bundle]`: kernel-backed status plus read-only process/VFS/bootstrap-device diagnostics with explicit persistence/network/update limits. `--bundle` emits a bounded aggregate text report and deliberately excludes file contents, PID lists, memory addresses, hardware identifiers, environment variables and shell history. |
 | `vfetch` | Original CPUID, privilege, PID and build summary; unavailable accounting is labelled unavailable. |
 | `uname` | `uname [-a|-s|-m|-r]`: identity, architecture or shell build version; `-r` is not a compatibility promise. |
+| `sysctl` | `sysctl -a | sysctl NAME`: read-only bounded runtime queries. Live `kern.pid`/`kern.processes` use process syscalls and `vfs.root`/`vfs.dev` probe the current namespace; assignment is unsupported. |
 | `clear` | Emit native form feed to clear the existing terminal and home the cursor in one redraw. |
 | `true` | Return 0 without output. |
 | `false` | Return 1 without an error diagnostic. |

@@ -195,8 +195,10 @@ impl System for Memory {
 
     fn read_dir(&mut self, path: &[u8], index: u64, entry: &mut abi::DirEntry) -> Result<bool> {
         let path = canonical(path);
-        if self.files.get(&path) != Some(&None) {
-            return Err(abi::Errno::InvalidArgument.code());
+        match self.files.get(&path) {
+            Some(None) => {}
+            Some(Some(_)) => return Err(abi::Errno::InvalidArgument.code()),
+            None => return Err(abi::Errno::NotFound.code()),
         }
         let mut prefix = path;
         if prefix != b"/" {
@@ -359,6 +361,33 @@ fn status_errors_search_and_exit_are_observable() {
     assert!(shell.exit.is_none());
     assert_eq!(io.run(&mut shell, b"exit 23"), 23);
     assert_eq!(shell.exit, Some(23));
+}
+
+#[test]
+fn sysctl_queries_live_kernel_and_vfs_state_read_only() {
+    let mut io = Memory::new();
+    let mut shell = Shell::new();
+
+    assert_eq!(io.run(&mut shell, b"sysctl kern.pid"), 0);
+    assert_eq!(io.stdout, b"kern.pid = 7\n");
+    assert_eq!(io.run(&mut shell, b"sysctl kern.processes"), 0);
+    assert_eq!(io.stdout, b"kern.processes = 1\n");
+    assert_eq!(io.run(&mut shell, b"sysctl vfs.root"), 0);
+    assert_eq!(io.stdout, b"vfs.root = mounted-volatile\n");
+    assert_eq!(io.run(&mut shell, b"sysctl vfs.dev"), 0);
+    assert_eq!(io.stdout, b"vfs.dev = unavailable\n");
+
+    // The host fixture deliberately lacks /dev; -a reports that state instead
+    // of manufacturing a healthy mount. Assignment remains unsupported.
+    assert_eq!(io.run(&mut shell, b"sysctl -a"), 0);
+    assert!(
+        io.stdout
+            .windows(b"vfs.dev = unavailable".len())
+            .any(|part| part == b"vfs.dev = unavailable")
+    );
+    assert_eq!(io.run(&mut shell, b"sysctl kern.pid=9"), 2);
+    assert_eq!(io.run(&mut shell, b"sysctl missing.name"), 1);
+    assert_eq!(io.mutations, 0);
 }
 
 #[test]

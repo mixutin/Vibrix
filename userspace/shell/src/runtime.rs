@@ -536,6 +536,7 @@ impl Shell {
                 write_all(io, out, value)?;
                 write_all(io, out, b"\n")?;
             }
+            Builtin::Sysctl => render_sysctl(io, out, args)?,
             Builtin::Clear => {
                 require_empty(args)?;
                 write_all(io, out, b"\x0c")?;
@@ -913,6 +914,85 @@ fn render_vibrix_compatibility_report(io: &mut dyn System, fd: u64) -> Result<()
     )?;
     write_all(io, fd, b"END-VIBRIX-COMPATIBILITY-REPORT\n")?;
     Ok(())
+}
+
+fn sysctl_process_count(io: &mut dyn System) -> Result<u64> {
+    let mut total = 0u64;
+    for index in 0..1024 {
+        let mut info = abi::ProcessInfo::EMPTY;
+        match io.process_info(index, &mut info) {
+            Ok(true) => total += 1,
+            Ok(false) => return Ok(total),
+            Err(code) if code == abi::Errno::NotFound.code() => return Ok(total),
+            Err(code) => return Err(code.into()),
+        }
+    }
+    Err(Error::Message(b"sysctl: process enumeration limit reached"))
+}
+
+fn render_sysctl_value(io: &mut dyn System, fd: u64, name: &[u8]) -> Result<()> {
+    // Collect syscall-backed values before emitting the line prefix. Kernel
+    // diagnostics may share the serial stream, so this keeps each userspace
+    // sysctl record contiguous and machine-parseable.
+    let dynamic = match name {
+        b"kern.pid" => Some(io.getpid()?),
+        b"kern.processes" => Some(sysctl_process_count(io)?),
+        _ => None,
+    };
+
+    write_all(io, fd, name)?;
+    write_all(io, fd, b" = ")?;
+    match name {
+        b"kern.ostype" => write_all(io, fd, b"Vibrix")?,
+        b"kern.osrelease" => write_all(io, fd, env!("CARGO_PKG_VERSION").as_bytes())?,
+        b"hw.machine" => write_all(io, fd, b"x86_64")?,
+        b"kern.pid" | b"kern.processes" => {
+            number(io, fd, dynamic.expect("dynamic sysctl value"))?;
+        }
+        b"vfs.root" => {
+            let state = match directory(io, b"/") {
+                Ok(true) => b"mounted-volatile".as_slice(),
+                Ok(false) => b"unavailable".as_slice(),
+                Err(code) if code == abi::Errno::NotFound.code() => b"unavailable".as_slice(),
+                Err(code) => return Err(code.into()),
+            };
+            write_all(io, fd, state)?;
+        }
+        b"vfs.dev" => {
+            let state = match directory(io, b"/dev") {
+                Ok(true) => b"mounted".as_slice(),
+                Ok(false) => b"unavailable".as_slice(),
+                Err(code) if code == abi::Errno::NotFound.code() => b"unavailable".as_slice(),
+                Err(code) => return Err(code.into()),
+            };
+            write_all(io, fd, state)?;
+        }
+        _ => return Err(Error::Message(b"sysctl: unknown name")),
+    }
+    write_all(io, fd, b"\n")?;
+    Ok(())
+}
+
+fn render_sysctl(io: &mut dyn System, fd: u64, args: &[&[u8]]) -> Result<()> {
+    const NAMES: [&[u8]; 7] = [
+        b"kern.ostype",
+        b"kern.osrelease",
+        b"hw.machine",
+        b"kern.pid",
+        b"kern.processes",
+        b"vfs.root",
+        b"vfs.dev",
+    ];
+    match args {
+        [b"-a"] => {
+            for name in NAMES {
+                render_sysctl_value(io, fd, name)?;
+            }
+            Ok(())
+        }
+        [name] if !name.contains(&b'=') => render_sysctl_value(io, fd, name),
+        _ => Err(Error::Usage),
+    }
 }
 
 fn render_vibrix_status(io: &mut dyn System, fd: u64) -> Result<()> {
