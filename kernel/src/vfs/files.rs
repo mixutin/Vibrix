@@ -302,13 +302,13 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
 
     pub fn seek(&mut self, fd: usize, offset: usize) -> Result<()> {
         let index = self.description_index(fd)?;
-        if self.descriptor_rights[fd] & RIGHT_SEEK == 0 {
-            return Err(Error::AccessDenied);
-        }
         let description = self.descriptions[index].expect("live description");
         match description.object {
             Object::Node(node) if self.vfs.metadata(node)?.kind == Kind::File => {}
             _ => return Err(Error::NotSeekable),
+        }
+        if self.descriptor_rights[fd] & RIGHT_SEEK == 0 {
+            return Err(Error::AccessDenied);
         }
         self.descriptions[index]
             .as_mut()
