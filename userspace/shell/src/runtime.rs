@@ -931,19 +931,23 @@ fn sysctl_process_count(io: &mut dyn System) -> Result<u64> {
 }
 
 fn render_sysctl_value(io: &mut dyn System, fd: u64, name: &[u8]) -> Result<()> {
+    // Collect syscall-backed values before emitting the line prefix. Kernel
+    // diagnostics may share the serial stream, so this keeps each userspace
+    // sysctl record contiguous and machine-parseable.
+    let dynamic = match name {
+        b"kern.pid" => Some(io.getpid()?),
+        b"kern.processes" => Some(sysctl_process_count(io)?),
+        _ => None,
+    };
+
     write_all(io, fd, name)?;
     write_all(io, fd, b" = ")?;
     match name {
         b"kern.ostype" => write_all(io, fd, b"Vibrix")?,
         b"kern.osrelease" => write_all(io, fd, env!("CARGO_PKG_VERSION").as_bytes())?,
         b"hw.machine" => write_all(io, fd, b"x86_64")?,
-        b"kern.pid" => {
-            let pid = io.getpid()?;
-            number(io, fd, pid)?;
-        }
-        b"kern.processes" => {
-            let processes = sysctl_process_count(io)?;
-            number(io, fd, processes)?;
+        b"kern.pid" | b"kern.processes" => {
+            number(io, fd, dynamic.expect("dynamic sysctl value"))?;
         }
         b"vfs.root" => {
             let state = match directory(io, b"/") {
