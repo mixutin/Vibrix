@@ -4,6 +4,10 @@
 extern crate std;
 
 pub mod block;
+pub mod service_order;
+pub mod service_manager;
+pub mod periodic_jobs;
+pub mod admin_broker;
 pub mod config_policy;
 pub mod cpu_topology;
 pub mod credentials;
@@ -41,6 +45,14 @@ pub mod vfs;
 /// A marker is emitted only after the corresponding behavior succeeds.
 pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     vfs::self_test(&mut report).expect("bootstrap VFS self-test failed");
+    admin_broker::self_test().expect("administrative broker self-test failed");
+    report("VIBRIX: kernel administrative broker policy verified");
+    service_manager::self_test().expect("service manager self-test failed");
+    report("VIBRIX: kernel service manager state verified");
+    service_order::self_test().expect("service dependency order self-test failed");
+    report("VIBRIX: kernel service dependency order verified");
+    periodic_jobs::self_test().expect("periodic job scheduler self-test failed");
+    report("VIBRIX: kernel periodic job scheduler verified");
     klog::self_test().expect("structured kernel log self-test failed");
     report("VIBRIX: kernel structured log verified");
     block::self_test().expect("block abstraction self-test failed");
