@@ -869,9 +869,11 @@ fn collect_vibrix_doctor(io: &mut dyn System) -> Result<DoctorSnapshot> {
 }
 
 fn valid_config_assignment(assignment: &[u8]) -> bool {
-    let Some((key, value)) = assignment.split_once(|&byte| byte == b'=') else {
+    let Some(separator) = assignment.iter().position(|&byte| byte == b'=') else {
         return false;
     };
+    let key = &assignment[..separator];
+    let value = &assignment[separator + 1..];
     !key.is_empty()
         && key
             .iter()
