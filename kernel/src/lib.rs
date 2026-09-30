@@ -22,6 +22,7 @@ pub mod routing;
 #[path = "../../shared/scsi.rs"]
 pub mod scsi;
 pub mod secure_random;
+pub mod sync;
 #[path = "../../shared/syscall_abi.rs"]
 pub mod syscall_abi;
 pub mod update_history;
