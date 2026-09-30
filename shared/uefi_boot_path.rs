@@ -35,15 +35,27 @@ pub enum Error {
 }
 
 fn u16_at(bytes: &[u8], offset: usize) -> u16 {
-    u16::from_le_bytes(bytes[offset..offset + 2].try_into().expect("validated node field"))
+    u16::from_le_bytes(
+        bytes[offset..offset + 2]
+            .try_into()
+            .expect("validated node field"),
+    )
 }
 
 fn u32_at(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("validated node field"))
+    u32::from_le_bytes(
+        bytes[offset..offset + 4]
+            .try_into()
+            .expect("validated node field"),
+    )
 }
 
 fn u64_at(bytes: &[u8], offset: usize) -> u64 {
-    u64::from_le_bytes(bytes[offset..offset + 8].try_into().expect("validated node field"))
+    u64::from_le_bytes(
+        bytes[offset..offset + 8]
+            .try_into()
+            .expect("validated node field"),
+    )
 }
 
 /// Parse a copied UEFI device-path byte sequence.
@@ -101,8 +113,9 @@ pub fn parse(bytes: &[u8]) -> Result<BootPartitionPath, Error> {
             let partition_number = u32_at(node, 4);
             let partition_start_lba = u64_at(node, 8);
             let partition_size_lba = u64_at(node, 16);
-            let partition_guid: [u8; 16] =
-                node[24..40].try_into().expect("fixed UEFI partition signature");
+            let partition_guid: [u8; 16] = node[24..40]
+                .try_into()
+                .expect("fixed UEFI partition signature");
             let signature_type = node[41];
             if signature_type != GPT_SIGNATURE_TYPE {
                 return Err(Error::NotGpt);
@@ -206,12 +219,7 @@ mod tests {
         hd[40] = 0x02; // GPT partition format
         hd[41] = signature_type;
         bytes.extend_from_slice(&hd);
-        bytes.extend_from_slice(&[
-            DEVICE_PATH_END_TYPE,
-            DEVICE_PATH_END_ENTIRE_SUBTYPE,
-            4,
-            0,
-        ]);
+        bytes.extend_from_slice(&[DEVICE_PATH_END_TYPE, DEVICE_PATH_END_ENTIRE_SUBTYPE, 4, 0]);
         bytes
     }
 
@@ -227,10 +235,7 @@ mod tests {
 
     #[test]
     fn rejects_non_usb_or_non_gpt_origins() {
-        assert_eq!(
-            parse(&path(false, GPT_SIGNATURE_TYPE)),
-            Err(Error::NotUsb)
-        );
+        assert_eq!(parse(&path(false, GPT_SIGNATURE_TYPE)), Err(Error::NotUsb));
         assert_eq!(parse(&path(true, 1)), Err(Error::NotGpt));
     }
 
@@ -255,12 +260,7 @@ mod tests {
         let child = path(true, GPT_SIGNATURE_TYPE);
         // Whole-disk path ends immediately before the hard-drive node.
         let mut parent = child[..6].to_vec();
-        parent.extend_from_slice(&[
-            DEVICE_PATH_END_TYPE,
-            DEVICE_PATH_END_ENTIRE_SUBTYPE,
-            4,
-            0,
-        ]);
+        parent.extend_from_slice(&[DEVICE_PATH_END_TYPE, DEVICE_PATH_END_ENTIRE_SUBTYPE, 4, 0]);
         assert_eq!(parent_matches(&child, &parent), Ok(true));
 
         let mut wrong_parent = parent.clone();
@@ -268,13 +268,7 @@ mod tests {
         assert_eq!(parent_matches(&child, &wrong_parent), Ok(false));
 
         let mut too_long = child[..48].to_vec();
-        too_long.extend_from_slice(&[
-            DEVICE_PATH_END_TYPE,
-            DEVICE_PATH_END_ENTIRE_SUBTYPE,
-            4,
-            0,
-        ]);
+        too_long.extend_from_slice(&[DEVICE_PATH_END_TYPE, DEVICE_PATH_END_ENTIRE_SUBTYPE, 4, 0]);
         assert_eq!(parent_matches(&child, &too_long), Ok(false));
     }
-
 }
