@@ -7,7 +7,7 @@
 
 use super::*;
 use vibrix_kernel::{
-    scsi,
+    gpt_identity, scsi,
     usb_mass_bulk::{self as bot, CommandStatus, Direction},
     usb_storage,
 };
@@ -25,12 +25,14 @@ pub(super) struct Control<'a> {
     pub descriptor_buffer: u64,
     pub descriptor_base: usize,
     pub device: UsbDeviceSummary,
+    pub boot_identity: Option<crate::bootinfo::BootUsbIdentity>,
 }
 
 pub(super) struct Evidence {
     pub interface: usb_storage::BulkInterface,
     pub capacity: scsi::Capacity10,
     pub verified_lba: u32,
+    pub boot_identity_matched: bool,
 }
 
 struct BulkTransport<'a> {
@@ -246,6 +248,110 @@ unsafe fn configure_endpoint(
     }
 }
 
+
+unsafe fn read_block(
+    transport: &mut BulkTransport<'_>,
+    lba: u32,
+    block_bytes: u32,
+    output: &mut [u8; 4096],
+) -> Result<(), InitError> {
+    let read = scsi::read_10(lba, 1).map_err(InitError::Scsi)?;
+    let count = unsafe { transport.command_in(read, block_bytes) }?;
+    if count != block_bytes {
+        return Err(InitError::StorageCommandFailed);
+    }
+    let len = usize::try_from(block_bytes).map_err(|_| InitError::StorageCommandFailed)?;
+    unsafe { copy_from_dma(transport.data_base, &mut output[..len]) };
+    Ok(())
+}
+
+unsafe fn scan_entries(
+    transport: &mut BulkTransport<'_>,
+    layout: gpt_identity::HeaderLayout,
+    block_bytes: u32,
+) -> Result<gpt_identity::Identity, InitError> {
+    let sector = usize::try_from(block_bytes).map_err(|_| InitError::StorageCommandFailed)?;
+    if !matches!(sector, 512 | 4096)
+        || !layout.entry_size.is_multiple_of(8)
+        || !sector.is_multiple_of(layout.entry_size)
+    {
+        return Err(InitError::StorageCommandFailed);
+    }
+    let sectors = layout.entry_array_bytes.div_ceil(sector);
+    let mut scanner = gpt_identity::EntryScanner::new(layout);
+    let mut block = [0u8; 4096];
+    let mut remaining = layout.entry_array_bytes;
+    for index in 0..sectors {
+        let lba = layout
+            .entry_lba
+            .checked_add(index as u64)
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or(InitError::StorageCommandFailed)?;
+        unsafe { read_block(transport, lba, block_bytes, &mut block) }?;
+        let take = remaining.min(sector);
+        scanner
+            .consume(&block[..take])
+            .map_err(|_| InitError::StorageCommandFailed)?;
+        remaining -= take;
+    }
+    scanner
+        .finish()
+        .map_err(|_| InitError::StorageCommandFailed)
+}
+
+unsafe fn verify_boot_gpt_identity(
+    transport: &mut BulkTransport<'_>,
+    capacity: scsi::Capacity10,
+    expected: crate::bootinfo::BootUsbIdentity,
+) -> Result<(), InitError> {
+    let sector = usize::try_from(capacity.block_bytes).map_err(|_| InitError::StorageCommandFailed)?;
+    if !matches!(sector, 512 | 4096) {
+        return Err(InitError::StorageCommandFailed);
+    }
+    let last_lba = u64::from(capacity.last_lba);
+    let mut primary_header = [0u8; 4096];
+    unsafe { read_block(transport, 1, capacity.block_bytes, &mut primary_header) }?;
+    let (_, primary_layout) =
+        gpt_identity::validate_header(&primary_header[..sector], sector, 1, last_lba)
+            .map_err(|_| InitError::StorageCommandFailed)?;
+    let primary_identity =
+        unsafe { scan_entries(transport, primary_layout, capacity.block_bytes) }?;
+
+    let mut backup_header = [0u8; 4096];
+    unsafe {
+        read_block(
+            transport,
+            capacity.last_lba,
+            capacity.block_bytes,
+            &mut backup_header,
+        )
+    }?;
+    let (_, backup_layout) =
+        gpt_identity::validate_header(
+            &backup_header[..sector],
+            sector,
+            last_lba,
+            1,
+        )
+        .map_err(|_| InitError::StorageCommandFailed)?;
+    gpt_identity::layouts_match(primary_layout, backup_layout)
+        .map_err(|_| InitError::StorageCommandFailed)?;
+    let backup_identity =
+        unsafe { scan_entries(transport, backup_layout, capacity.block_bytes) }?;
+    let identity = gpt_identity::identities_match(primary_identity, backup_identity)
+        .map_err(|_| InitError::StorageCommandFailed)?;
+
+    if identity.disk_guid != expected.disk_guid
+        || identity.esp_guid != expected.esp_guid
+        || identity.esp_first_lba != expected.esp_first_lba
+        || identity.esp_last_lba != expected.esp_last_lba
+        || identity.system_guid != expected.system_guid
+    {
+        return Err(InitError::StorageCommandFailed);
+    }
+    Ok(())
+}
+
 pub(super) unsafe fn run(
     vm: &mut Window,
     rings: &mut RingCursor,
@@ -402,6 +508,14 @@ pub(super) unsafe fn run(
     }
     let block_bytes =
         usize::try_from(capacity.block_bytes).map_err(|_| InitError::StorageCommandFailed)?;
+
+    let mut boot_identity_matched = false;
+    if let Some(expected) = control.boot_identity {
+        unsafe { verify_boot_gpt_identity(&mut transport, capacity, expected) }?;
+        boot_identity_matched = true;
+        crate::debugcon::write("VIBRIX: kernel boot USB GPT identity matched\r\n");
+    }
+
     let verified_lba = capacity.last_lba;
 
     let read = scsi::read_10(verified_lba, 1).map_err(InitError::Scsi)?;
@@ -472,5 +586,6 @@ pub(super) unsafe fn run(
         interface,
         capacity,
         verified_lba,
+        boot_identity_matched,
     })
 }
