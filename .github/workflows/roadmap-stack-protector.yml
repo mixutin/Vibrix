@@ -1,0 +1,42 @@
+name: Userspace stack protector toolchain probe
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  stack-protector-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust target and binutils
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt --target x86_64-unknown-none
+          sudo apt-get update
+          sudo apt-get install -y binutils
+      - name: Prove stack-protector codegen on the Vibrix userspace target
+        run: |
+          rustfmt --edition 2024 --check tools/stack_protector_probe.rs
+          rustc --edition 2024             --crate-name vibrix_stack_protector_probe             --crate-type lib             --target x86_64-unknown-none             -C opt-level=1             -Zstack-protector=all             --emit=obj=/tmp/vibrix-stack-protector-probe.o             tools/stack_protector_probe.rs
+          test -s /tmp/vibrix-stack-protector-probe.o
+          nm -u /tmp/vibrix-stack-protector-probe.o | tee /tmp/stack-protector-undefined.txt
+          objdump -dr /tmp/vibrix-stack-protector-probe.o | tee /tmp/stack-protector-disassembly.txt
+          grep -Fq '__stack_chk_fail' /tmp/stack-protector-undefined.txt
+      - name: Preserve compiler ABI evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stack-protector-toolchain-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/stack-protector-undefined.txt
+            /tmp/stack-protector-disassembly.txt
+          if-no-files-found: warn
+          retention-days: 7
