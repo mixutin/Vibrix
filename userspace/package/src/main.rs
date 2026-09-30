@@ -76,9 +76,27 @@ fn package_runtime_self_test() -> bool {
     if database.remove(core_name) != Err(Error::RequiredByInstalled) {
         return false;
     }
-    database.remove(app_name) == Ok(app)
-        && database.remove(core_name) == Ok(core)
-        && database.is_empty()
+    if database.remove(app_name) != Ok(app)
+        || database.remove(core_name) != Ok(core)
+        || !database.is_empty()
+    {
+        return false;
+    }
+
+    // Exercise the same package objects through the transactional profile
+    // API inside the real Ring-3 package probe. Failed dependent-first ordering
+    // must preserve the complete installed state.
+    if database.install_profile(&[core, app]).is_err() || database.len() != 2 {
+        return false;
+    }
+    if database.remove_profile(&[core_name, app_name]) != Err(Error::RequiredByInstalled)
+        || database.len() != 2
+        || database.get(core_name).is_none()
+        || database.get(app_name).is_none()
+    {
+        return false;
+    }
+    database.remove_profile(&[app_name, core_name]).is_ok() && database.is_empty()
 }
 
 #[unsafe(no_mangle)]
