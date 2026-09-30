@@ -9,11 +9,8 @@
 use crate::{
     credentials::{self, Gid, Uid},
     process::{self, Pid, Table, WaitObservation, WaitTarget},
+    syscall_abi as abi,
 };
-
-#[allow(dead_code)]
-#[path = "../../shared/syscall_abi.rs"]
-mod abi;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Action {
