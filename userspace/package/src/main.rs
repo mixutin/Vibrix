@@ -2,7 +2,9 @@
 #![no_main]
 
 use core::panic::PanicInfo;
-use vibrix_package::{Database, Dependency, Error, Manifest, Name, Version};
+use vibrix_package::{
+    Capabilities, CapabilityDeclaration, Database, Dependency, Error, Manifest, Name, Version,
+};
 use vibrix_syscall as syscall;
 
 fn package_runtime_self_test() -> bool {
@@ -31,6 +33,18 @@ fn package_runtime_self_test() -> bool {
 
     let wire = app.encode();
     if Manifest::decode(&wire) != Ok(app) {
+        return false;
+    }
+    let declaration = CapabilityDeclaration::new(
+        app_name,
+        Capabilities::FILESYSTEM_READ.union(Capabilities::NETWORK),
+    );
+    if CapabilityDeclaration::decode(&declaration.encode()) != Ok(declaration)
+        || !declaration.capabilities.contains(Capabilities::NETWORK)
+        || declaration
+            .capabilities
+            .contains(Capabilities::FILESYSTEM_WRITE)
+    {
         return false;
     }
     let mut corrupt = wire;
