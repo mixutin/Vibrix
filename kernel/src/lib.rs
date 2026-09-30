@@ -3,6 +3,7 @@
 #[cfg(test)]
 extern crate std;
 
+pub mod admin_broker;
 pub mod block;
 pub mod config_policy;
 pub mod cpu_topology;
@@ -15,6 +16,7 @@ pub mod nic;
 pub mod ntp;
 pub mod packet_filter;
 pub mod per_cpu;
+pub mod periodic_jobs;
 pub mod process;
 pub mod process_syscalls;
 pub mod resolver;
@@ -22,6 +24,8 @@ pub mod routing;
 #[path = "../../shared/scsi.rs"]
 pub mod scsi;
 pub mod secure_random;
+pub mod service_manager;
+pub mod service_order;
 pub mod sync;
 #[path = "../../shared/syscall_abi.rs"]
 pub mod syscall_abi;
@@ -39,6 +43,8 @@ pub mod vfs;
 /// QEMU-only caller supplies the real kernel's independent output paths.
 /// A marker is emitted only after the corresponding behavior succeeds.
 pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
+    admin_broker::self_test().expect("administrative broker policy self-test failed");
+    report("VIBRIX: kernel administrative broker policy verified");
     vfs::self_test(&mut report).expect("bootstrap VFS self-test failed");
     klog::self_test().expect("structured kernel log self-test failed");
     report("VIBRIX: kernel structured log verified");
@@ -52,6 +58,8 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel network service default-off policy verified");
     packet_filter::self_test().expect("packet filter validation self-test failed");
     report("VIBRIX: kernel packet filter ruleset validation verified");
+    periodic_jobs::self_test().expect("periodic job scheduler self-test failed");
+    report("VIBRIX: kernel periodic job scheduler verified");
     sync::self_test().expect("synchronization primitives self-test failed");
     report("VIBRIX: kernel synchronization primitives verified");
     nic::ipv4_icmp_self_test().expect("IPv4/ICMP self-test failed");
@@ -79,6 +87,10 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel DNS A resolver verified");
     resolver::self_test().expect("resolver config/cache self-test failed");
     report("VIBRIX: kernel resolver configuration and cache verified");
+    service_manager::self_test().expect("service manager state self-test failed");
+    report("VIBRIX: kernel service manager state verified");
+    service_order::self_test().expect("service dependency policy self-test failed");
+    report("VIBRIX: kernel service dependency order verified");
     ntp::self_test().expect("NTPv4 client discipline self-test failed");
     report("VIBRIX: kernel NTPv4 client discipline verified");
     nic::tcp_self_test().expect("TCP transport self-test failed");
