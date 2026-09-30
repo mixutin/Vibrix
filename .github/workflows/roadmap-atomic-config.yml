@@ -1,0 +1,30 @@
+name: Atomic system configuration evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  atomic-config:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rust-src,rustfmt,clippy --target x86_64-unknown-uefi,x86_64-unknown-none
+      - name: Check atomic configuration implementation
+        run: |
+          cargo fmt --all -- --check
+          cargo test --locked -p vibrix-kernel --lib vfs::memfs::rename_tests
+          cargo test --locked -p vibrix-shell --lib atomic_move_and_system_configuration_use_rename
+          cargo test --locked -p vibrix-syscall --lib
+          cargo clippy --locked -p vibrix-kernel --lib --target x86_64-unknown-none -- -D warnings
+          cargo clippy --locked -p vibrix-shell --target x86_64-unknown-none -- -D warnings
