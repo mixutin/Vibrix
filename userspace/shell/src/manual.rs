@@ -1,5 +1,79 @@
 //! Original built-in command catalogue. Help and dispatch share this registry.
 
+pub struct DeveloperManual {
+    pub section: u8,
+    pub name: &'static [u8],
+    pub summary: &'static [u8],
+    pub synopsis: &'static [u8],
+    pub description: &'static [u8],
+    pub see_also: &'static [u8],
+}
+
+pub static DEVELOPER_MANUALS: &[DeveloperManual] = &[
+    DeveloperManual {
+        section: 2,
+        name: b"syscall",
+        summary: b"Vibrix system-call ABI version 1",
+        synopsis: b"x86_64: rax=number, rdi/rsi/rdx/r10/r8/r9=args, syscall; result in rax",
+        description: b"The native ABI is versioned independently of POSIX. Unknown syscall numbers fail closed. User pointers are validated through checked copy boundaries before kernel use. The Rust wrapper crate is the supported native interface; register details are documented for toolchain and debugger authors.",
+        see_also: b"abi(7), syscall-rust(3)",
+    },
+    DeveloperManual {
+        section: 3,
+        name: b"syscall-rust",
+        summary: b"native Rust userspace syscall wrapper interface",
+        synopsis: b"use vibrix_syscall::{read, write, open, close, getpid, ...};",
+        description: b"The no_std vibrix-syscall crate wraps ABI v1 and returns numeric kernel errors through its Result type. Callers must honor slice and structure lifetimes; wrapper success does not bypass kernel path, descriptor-rights, promise or credential policy.",
+        see_also: b"syscall(2), abi(7)",
+    },
+    DeveloperManual {
+        section: 5,
+        name: b"vpkg",
+        summary: b"canonical Vibrix package metadata format",
+        synopsis: b"VPKG metadata: fixed bounded manifest plus dependency records",
+        description: b"VPKG metadata is decoded with strict magic, version, reserved-field and capacity checks. Database installation validates dependencies transactionally and rejects removal of packages still required by installed dependents. Payload installation, repository signatures and persistent package state are separate layers.",
+        see_also: b"package-policy(7)",
+    },
+    DeveloperManual {
+        section: 5,
+        name: b"vibrixfs",
+        summary: b"VibrixFS v1 on-disk metadata contract",
+        synopsis: b"VibrixFS v1: superblock, allocation metadata, inodes and directory records",
+        description: b"The filesystem format uses explicit little-endian wire structures with validation for bounds, reserved fields and allocation ownership. Runtime persistent-root operation still depends on native USB block access and recovery policy; this page documents the format contract rather than claiming mounted durable storage.",
+        see_also: b"bootinfo(7)",
+    },
+    DeveloperManual {
+        section: 7,
+        name: b"abi",
+        summary: b"stable userspace/kernel ABI policy",
+        synopsis: b"ABI v1 is the compatibility boundary for native Vibrix programs",
+        description: b"Vibrix keeps syscall numbers, result encoding and public ABI structures versioned. Additive evolution must preserve existing ABI v1 behavior or introduce an explicit later version. This policy is native Vibrix compatibility, not a promise of Linux or full POSIX ABI compatibility.",
+        see_also: b"syscall(2), syscall-rust(3)",
+    },
+    DeveloperManual {
+        section: 7,
+        name: b"bootinfo",
+        summary: b"firmware-to-kernel BootInfo handoff contract",
+        synopsis: b"loader validates and publishes versioned BootInfo before ExitBootServices",
+        description: b"BootInfo carries the validated memory map, framebuffer, ACPI root and bounded transition data required by the standalone kernel. Consumers must validate version, size, reserved fields and ranges before use. Firmware boot services are unavailable after handoff.",
+        see_also: b"abi(7)",
+    },
+    DeveloperManual {
+        section: 7,
+        name: b"package-policy",
+        summary: b"package metadata and authority boundary",
+        synopsis: b"metadata and declared capabilities are validated before installation policy",
+        description: b"Package identity, dependencies and capability declarations are bounded inputs. Capability declaration is not authorization by itself: installation policy must explicitly review requested authority, and repository signature/persistence layers remain independent security boundaries.",
+        see_also: b"vpkg(5)",
+    },
+];
+
+pub fn developer_lookup(section: u8, name: &[u8]) -> Option<&'static DeveloperManual> {
+    DEVELOPER_MANUALS
+        .iter()
+        .find(|page| page.section == section && page.name == name)
+}
+
 pub struct Manual {
     pub command: Builtin,
     pub name: &'static [u8],
@@ -29,7 +103,7 @@ macro_rules! commands {
 
 commands! {
     Help, b"help", b"discover commands and usage", b"help [COMMAND]", b"List built-ins, or show one command's usage. All built-ins accept --help as their only argument, without executing the command.", b"help grep";
-    Man, b"man", b"read built-in reference pages", b"man [1] COMMAND | man -k WORD", b"Show NAME, SYNOPSIS, DESCRIPTION, EXAMPLES and limits. Use man shell for syntax. Manuals are embedded, not files or downloaded content.", b"man 1 head";
+    Man, b"man", b"read installed reference pages", b"man [1|2|3|5|7] NAME | man -k WORD", b"Show embedded base-system and developer reference pages. Section 1 contains shell built-ins; sections 2, 3, 5 and 7 document native ABI, library, file-format and policy interfaces. Use man shell for shell syntax.", b"man 2 syscall";
     Apropos, b"apropos", b"search command names and descriptions", b"apropos WORD", b"Search the command catalogue using an ASCII case-insensitive literal substring. No match returns status 1.", b"apropos file";
     Which, b"which", b"identify shell built-ins", b"which COMMAND...", b"Print the canonical built-in for each name. The alias type does the same. This is not a PATH search; external execution is not implemented.", b"which cat fastfetch";
     Cat, b"cat", b"copy file bytes to output", b"cat [--] [FILE...]", b"Stream files in order. With no FILE, require input redirection. Reads are bounded chunks; no text conversion is performed.", b"cat < /welcome";

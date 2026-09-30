@@ -244,11 +244,21 @@ impl Shell {
                 if args.len() == 2 && args[0] == b"-k" {
                     return search_manuals(io, out, args[1]);
                 }
-                let args = args.strip_prefix(&[&b"1"[..]]).unwrap_or(args);
-                if args.len() != 1 {
-                    return Err(Error::Usage);
+                match args {
+                    [name] => show_manual(io, out, 1, name)?,
+                    [section, name] => {
+                        let section = match *section {
+                            b"1" => 1,
+                            b"2" => 2,
+                            b"3" => 3,
+                            b"5" => 5,
+                            b"7" => 7,
+                            _ => return Err(Error::Usage),
+                        };
+                        show_manual(io, out, section, name)?;
+                    }
+                    _ => return Err(Error::Usage),
                 }
-                show_manual(io, out, args[0])?;
             }
             Builtin::Apropos => {
                 if args.len() != 1 {
@@ -721,14 +731,37 @@ fn show_help(io: &mut dyn System, fd: u64, name: Option<&[u8]>) -> Result<()> {
     Ok(())
 }
 
-fn show_manual(io: &mut dyn System, fd: u64, name: &[u8]) -> Result<()> {
-    if name == b"shell" {
+fn show_manual(io: &mut dyn System, fd: u64, section: u8, name: &[u8]) -> Result<()> {
+    if section == 1 && name == b"shell" {
         if fd == 1 {
             write_all(io, fd, b"\x0c")?;
         }
         write_all(io, fd, manual::SHELL_MANUAL)?;
         return Ok(());
     }
+    if section != 1 {
+        let page = manual::developer_lookup(section, name)
+            .ok_or(Error::Message(b"no manual entry; try apropos"))?;
+        if fd == 1 {
+            write_all(io, fd, b"\x0c")?;
+        }
+        write_all(io, fd, page.name)?;
+        write_all(io, fd, b"(")?;
+        write_all(io, fd, &[b'0' + section])?;
+        write_all(io, fd, b") - Vibrix developer reference\n\nNAME\n  ")?;
+        write_all(io, fd, page.name)?;
+        write_all(io, fd, b" - ")?;
+        write_all(io, fd, page.summary)?;
+        write_all(io, fd, b"\n\nSYNOPSIS\n  ")?;
+        write_all(io, fd, page.synopsis)?;
+        write_all(io, fd, b"\n\nDESCRIPTION\n  ")?;
+        write_all(io, fd, page.description)?;
+        write_all(io, fd, b"\n\nSEE ALSO\n  ")?;
+        write_all(io, fd, page.see_also)?;
+        write_all(io, fd, b"\n\nLIMITS\n  Installed as embedded native documentation; no network or external filesystem is required.\n")?;
+        return Ok(());
+    }
+
     let page = manual::lookup(name).ok_or(Error::Message(b"no manual entry; try apropos"))?;
     if fd == 1 {
         write_all(io, fd, b"\x0c")?;
@@ -773,7 +806,18 @@ fn search_manuals(io: &mut dyn System, fd: u64, word: &[u8]) -> Result<u8> {
         if text::contains(page.name, word, true) || text::contains(page.summary, word, true) {
             found = true;
             write_all(io, fd, page.name)?;
-            write_all(io, fd, b" - ")?;
+            write_all(io, fd, b"(1) - ")?;
+            write_all(io, fd, page.summary)?;
+            write_all(io, fd, b"\n")?;
+        }
+    }
+    for page in manual::DEVELOPER_MANUALS {
+        if text::contains(page.name, word, true) || text::contains(page.summary, word, true) {
+            found = true;
+            write_all(io, fd, page.name)?;
+            write_all(io, fd, b"(")?;
+            write_all(io, fd, &[b'0' + page.section])?;
+            write_all(io, fd, b") - ")?;
             write_all(io, fd, page.summary)?;
             write_all(io, fd, b"\n")?;
         }
