@@ -6,6 +6,32 @@ use vibrix_syscall as syscall;
 
 const STDOUT: u64 = 1;
 
+#[cfg(feature = "advisory-lock-probe")]
+fn advisory_lock_self_test() -> bool {
+    let path = b"/tmp/lock-probe";
+    if syscall::create(path).is_err() {
+        return false;
+    }
+    let Ok(first) = syscall::open(path, syscall::abi::OPEN_READ_WRITE) else {
+        return false;
+    };
+    let Ok(second) = syscall::open(path, syscall::abi::OPEN_READ_WRITE) else {
+        let _ = syscall::close(first);
+        return false;
+    };
+
+    let passed = syscall::advisory_lock(first, syscall::abi::FD_LOCK_EXCLUSIVE).is_ok()
+        && syscall::advisory_lock(second, syscall::abi::FD_LOCK_SHARED)
+            == Err(syscall::abi::Errno::Busy.code())
+        && syscall::advisory_lock(first, syscall::abi::FD_LOCK_UNLOCK).is_ok()
+        && syscall::advisory_lock(second, syscall::abi::FD_LOCK_SHARED).is_ok()
+        && syscall::advisory_lock(second, syscall::abi::FD_LOCK_UNLOCK).is_ok();
+
+    let closed = syscall::close(first).is_ok() && syscall::close(second).is_ok();
+    let removed = syscall::remove(path).is_ok();
+    passed && closed && removed
+}
+
 fn credential_transition_self_test() -> bool {
     let mut uids = syscall::abi::IdTriple::ROOT;
     let mut gids = syscall::abi::IdTriple::ROOT;
@@ -48,6 +74,15 @@ fn credential_transition_self_test() -> bool {
 #[unsafe(no_mangle)]
 /// PID 1 entry used by the real ELF/runtime proof.
 pub extern "C" fn _start() -> ! {
+    #[cfg(feature = "advisory-lock-probe")]
+    let status = if syscall::getpid() == Ok(1) && advisory_lock_self_test() {
+        let _ = syscall::write(STDOUT, b"Vibrix advisory lock probe passed\n");
+        0
+    } else {
+        1
+    };
+
+    #[cfg(not(feature = "advisory-lock-probe"))]
     let status = if syscall::getpid() == Ok(1) && credential_transition_self_test() {
         0
     } else {
