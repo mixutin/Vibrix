@@ -12,5 +12,9 @@ path = "src/main.rs"
 test = false
 bench = false
 
+[features]
+default = []
+advisory-lock-probe = []
+
 [dependencies]
 vibrix-syscall = { path = "../syscall", version = "=0.0.1" }
