@@ -1,0 +1,38 @@
+name: Security audit evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rust-src,rustfmt,clippy --target x86_64-unknown-none,x86_64-unknown-uefi
+      - name: Test fail-closed audit and security syscall integration
+        run: |
+          cargo fmt --all -- --check
+          cargo test --locked -p vibrix-kernel --lib audit::
+          cargo test --locked -p vibrix-kernel --lib process_syscalls::
+          cargo clippy --locked -p vibrix-kernel --lib --target x86_64-unknown-none -- -D warnings
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+      - name: Prove audit owner in production kernel
+        run: |
+          bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel security audit log verified" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "VIBRIX: kernel security audit log verified"
