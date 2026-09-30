@@ -8,6 +8,7 @@ pub mod config_policy;
 pub mod cpu_topology;
 pub mod credentials;
 pub mod device;
+pub mod ipv6;
 pub mod klog;
 pub mod network_guard;
 pub mod network_services;
@@ -47,6 +48,8 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel block abstraction verified");
     nic::self_test().expect("NIC abstraction self-test failed");
     report("VIBRIX: kernel NIC abstraction verified");
+    ipv6::self_test().expect("IPv6/ICMPv6/NDP self-test failed");
+    report("VIBRIX: kernel IPv6 ICMPv6 neighbor discovery verified");
     network_guard::self_test().expect("IPv4 ingress guard self-test failed");
     report("VIBRIX: kernel IPv4 ingress anti-spoofing guard verified");
     network_services::self_test().expect("network service policy self-test failed");
