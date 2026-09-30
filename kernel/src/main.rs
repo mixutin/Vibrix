@@ -112,7 +112,9 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     debugcon::write("VIBRIX: kernel serial initialized\r\n");
     #[cfg(feature = "developer-mode")]
     {
-        crate::println!("Vibrix operational mode: developer (diagnostic features explicitly enabled)");
+        crate::println!(
+            "Vibrix operational mode: developer (diagnostic features explicitly enabled)"
+        );
         debugcon::write("VIBRIX: operational mode developer\r\n");
     }
     #[cfg(not(feature = "developer-mode"))]
