@@ -9,5 +9,6 @@ repository.workspace = true
 [features]
 default = []
 qemu-debugcon = []
+boot-usb-identity-probe = []
 
 [dependencies]

@@ -1,0 +1,56 @@
+name: Shared GPT identity evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  gpt-identity:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rust-src,rustfmt,clippy --target x86_64-unknown-uefi,x86_64-unknown-none
+      - name: Test shared GPT identity validator
+        run: |
+          rustfmt --edition 2024 --check shared/gpt_identity.rs
+          rustc --edition=2024 -D warnings --test shared/gpt_identity.rs -o "$RUNNER_TEMP/gpt-identity-tests"
+          "$RUNNER_TEMP/gpt-identity-tests"
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+      - name: Prove matched USB disk GPT identity through firmware Block I/O
+        run: |
+          VIBRIX_BOOT_FEATURES=qemu-debugcon,boot-usb-identity-probe bash tools/build-qemu.sh
+          rustc --edition=2024 -D warnings tools/create-usb-image.rs -o "$RUNNER_TEMP/vibrix-create-usb-image"
+          rustc --edition=2024 -D warnings tools/populate-esp.rs -o "$RUNNER_TEMP/vibrix-populate-esp"
+          image="$RUNNER_TEMP/vibrix-boot-identity.img"
+          "$RUNNER_TEMP/vibrix-create-usb-image" "$image" 64 512
+          "$RUNNER_TEMP/vibrix-populate-esp"             "$image"             target/x86_64-unknown-uefi/debug/vibrix-boot.efi             target/x86_64-unknown-none/debug/vibrix-kernel             512
+          source tools/ovmf.inc
+          vibrix_find_ovmf
+          cp -- "$OVMF_VARS" build/qemu/OVMF_VARS.gpt-identity.fd
+          rm -f build/qemu/gpt-identity-debugcon.log build/qemu/gpt-identity-serial.log
+          set +e
+          timeout 12s qemu-system-x86_64             -machine q35             -accel tcg             -cpu max             -m 512M             -drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE"             -drive "if=pflash,format=raw,file=build/qemu/OVMF_VARS.gpt-identity.fd"             -drive "if=none,id=vibrixdisk,format=raw,readonly=on,file=$image"             -device "qemu-xhci,id=vibrix-boot-xhci"             -device "usb-storage,drive=vibrixdisk,bus=vibrix-boot-xhci.0,bootindex=1"             -display none             -serial file:build/qemu/gpt-identity-serial.log             -monitor none             -no-reboot             -chardev file,id=vibrixgptdbg,path=build/qemu/gpt-identity-debugcon.log             -device isa-debugcon,iobase=0xe9,chardev=vibrixgptdbg
+          rc=$?
+          set -e
+          if [[ "$rc" -ne 124 ]]; then
+            cat build/qemu/gpt-identity-debugcon.log || true
+            cat build/qemu/gpt-identity-serial.log || true
+            exit 1
+          fi
+          grep -Fq "VIBRIX: boot USB GPT identity validated" build/qemu/gpt-identity-debugcon.log
+          grep -Fq "VIBRIX: kernel entry after ExitBootServices" build/qemu/gpt-identity-debugcon.log
+          grep -Fq "VIBRIX: kernel BootInfo v4 validated" build/qemu/gpt-identity-debugcon.log
+          grep -Fq "VIBRIX: kernel boot USB identity available" build/qemu/gpt-identity-debugcon.log
+          grep -Fq "Vibrix kernel started." build/qemu/gpt-identity-serial.log

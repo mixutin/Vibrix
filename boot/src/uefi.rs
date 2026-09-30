@@ -31,9 +31,30 @@ const LOADED_IMAGE_PROTOCOL_GUID: Guid = Guid {
     data4: [0x8e, 0x3f, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b],
 };
 
+const LOADED_IMAGE_DEVICE_PATH_PROTOCOL_GUID: Guid = Guid {
+    data1: 0xbc62157e,
+    data2: 0x3e33,
+    data3: 0x4fec,
+    data4: [0x99, 0x20, 0x2d, 0x3b, 0x36, 0xd7, 0x50, 0xdf],
+};
+
 const SIMPLE_FILE_SYSTEM_PROTOCOL_GUID: Guid = Guid {
     data1: 0x964e5b22,
     data2: 0x6459,
+    data3: 0x11d2,
+    data4: [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b],
+};
+
+const BLOCK_IO_PROTOCOL_GUID: Guid = Guid {
+    data1: 0x964e5b21,
+    data2: 0x6459,
+    data3: 0x11d2,
+    data4: [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b],
+};
+
+const DEVICE_PATH_PROTOCOL_GUID: Guid = Guid {
+    data1: 0x09576e91,
+    data2: 0x6d3f,
     data3: 0x11d2,
     data4: [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b],
 };
@@ -151,6 +172,47 @@ type LocateProtocol = extern "efiapi" fn(
     registration: *mut c_void,
     interface: *mut *mut c_void,
 ) -> Status;
+type LocateHandleBuffer = extern "efiapi" fn(
+    search_type: u32,
+    protocol: *const Guid,
+    search_key: *mut c_void,
+    count: *mut usize,
+    buffer: *mut *mut Handle,
+) -> Status;
+
+const LOCATE_BY_PROTOCOL: u32 = 2;
+
+#[repr(C)]
+struct BlockIoMedia {
+    media_id: u32,
+    removable_media: u8,
+    media_present: u8,
+    logical_partition: u8,
+    read_only: u8,
+    write_caching: u8,
+    block_size: u32,
+    io_align: u32,
+    last_block: u64,
+    lowest_aligned_lba: u64,
+    logical_blocks_per_physical_block: u32,
+    optimal_transfer_length_granularity: u32,
+}
+
+type BlockReset = extern "efiapi" fn(*mut BlockIoProtocol, u8) -> Status;
+type BlockRead = extern "efiapi" fn(*mut BlockIoProtocol, u32, u64, usize, *mut c_void) -> Status;
+type BlockWrite =
+    extern "efiapi" fn(*mut BlockIoProtocol, u32, u64, usize, *const c_void) -> Status;
+type BlockFlush = extern "efiapi" fn(*mut BlockIoProtocol) -> Status;
+
+#[repr(C)]
+struct BlockIoProtocol {
+    revision: u64,
+    media: *mut BlockIoMedia,
+    reset: BlockReset,
+    read_blocks: BlockRead,
+    write_blocks: BlockWrite,
+    flush_blocks: BlockFlush,
+}
 
 #[repr(C)]
 pub struct BootServices {
@@ -191,7 +253,7 @@ pub struct BootServices {
     pub close_protocol: usize,
     pub open_protocol_information: usize,
     pub protocols_per_handle: usize,
-    pub locate_handle_buffer: usize,
+    pub locate_handle_buffer: LocateHandleBuffer,
     pub locate_protocol: LocateProtocol,
 }
 
@@ -547,6 +609,412 @@ impl KernelFile {
     pub fn as_slice(&self) -> &[u8] {
         unsafe { slice::from_raw_parts(self.ptr, self.len) }
     }
+}
+
+const MAX_BOOT_DEVICE_PATH_BYTES: usize = 1024;
+
+/// Copy and validate the loaded image's firmware device path while Boot
+/// Services are live, returning only firmware-neutral GPT partition facts.
+///
+/// This helper is not yet a mandatory boot gate because legacy development
+/// profiles do not all boot from GPT USB media. The persistent-USB boot path
+/// will require it before ExitBootServices.
+///
+/// # Safety
+/// `image_handle` and `system_table` must be live UEFI objects. The Device
+/// Path protocol pointer must remain firmware-owned and readable during this
+/// call only; no pointer escapes.
+#[allow(dead_code)]
+fn copy_device_path(raw: *const u8) -> Result<([u8; MAX_BOOT_DEVICE_PATH_BYTES], usize), Status> {
+    if raw.is_null() {
+        return Err(EFI_LOAD_ERROR);
+    }
+    let mut bytes = [0u8; MAX_BOOT_DEVICE_PATH_BYTES];
+    let mut offset = 0usize;
+    let mut nodes = 0usize;
+    loop {
+        if offset + 4 > bytes.len() || nodes >= 64 {
+            return Err(EFI_LOAD_ERROR);
+        }
+        let header = unsafe { core::slice::from_raw_parts(raw.add(offset), 4) };
+        let len = usize::from(u16::from_le_bytes([header[2], header[3]]));
+        if len < 4 || offset.checked_add(len).is_none_or(|end| end > bytes.len()) {
+            return Err(EFI_LOAD_ERROR);
+        }
+        let node = unsafe { core::slice::from_raw_parts(raw.add(offset), len) };
+        bytes[offset..offset + len].copy_from_slice(node);
+        let end = node[0] == crate::uefi_boot_path::DEVICE_PATH_END_TYPE
+            && node[1] == crate::uefi_boot_path::DEVICE_PATH_END_ENTIRE_SUBTYPE;
+        offset += len;
+        nodes += 1;
+        if end {
+            return Ok((bytes, offset));
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub struct FirmwareBootDisk {
+    block_io: *mut BlockIoProtocol,
+    media_id: u32,
+    io_align: u32,
+    pub partition: crate::uefi_boot_path::BootPartitionPath,
+    pub block_size: u32,
+    pub last_block: u64,
+}
+
+/// Locate exactly one whole-disk Block I/O handle that is the device-path
+/// parent of the loaded image's USB GPT partition.
+///
+/// # Safety
+/// All UEFI pointers are valid only while Boot Services are live. The returned
+/// object must be consumed before ExitBootServices and must never be copied
+/// into BootInfo or retained by the kernel.
+#[allow(dead_code)]
+pub unsafe fn discover_boot_whole_disk(
+    image_handle: Handle,
+    system_table: *mut SystemTable,
+) -> Result<FirmwareBootDisk, Status> {
+    if image_handle.is_null() || system_table.is_null() {
+        return Err(EFI_INVALID_PARAMETER);
+    }
+    let services = unsafe { (*system_table).boot_services };
+    if services.is_null() {
+        return Err(EFI_LOAD_ERROR);
+    }
+
+    let mut child_raw: *mut c_void = null_mut();
+    let status = unsafe {
+        ((*services).handle_protocol)(
+            image_handle,
+            &LOADED_IMAGE_DEVICE_PATH_PROTOCOL_GUID,
+            &mut child_raw,
+        )
+    };
+    if status != EFI_SUCCESS || child_raw.is_null() {
+        return Err(if status == EFI_SUCCESS {
+            EFI_LOAD_ERROR
+        } else {
+            status
+        });
+    }
+    let (child, child_len) = copy_device_path(child_raw as *const u8)?;
+    let partition =
+        crate::uefi_boot_path::parse(&child[..child_len]).map_err(|_| EFI_LOAD_ERROR)?;
+
+    let mut count = 0usize;
+    let mut handles: *mut Handle = null_mut();
+    let status = unsafe {
+        ((*services).locate_handle_buffer)(
+            LOCATE_BY_PROTOCOL,
+            &BLOCK_IO_PROTOCOL_GUID,
+            null_mut(),
+            &mut count,
+            &mut handles,
+        )
+    };
+    if status != EFI_SUCCESS || handles.is_null() || count == 0 || count > 256 {
+        if !handles.is_null() {
+            let _ = unsafe { ((*services).free_pool)(handles.cast()) };
+        }
+        return Err(if status == EFI_SUCCESS {
+            EFI_LOAD_ERROR
+        } else {
+            status
+        });
+    }
+
+    let mut found: Option<FirmwareBootDisk> = None;
+    for index in 0..count {
+        let handle = unsafe { *handles.add(index) };
+        let mut block_raw: *mut c_void = null_mut();
+        if unsafe { ((*services).handle_protocol)(handle, &BLOCK_IO_PROTOCOL_GUID, &mut block_raw) }
+            != EFI_SUCCESS
+            || block_raw.is_null()
+        {
+            continue;
+        }
+        let block = block_raw as *mut BlockIoProtocol;
+        let media = unsafe { (*block).media };
+        if media.is_null()
+            || unsafe { (*media).media_present } == 0
+            || unsafe { (*media).logical_partition } != 0
+        {
+            continue;
+        }
+        let block_size = unsafe { (*media).block_size };
+        if !matches!(block_size, 512 | 4096) {
+            continue;
+        }
+
+        let mut path_raw: *mut c_void = null_mut();
+        if unsafe {
+            ((*services).handle_protocol)(handle, &DEVICE_PATH_PROTOCOL_GUID, &mut path_raw)
+        } != EFI_SUCCESS
+            || path_raw.is_null()
+        {
+            continue;
+        }
+        let Ok((parent, parent_len)) = copy_device_path(path_raw as *const u8) else {
+            continue;
+        };
+        let matches =
+            crate::uefi_boot_path::parent_matches(&child[..child_len], &parent[..parent_len])
+                .map_err(|_| EFI_LOAD_ERROR)?;
+        if !matches {
+            continue;
+        }
+        if found.is_some() {
+            let _ = unsafe { ((*services).free_pool)(handles.cast()) };
+            return Err(EFI_LOAD_ERROR);
+        }
+        let io_align = unsafe { (*media).io_align };
+        if io_align > 4096 || (io_align > 1 && !io_align.is_power_of_two()) {
+            continue;
+        }
+        found = Some(FirmwareBootDisk {
+            block_io: block,
+            media_id: unsafe { (*media).media_id },
+            io_align,
+            partition,
+            block_size,
+            last_block: unsafe { (*media).last_block },
+        });
+    }
+
+    let free_status = unsafe { ((*services).free_pool)(handles.cast()) };
+    if free_status != EFI_SUCCESS {
+        return Err(free_status);
+    }
+    found.ok_or(EFI_LOAD_ERROR)
+}
+
+/// Read and validate both GPT copies from the matched firmware whole disk.
+///
+/// All temporary buffers are page-backed EfiLoaderData so they satisfy any
+/// supported Block I/O alignment requirement. They are released before this
+/// function returns; only the firmware-neutral GUID/extent tuple escapes.
+///
+/// # Safety
+/// `disk` must come from `discover_boot_whole_disk` during the same live
+/// Boot Services phase. Its Block I/O protocol and media must remain valid.
+#[allow(dead_code)]
+pub unsafe fn read_boot_gpt_identity(
+    disk: &FirmwareBootDisk,
+    system_table: *mut SystemTable,
+) -> Result<crate::gpt_identity::Identity, Status> {
+    if system_table.is_null()
+        || disk.block_io.is_null()
+        || disk.last_block < 5
+        || !matches!(disk.block_size, 512 | 4096)
+    {
+        return Err(EFI_INVALID_PARAMETER);
+    }
+    let block_size = disk.block_size as usize;
+    let header_pages = 1usize;
+    let primary_header = unsafe { allocate_loader_pages(system_table, header_pages)? };
+    let backup_header = match unsafe { allocate_loader_pages(system_table, header_pages) } {
+        Ok(value) => value,
+        Err(status) => {
+            unsafe { free_loader_pages(system_table, primary_header, header_pages)? };
+            return Err(status);
+        }
+    };
+
+    let mut primary_entries = 0u64;
+    let mut backup_entries = 0u64;
+    let mut entry_pages = 0usize;
+
+    let result = (|| {
+        let primary_ptr = usize::try_from(primary_header).map_err(|_| EFI_LOAD_ERROR)? as *mut u8;
+        let backup_ptr = usize::try_from(backup_header).map_err(|_| EFI_LOAD_ERROR)? as *mut u8;
+        if disk.io_align > 1 {
+            let align = disk.io_align as usize;
+            if !(primary_ptr as usize).is_multiple_of(align)
+                || !(backup_ptr as usize).is_multiple_of(align)
+            {
+                return Err(EFI_LOAD_ERROR);
+            }
+        }
+
+        let read = unsafe { (*disk.block_io).read_blocks };
+        let status = read(
+            disk.block_io,
+            disk.media_id,
+            1,
+            block_size,
+            primary_ptr.cast(),
+        );
+        if status != EFI_SUCCESS {
+            return Err(status);
+        }
+        let status = read(
+            disk.block_io,
+            disk.media_id,
+            disk.last_block,
+            block_size,
+            backup_ptr.cast(),
+        );
+        if status != EFI_SUCCESS {
+            return Err(status);
+        }
+
+        let primary_header_slice =
+            unsafe { core::slice::from_raw_parts(primary_ptr.cast_const(), block_size) };
+        let backup_header_slice =
+            unsafe { core::slice::from_raw_parts(backup_ptr.cast_const(), block_size) };
+        let (_, primary_layout) = crate::gpt_identity::validate_header(
+            primary_header_slice,
+            block_size,
+            1,
+            disk.last_block,
+        )
+        .map_err(|_| EFI_LOAD_ERROR)?;
+        let (_, backup_layout) = crate::gpt_identity::validate_header(
+            backup_header_slice,
+            block_size,
+            disk.last_block,
+            1,
+        )
+        .map_err(|_| EFI_LOAD_ERROR)?;
+        if primary_layout.entry_array_bytes != backup_layout.entry_array_bytes {
+            return Err(EFI_LOAD_ERROR);
+        }
+
+        let read_bytes = primary_layout
+            .entry_array_bytes
+            .div_ceil(block_size)
+            .checked_mul(block_size)
+            .ok_or(EFI_LOAD_ERROR)?;
+        entry_pages = read_bytes.div_ceil(4096);
+        if entry_pages == 0 {
+            return Err(EFI_LOAD_ERROR);
+        }
+        primary_entries = unsafe { allocate_loader_pages(system_table, entry_pages)? };
+        backup_entries = unsafe { allocate_loader_pages(system_table, entry_pages)? };
+        let primary_entries_ptr =
+            usize::try_from(primary_entries).map_err(|_| EFI_LOAD_ERROR)? as *mut u8;
+        let backup_entries_ptr =
+            usize::try_from(backup_entries).map_err(|_| EFI_LOAD_ERROR)? as *mut u8;
+        if disk.io_align > 1 {
+            let align = disk.io_align as usize;
+            if !(primary_entries_ptr as usize).is_multiple_of(align)
+                || !(backup_entries_ptr as usize).is_multiple_of(align)
+            {
+                return Err(EFI_LOAD_ERROR);
+            }
+        }
+
+        let status = read(
+            disk.block_io,
+            disk.media_id,
+            primary_layout.entry_lba,
+            read_bytes,
+            primary_entries_ptr.cast(),
+        );
+        if status != EFI_SUCCESS {
+            return Err(status);
+        }
+        let status = read(
+            disk.block_io,
+            disk.media_id,
+            backup_layout.entry_lba,
+            read_bytes,
+            backup_entries_ptr.cast(),
+        );
+        if status != EFI_SUCCESS {
+            return Err(status);
+        }
+
+        let primary_entries_slice = unsafe {
+            core::slice::from_raw_parts(
+                primary_entries_ptr.cast_const(),
+                primary_layout.entry_array_bytes,
+            )
+        };
+        let backup_entries_slice = unsafe {
+            core::slice::from_raw_parts(
+                backup_entries_ptr.cast_const(),
+                backup_layout.entry_array_bytes,
+            )
+        };
+        let identity = crate::gpt_identity::validate_identity(
+            block_size,
+            disk.last_block,
+            primary_header_slice,
+            primary_entries_slice,
+            backup_header_slice,
+            backup_entries_slice,
+        )
+        .map_err(|_| EFI_LOAD_ERROR)?;
+
+        let expected_last = disk
+            .partition
+            .partition_start_lba
+            .checked_add(disk.partition.partition_size_lba)
+            .and_then(|end| end.checked_sub(1))
+            .ok_or(EFI_LOAD_ERROR)?;
+        if identity.esp_guid != disk.partition.partition_guid
+            || identity.esp_first_lba != disk.partition.partition_start_lba
+            || identity.esp_last_lba != expected_last
+        {
+            return Err(EFI_LOAD_ERROR);
+        }
+        Ok(identity)
+    })();
+
+    let mut cleanup_error = None;
+    if primary_entries != 0
+        && unsafe { free_loader_pages(system_table, primary_entries, entry_pages) }.is_err()
+    {
+        cleanup_error = Some(EFI_LOAD_ERROR);
+    }
+    if backup_entries != 0
+        && unsafe { free_loader_pages(system_table, backup_entries, entry_pages) }.is_err()
+    {
+        cleanup_error = Some(EFI_LOAD_ERROR);
+    }
+    if unsafe { free_loader_pages(system_table, primary_header, header_pages) }.is_err() {
+        cleanup_error = Some(EFI_LOAD_ERROR);
+    }
+    if unsafe { free_loader_pages(system_table, backup_header, header_pages) }.is_err() {
+        cleanup_error = Some(EFI_LOAD_ERROR);
+    }
+    match (result, cleanup_error) {
+        (_, Some(status)) => Err(status),
+        (value, None) => value,
+    }
+}
+
+pub unsafe fn loaded_image_boot_partition(
+    image_handle: Handle,
+    system_table: *mut SystemTable,
+) -> Result<crate::uefi_boot_path::BootPartitionPath, Status> {
+    if image_handle.is_null() || system_table.is_null() {
+        return Err(EFI_INVALID_PARAMETER);
+    }
+    let services = unsafe { (*system_table).boot_services };
+    if services.is_null() {
+        return Err(EFI_LOAD_ERROR);
+    }
+    let mut raw: *mut c_void = null_mut();
+    let status = unsafe {
+        ((*services).handle_protocol)(
+            image_handle,
+            &LOADED_IMAGE_DEVICE_PATH_PROTOCOL_GUID,
+            &mut raw,
+        )
+    };
+    if status != EFI_SUCCESS || raw.is_null() {
+        return Err(if status == EFI_SUCCESS {
+            EFI_LOAD_ERROR
+        } else {
+            status
+        });
+    }
+
+    let (bytes, len) = copy_device_path(raw as *const u8)?;
+    crate::uefi_boot_path::parse(&bytes[..len]).map_err(|_| EFI_LOAD_ERROR)
 }
 
 /// Get the live loader PE/COFF image's mapped physical interval. The

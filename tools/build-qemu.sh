@@ -20,7 +20,7 @@ for target in x86_64-unknown-uefi x86_64-unknown-none; do
 done
 
 echo "[vibrix] building UEFI loader"
-cargo build --locked -p vibrix-boot --features qemu-debugcon --target x86_64-unknown-uefi
+cargo build --locked -p vibrix-boot --features "${VIBRIX_BOOT_FEATURES:-qemu-debugcon}" --target x86_64-unknown-uefi
 
 echo "[vibrix] building Rust init userspace ELF"
 cargo rustc --locked -p vibrix-init --bin vibrix-init --target x86_64-unknown-none -- \

@@ -4,6 +4,12 @@
 #[path = "../../shared/bootinfo.rs"]
 #[allow(dead_code)]
 mod bootinfo;
+#[path = "../../shared/gpt_identity.rs"]
+#[allow(dead_code)]
+mod gpt_identity;
+#[path = "../../shared/uefi_boot_path.rs"]
+#[allow(dead_code)]
+mod uefi_boot_path;
 
 mod elf;
 mod loader;
@@ -22,8 +28,9 @@ fn create_boot_info(
     rsdp_address: u64,
     memory_map: &memory_map::CapturedMemoryMap,
     kernel_window_table: u64,
+    boot_identity: Option<bootinfo::BootUsbIdentity>,
 ) -> Result<bootinfo::BootInfo, bootinfo::BootInfoError> {
-    bootinfo::BootInfo::new(
+    let info = bootinfo::BootInfo::new(
         bootinfo::FramebufferInfo {
             physical_base: framebuffer.base,
             size_bytes: framebuffer.size,
@@ -40,7 +47,11 @@ fn create_boot_info(
             descriptor_version: memory_map.descriptor_version,
         },
         kernel_window_table,
-    )
+    )?;
+    match boot_identity {
+        Some(identity) => info.with_boot_usb_identity(identity),
+        None => Ok(info),
+    }
 }
 
 /// UEFI application entry point.
@@ -58,6 +69,38 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
 
     console.write("Vibrix bootloader v0.0.2\r\n");
     console.write("VIBRIX: bootloader entered\r\n");
+
+    let boot_identity = {
+        #[cfg(feature = "boot-usb-identity-probe")]
+        {
+            let disk = match unsafe { uefi::discover_boot_whole_disk(image, system_table) } {
+                Ok(disk) => disk,
+                Err(status) => {
+                    console.write("VIBRIX: boot USB whole-disk discovery failed\r\n");
+                    return status;
+                }
+            };
+            let identity = match unsafe { uefi::read_boot_gpt_identity(&disk, system_table) } {
+                Ok(identity) => identity,
+                Err(status) => {
+                    console.write("VIBRIX: boot USB GPT identity rejected\r\n");
+                    return status;
+                }
+            };
+            console.write("VIBRIX: boot USB GPT identity validated\r\n");
+            Some(bootinfo::BootUsbIdentity {
+                disk_guid: identity.disk_guid,
+                esp_guid: identity.esp_guid,
+                system_guid: identity.system_guid,
+                esp_first_lba: identity.esp_first_lba,
+                esp_last_lba: identity.esp_last_lba,
+            })
+        }
+        #[cfg(not(feature = "boot-usb-identity-probe"))]
+        {
+            None
+        }
+    };
 
     let kernel = match unsafe { uefi::load_kernel(image, system_table) } {
         Ok(kernel) => kernel,
@@ -326,20 +369,25 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     // No firmware calls after successful map acquisition: preserve exactly
     // this buffer's length, stride and descriptor version, and keep the key
     // strictly loader-local for the later ExitBootServices implementation.
-    let boot_info =
-        match create_boot_info(&framebuffer, rsdp_address, &memory_map, kernel_window_table) {
-            Ok(info) => info,
-            Err(_error) => {
-                uefi::debug_write("VIBRIX: BootInfo v3 validation failed\r\n");
-                return EFI_LOAD_ERROR;
-            }
-        };
+    let boot_info = match create_boot_info(
+        &framebuffer,
+        rsdp_address,
+        &memory_map,
+        kernel_window_table,
+        boot_identity,
+    ) {
+        Ok(info) => info,
+        Err(_error) => {
+            uefi::debug_write("VIBRIX: BootInfo v4 validation failed\r\n");
+            return EFI_LOAD_ERROR;
+        }
+    };
     // SAFETY: UEFI AllocatePages granted one page of EfiLoaderData, writable
     // and mapped in the firmware address space. The checked address is aligned
-    // for BootInfo and the 96-byte object fits in the exclusive 4096-byte page.
+    // for BootInfo and the 168-byte object fits in the exclusive 4096-byte page.
     unsafe { (boot_info_address as *mut bootinfo::BootInfo).write(boot_info) };
     let _boot_info_page_owner = boot_info_physical;
-    uefi::debug_write("VIBRIX: BootInfo v3 staged\r\n");
+    uefi::debug_write("VIBRIX: BootInfo v4 staged\r\n");
 
     // UEFI 2.10 §7.4.6: use the exact key from our refreshed map.
     // On EFI_INVALID_PARAMETER, use *only* GetMemoryMap into the same owned
@@ -372,9 +420,13 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
             uefi::debug_write("VIBRIX: ExitBootServices map refresh failed\r\n");
             break;
         }
-        let Ok(updated) =
-            create_boot_info(&framebuffer, rsdp_address, &memory_map, kernel_window_table)
-        else {
+        let Ok(updated) = create_boot_info(
+            &framebuffer,
+            rsdp_address,
+            &memory_map,
+            kernel_window_table,
+            boot_identity,
+        ) else {
             uefi::debug_write("VIBRIX: ExitBootServices map version rejected\r\n");
             break;
         };

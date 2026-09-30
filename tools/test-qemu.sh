@@ -254,10 +254,10 @@ for expected in \
   "VIBRIX: kernel page tables verified" \
   "VIBRIX: transition mappings verified" \
   "VIBRIX: final memory map captured" \
-  "VIBRIX: BootInfo v3 staged" \
+  "VIBRIX: BootInfo v4 staged" \
   "VIBRIX: ExitBootServices succeeded" \
   "VIBRIX: kernel entry after ExitBootServices" \
-  "VIBRIX: kernel BootInfo v3 validated" \
+  "VIBRIX: kernel BootInfo v4 validated" \
   "VIBRIX: kernel GDT/TSS loaded" \
   "VIBRIX: kernel serial initialized" \
   "VIBRIX: kernel IDT installed" \
