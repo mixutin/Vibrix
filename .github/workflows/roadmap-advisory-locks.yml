@@ -18,13 +18,17 @@ jobs:
       - name: Install repository toolchain
         run: |
           toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
-          rustup toolchain install "$toolchain" --profile minimal --component rustfmt,clippy --target x86_64-unknown-none
+          rustup toolchain install "$toolchain" --profile minimal --component rust-src,rustfmt,clippy --target x86_64-unknown-none,x86_64-unknown-uefi
       - name: Test advisory lock core
         run: |
           cargo fmt --all -- --check
           cargo test --locked -p vibrix-kernel --lib vfs::files::advisory_lock_tests
           cargo clippy --locked -p vibrix-kernel --lib --target x86_64-unknown-none -- -D warnings
 
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
       - name: Prove advisory locks through the native Ring-3 syscall path
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,advisory-lock-probe bash tools/build-qemu.sh
