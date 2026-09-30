@@ -347,6 +347,8 @@ pub enum Error {
     DatabaseFull,
     NotInstalled,
     UnknownCapabilities,
+    CapabilityPackageMismatch,
+    PermissionReviewRequired,
 }
 
 pub struct Database {
@@ -426,6 +428,26 @@ impl Database {
         self.packages[self.used] = Some(manifest);
         self.used += 1;
         Ok(())
+    }
+
+    /// Install a package only after an explicit capability review.
+    ///
+    /// The declaration must belong to the same package and every requested
+    /// capability must be present in the reviewer-approved set. Validation is
+    /// performed before any database mutation.
+    pub fn install_reviewed(
+        &mut self,
+        manifest: Manifest,
+        declaration: CapabilityDeclaration,
+        approved: Capabilities,
+    ) -> Result<(), Error> {
+        if declaration.package != manifest.name {
+            return Err(Error::CapabilityPackageMismatch);
+        }
+        if !approved.contains(declaration.capabilities) {
+            return Err(Error::PermissionReviewRequired);
+        }
+        self.install(manifest)
     }
 
     pub fn remove(&mut self, name: Name) -> Result<Manifest, Error> {
@@ -596,6 +618,31 @@ mod tests {
         db.install(app).unwrap();
         assert_eq!(db.len(), 2);
         assert_eq!(db.install(app), Err(Error::AlreadyInstalled));
+    }
+
+    #[test]
+    fn installation_requires_explicit_capability_approval_and_is_transactional() {
+        let app = manifest(b"browser", Version::new(1, 0, 0), &[]);
+        let requested = Capabilities::FILESYSTEM_READ.union(Capabilities::NETWORK);
+        let declaration = CapabilityDeclaration::new(app.name, requested);
+        let mut db = Database::new();
+
+        assert_eq!(
+            db.install_reviewed(app, declaration, Capabilities::FILESYSTEM_READ),
+            Err(Error::PermissionReviewRequired)
+        );
+        assert!(db.is_empty());
+
+        let wrong = CapabilityDeclaration::new(name(b"other"), requested);
+        assert_eq!(
+            db.install_reviewed(app, wrong, Capabilities::ALL),
+            Err(Error::CapabilityPackageMismatch)
+        );
+        assert!(db.is_empty());
+
+        db.install_reviewed(app, declaration, requested).unwrap();
+        assert_eq!(db.len(), 1);
+        assert!(db.get(app.name).is_some());
     }
 
     #[test]
