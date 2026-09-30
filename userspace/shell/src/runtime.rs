@@ -426,20 +426,18 @@ impl Shell {
                 }
                 io.rename(source.bytes(), destination.bytes())?;
             }
-            Builtin::Config => {
-                match args {
-                    [b"show"] => {
-                        let fd = io.open(b"/etc/vibrix.conf", abi::OPEN_READ)?;
-                        let result = stream(io, fd, out);
-                        finish(io, fd, result)?;
-                    }
-                    [b"apply", assignments @ ..] if !assignments.is_empty() => {
-                        atomic_config_apply(io, assignments)?;
-                        write_all(io, out, b"config: applied atomically\n")?;
-                    }
-                    _ => return Err(Error::Usage),
+            Builtin::Config => match args {
+                [b"show"] => {
+                    let fd = io.open(b"/etc/vibrix.conf", abi::OPEN_READ)?;
+                    let result = stream(io, fd, out);
+                    finish(io, fd, result)?;
                 }
-            }
+                [b"apply", assignments @ ..] if !assignments.is_empty() => {
+                    atomic_config_apply(io, assignments)?;
+                    write_all(io, out, b"config: applied atomically\n")?;
+                }
+                _ => return Err(Error::Usage),
+            },
             Builtin::Head
             | Builtin::Tail
             | Builtin::Wc
@@ -882,8 +880,13 @@ fn valid_config_assignment(assignment: &[u8]) -> bool {
 }
 
 fn atomic_config_apply(io: &mut dyn System, assignments: &[&[u8]]) -> Result<()> {
-    if assignments.iter().any(|assignment| !valid_config_assignment(assignment)) {
-        return Err(Error::Message(b"config: expected printable KEY=VALUE assignments"));
+    if assignments
+        .iter()
+        .any(|assignment| !valid_config_assignment(assignment))
+    {
+        return Err(Error::Message(
+            b"config: expected printable KEY=VALUE assignments",
+        ));
     }
 
     const TEMP: &[u8] = b"/etc/.vibrix.conf.new";
