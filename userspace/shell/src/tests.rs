@@ -362,6 +362,29 @@ fn status_errors_search_and_exit_are_observable() {
 }
 
 #[test]
+fn sysctl_queries_live_kernel_and_vfs_state_read_only() {
+    let mut io = Memory::new();
+    let mut shell = Shell::new();
+
+    assert_eq!(io.run(&mut shell, b"sysctl kern.pid"), 0);
+    assert_eq!(io.stdout, b"kern.pid = 7\n");
+    assert_eq!(io.run(&mut shell, b"sysctl kern.processes"), 0);
+    assert_eq!(io.stdout, b"kern.processes = 1\n");
+    assert_eq!(io.run(&mut shell, b"sysctl vfs.root"), 0);
+    assert_eq!(io.stdout, b"vfs.root = mounted-volatile\n");
+    assert_eq!(io.run(&mut shell, b"sysctl vfs.dev"), 1);
+    assert!(io.stderr.windows(20).any(|part| part == b"sysctl: unknown name")
+        || io.stderr.windows(12).any(|part| part == b"operation failed"));
+
+    // The host fixture does not mount /dev, so -a must fail rather than
+    // manufacture a healthy state. Assignment is deliberately unsupported.
+    assert_ne!(io.run(&mut shell, b"sysctl -a"), 0);
+    assert_eq!(io.run(&mut shell, b"sysctl kern.pid=9"), 2);
+    assert_eq!(io.run(&mut shell, b"sysctl missing.name"), 1);
+    assert_eq!(io.mutations, 0);
+}
+
+#[test]
 fn streaming_and_limit_failures_close_all_descriptors_and_keep_move_source() {
     let mut io = Memory::new();
     let mut shell = Shell::new();
