@@ -1,0 +1,28 @@
+name: Process resource budget evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  process-resource-budget:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt,clippy --target x86_64-unknown-none
+      - name: Test monotonic process resource budgets
+        run: |
+          cargo fmt --all -- --check
+          cargo test --locked -p vibrix-kernel --lib process::tests::resource_limits_only_shrink_and_failed_reservations_do_not_mutate_usage
+          cargo test --locked -p vibrix-kernel --lib process::tests::child_limit_is_inherited_and_released_only_on_reap
+          cargo test --locked -p vibrix-kernel --lib process_syscalls::
+          cargo clippy --locked -p vibrix-kernel --lib --target x86_64-unknown-none -- -D warnings
