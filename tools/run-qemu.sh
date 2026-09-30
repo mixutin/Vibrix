@@ -14,13 +14,15 @@ for argument in "$@"; do
     --kernel-console) FEATURES=qemu-debugcon ;;
     --desktop) FEATURES=userspace-desktop ;;
     --developer) FEATURES=userspace-shell,developer-mode,verbose-boot ;;
+    --rescue) FEATURES=rescue-mode ;;
     --help|-h)
-      echo "Usage: $0 [--vnc[=0..99]] [--kernel-console | --desktop | --developer]"
+      echo "Usage: $0 [--vnc[=0..99]] [--kernel-console | --desktop | --developer | --rescue]"
       echo "Default: build and boot the Ring 3 shell in the QEMU graphics window."
       echo "--vnc: show the same guest display at 127.0.0.1:5900 (display 0)."
       echo "--desktop: boot the native Ring 3 desktop preview with terminal and files."
       echo "--kernel-console: boot the legacy serial development console instead."
       echo "--developer: boot the normal Ring 3 shell with explicit developer mode and verbose diagnostics."
+      echo "--rescue: boot the explicit single-user root administrative shell."
       exit 0
       ;;
     *) echo "[vibrix] unknown option: $argument" >&2; exit 2 ;;

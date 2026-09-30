@@ -813,6 +813,11 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
 
         #[cfg(feature = "rust-shell-probe")]
         {
+            #[cfg(feature = "rescue-mode")]
+            {
+                debugcon::write("VIBRIX: rescue single-user mode active\r\n");
+                crate::println!("Vibrix rescue mode: single-user root administration");
+            }
             debugcon::write("VIBRIX: kernel process probe initialized for userspace I/O\r\n");
             userspace_io::init()
                 .unwrap_or_else(|error| panic!("userspace stdio init failed: {:?}", error));
