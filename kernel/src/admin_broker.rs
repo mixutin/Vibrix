@@ -9,8 +9,7 @@ pub const AUTH_UPDATE: u32 = 1 << 1;
 pub const AUTH_NETWORK: u32 = 1 << 2;
 pub const AUTH_ACCOUNTS: u32 = 1 << 3;
 pub const AUTH_STORAGE: u32 = 1 << 4;
-pub const AUTH_ALL: u32 =
-    AUTH_SERVICE | AUTH_UPDATE | AUTH_NETWORK | AUTH_ACCOUNTS | AUTH_STORAGE;
+pub const AUTH_ALL: u32 = AUTH_SERVICE | AUTH_UPDATE | AUTH_NETWORK | AUTH_ACCOUNTS | AUTH_STORAGE;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Error {
