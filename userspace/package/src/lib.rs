@@ -309,7 +309,11 @@ impl Database {
         }
         let mut count = 0usize;
         for package in self.packages[..self.used].iter().flatten() {
-            if package.dependencies().iter().any(|dependency| dependency.name == name) {
+            if package
+                .dependencies()
+                .iter()
+                .any(|dependency| dependency.name == name)
+            {
                 output[count] = package.name;
                 count += 1;
             }
