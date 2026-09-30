@@ -1696,10 +1696,10 @@ compatibility unless a later item explicitly says so.
 - [ ] mount table and persistent mount configuration
 - [ ] persistent account/group database and password-hash policy
 - [ ] getty/login/session lifecycle
-- [ ] least-privilege administrative command broker
-- [ ] service manager with enable/disable/start/stop/reload/status
-- [ ] ordered boot/service dependency policy
-- [ ] periodic job scheduler
+- [x] least-privilege administrative command broker
+- [x] service manager with enable/disable/start/stop/reload/status
+- [x] ordered boot/service dependency policy
+- [x] periodic job scheduler
 - [x] sysctl-like runtime/query interface
 - [x] complete base-system manual pages
 - [ ] coherent /etc-style system configuration with atomic updates
@@ -1732,6 +1732,24 @@ This checks **rescue/single-user administrative mode** for the current bounded
 profile. It does not by itself provide persistent account authentication,
 service management, persistent mount configuration, or recovery filesystem
 repair.
+
+**Verified M21 administration foundation (PR #366):**
+all 66 exact-head workflows passed implementation head
+`3391fddfbd0ded0a0c2df8360b1fdc6012fd8d35`. Dedicated evidence passed for
+the least-privilege administrative broker
+([run 36743211566](https://github.com/mixutin/Vibrix/actions/runs/36743211566)),
+service lifecycle/state management
+([run 36743212115](https://github.com/mixutin/Vibrix/actions/runs/36743212115)),
+dependency ordering
+([run 36743211374](https://github.com/mixutin/Vibrix/actions/runs/36743211374)),
+and periodic scheduling
+([run 36743210744](https://github.com/mixutin/Vibrix/actions/runs/36743210744)).
+
+These check the bounded **least-privilege administrative command broker**,
+**service manager**, **ordered boot/service dependency policy**, and
+**periodic job scheduler** items. Persistent service configuration, authenticated
+multi-user administration, general process supervision, PTYs/job control and
+physical Target 001 service operation remain separate work.
 
 **Exit:** an administrator can boot, log in, manage users/services/filesystems,
 inspect system state and perform routine maintenance without another OS.
