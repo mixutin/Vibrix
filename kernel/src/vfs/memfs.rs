@@ -184,7 +184,9 @@ impl<const N: usize, const B: usize> Filesystem for MemFs<N, B> {
                     Error::IsDirectory
                 });
             }
-            if node.kind == Kind::Directory && self.nodes.iter().flatten().any(|child| child.parent == id) {
+            if node.kind == Kind::Directory
+                && self.nodes.iter().flatten().any(|child| child.parent == id)
+            {
                 return Err(Error::NotEmpty);
             }
             Some(index)
@@ -198,7 +200,9 @@ impl<const N: usize, const B: usize> Filesystem for MemFs<N, B> {
             self.nodes[index] = None;
             self.generations[index] = self.generations[index].checked_add(1).unwrap_or(0);
         }
-        let node = self.nodes[source_index].as_mut().expect("validated live source");
+        let node = self.nodes[source_index]
+            .as_mut()
+            .expect("validated live source");
         node.parent = to_dir;
         node.name = new_name;
         Ok(())
@@ -292,7 +296,6 @@ impl<const N: usize, const B: usize> Filesystem for MemFs<N, B> {
         Ok(())
     }
 }
-
 
 #[cfg(test)]
 mod rename_tests {
