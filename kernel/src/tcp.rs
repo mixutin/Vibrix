@@ -16,7 +16,6 @@ const FLAG_SYN: u16 = 0x002;
 const FLAG_RST: u16 = 0x004;
 const FLAG_PSH: u16 = 0x008;
 const FLAG_ACK: u16 = 0x010;
-const DATA_OFFSET_5: u16 = 5 << 12;
 const OPTION_END: u8 = 0;
 const OPTION_NOP: u8 = 1;
 const OPTION_MSS: u8 = 2;
