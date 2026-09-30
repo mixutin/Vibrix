@@ -937,26 +937,32 @@ fn render_sysctl_value(io: &mut dyn System, fd: u64, name: &[u8]) -> Result<()> 
         b"kern.ostype" => write_all(io, fd, b"Vibrix")?,
         b"kern.osrelease" => write_all(io, fd, env!("CARGO_PKG_VERSION").as_bytes())?,
         b"hw.machine" => write_all(io, fd, b"x86_64")?,
-        b"kern.pid" => number(io, fd, io.getpid()?)?,
-        b"kern.processes" => number(io, fd, sysctl_process_count(io)?)?,
-        b"vfs.root" => write_all(
-            io,
-            fd,
-            if directory(io, b"/")? {
-                b"mounted-volatile"
-            } else {
-                b"unavailable"
-            },
-        )?,
-        b"vfs.dev" => write_all(
-            io,
-            fd,
-            if directory(io, b"/dev")? {
-                b"mounted"
-            } else {
-                b"unavailable"
-            },
-        )?,
+        b"kern.pid" => {
+            let pid = io.getpid()?;
+            number(io, fd, pid)?;
+        }
+        b"kern.processes" => {
+            let processes = sysctl_process_count(io)?;
+            number(io, fd, processes)?;
+        }
+        b"vfs.root" => {
+            let state = match directory(io, b"/") {
+                Ok(true) => b"mounted-volatile".as_slice(),
+                Ok(false) => b"unavailable".as_slice(),
+                Err(code) if code == abi::Errno::NotFound.code() => b"unavailable".as_slice(),
+                Err(code) => return Err(code.into()),
+            };
+            write_all(io, fd, state)?;
+        }
+        b"vfs.dev" => {
+            let state = match directory(io, b"/dev") {
+                Ok(true) => b"mounted".as_slice(),
+                Ok(false) => b"unavailable".as_slice(),
+                Err(code) if code == abi::Errno::NotFound.code() => b"unavailable".as_slice(),
+                Err(code) => return Err(code.into()),
+            };
+            write_all(io, fd, state)?;
+        }
         _ => return Err(Error::Message(b"sysctl: unknown name")),
     }
     write_all(io, fd, b"\n")?;
