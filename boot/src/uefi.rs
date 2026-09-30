@@ -691,7 +691,11 @@ pub unsafe fn discover_boot_whole_disk(
         )
     };
     if status != EFI_SUCCESS || child_raw.is_null() {
-        return Err(if status == EFI_SUCCESS { EFI_LOAD_ERROR } else { status });
+        return Err(if status == EFI_SUCCESS {
+            EFI_LOAD_ERROR
+        } else {
+            status
+        });
     }
     let (child, child_len) = copy_device_path(child_raw as *const u8)?;
     let partition =
@@ -712,16 +716,19 @@ pub unsafe fn discover_boot_whole_disk(
         if !handles.is_null() {
             let _ = unsafe { ((*services).free_pool)(handles.cast()) };
         }
-        return Err(if status == EFI_SUCCESS { EFI_LOAD_ERROR } else { status });
+        return Err(if status == EFI_SUCCESS {
+            EFI_LOAD_ERROR
+        } else {
+            status
+        });
     }
 
     let mut found: Option<FirmwareBootDisk> = None;
     for index in 0..count {
         let handle = unsafe { *handles.add(index) };
         let mut block_raw: *mut c_void = null_mut();
-        if unsafe {
-            ((*services).handle_protocol)(handle, &BLOCK_IO_PROTOCOL_GUID, &mut block_raw)
-        } != EFI_SUCCESS
+        if unsafe { ((*services).handle_protocol)(handle, &BLOCK_IO_PROTOCOL_GUID, &mut block_raw) }
+            != EFI_SUCCESS
             || block_raw.is_null()
         {
             continue;
@@ -750,11 +757,9 @@ pub unsafe fn discover_boot_whole_disk(
         let Ok((parent, parent_len)) = copy_device_path(path_raw as *const u8) else {
             continue;
         };
-        let matches = crate::uefi_boot_path::parent_matches(
-            &child[..child_len],
-            &parent[..parent_len],
-        )
-        .map_err(|_| EFI_LOAD_ERROR)?;
+        let matches =
+            crate::uefi_boot_path::parent_matches(&child[..child_len], &parent[..parent_len])
+                .map_err(|_| EFI_LOAD_ERROR)?;
         if !matches {
             continue;
         }
@@ -1000,7 +1005,11 @@ pub unsafe fn loaded_image_boot_partition(
         )
     };
     if status != EFI_SUCCESS || raw.is_null() {
-        return Err(if status == EFI_SUCCESS { EFI_LOAD_ERROR } else { status });
+        return Err(if status == EFI_SUCCESS {
+            EFI_LOAD_ERROR
+        } else {
+            status
+        });
     }
 
     let (bytes, len) = copy_device_path(raw as *const u8)?;
