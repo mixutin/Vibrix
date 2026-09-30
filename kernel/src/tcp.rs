@@ -962,7 +962,11 @@ fn parse_mss_option(options: &[u8]) -> Result<Option<u16>, Error> {
                     return Err(Error::Header);
                 }
                 let length = usize::from(options[offset + 1]);
-                if length < 2 || offset.checked_add(length).is_none_or(|end| end > options.len()) {
+                if length < 2
+                    || offset
+                        .checked_add(length)
+                        .is_none_or(|end| end > options.len())
+                {
                     return Err(Error::Header);
                 }
                 if kind == OPTION_MSS {
@@ -1003,7 +1007,9 @@ fn encode_with_options(
         return Err(Error::Length);
     }
     parse_mss_option(options)?;
-    let header_len = HEADER_BYTES.checked_add(options.len()).ok_or(Error::Length)?;
+    let header_len = HEADER_BYTES
+        .checked_add(options.len())
+        .ok_or(Error::Length)?;
     let length = header_len.checked_add(payload.len()).ok_or(Error::Length)?;
     if length > ipv4::MAX_PAYLOAD || output.len() < length {
         return Err(Error::OutputTooSmall);
@@ -1313,21 +1319,9 @@ mod tests {
         assert_eq!(segment.options(), options.as_slice());
 
         assert_eq!(parse_mss_option(&[OPTION_MSS, 3, 0]), Err(Error::Header));
+        assert_eq!(parse_mss_option(&[OPTION_MSS, 4, 0, 0]), Err(Error::Header));
         assert_eq!(
-            parse_mss_option(&[OPTION_MSS, 4, 0, 0]),
-            Err(Error::Header)
-        );
-        assert_eq!(
-            parse_mss_option(&[
-                OPTION_MSS,
-                4,
-                0x04,
-                0xb0,
-                OPTION_MSS,
-                4,
-                0x04,
-                0xb0,
-            ]),
+            parse_mss_option(&[OPTION_MSS, 4, 0x04, 0xb0, OPTION_MSS, 4, 0x04, 0xb0,]),
             Err(Error::Header)
         );
     }
