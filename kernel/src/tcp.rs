@@ -525,6 +525,114 @@ impl PassiveConnection {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RetransmissionBuffer {
+    sequence: u32,
+    len: u16,
+    duplicate_acks: u8,
+    fast_recovery: bool,
+    active: bool,
+    payload: [u8; MAX_PAYLOAD],
+}
+
+impl RetransmissionBuffer {
+    pub const fn new() -> Self {
+        Self {
+            sequence: 0,
+            len: 0,
+            duplicate_acks: 0,
+            fast_recovery: false,
+            active: false,
+            payload: [0; MAX_PAYLOAD],
+        }
+    }
+
+    pub const fn is_active(&self) -> bool {
+        self.active
+    }
+
+    pub const fn duplicate_acks(&self) -> u8 {
+        self.duplicate_acks
+    }
+
+    pub const fn in_fast_recovery(&self) -> bool {
+        self.fast_recovery
+    }
+
+    fn retain(&mut self, sequence: u32, payload: &[u8]) -> Result<(), Error> {
+        if self.active || payload.is_empty() || payload.len() > MAX_PAYLOAD {
+            return Err(Error::State);
+        }
+        self.payload[..payload.len()].copy_from_slice(payload);
+        self.sequence = sequence;
+        self.len = payload.len() as u16;
+        self.duplicate_acks = 0;
+        self.fast_recovery = false;
+        self.active = true;
+        Ok(())
+    }
+
+    fn end_sequence(&self) -> u32 {
+        self.sequence.wrapping_add(u32::from(self.len))
+    }
+
+    fn note_duplicate_ack(&mut self) -> u8 {
+        self.duplicate_acks = self.duplicate_acks.saturating_add(1);
+        self.duplicate_acks
+    }
+
+    fn acknowledge(&mut self, acknowledgment: u32) -> Result<bool, Error> {
+        if !self.active {
+            return Ok(false);
+        }
+        if sequence_before(acknowledgment, self.sequence)
+            || sequence_after(acknowledgment, self.end_sequence())
+        {
+            return Err(Error::Acknowledgment);
+        }
+        let consumed = acknowledgment.wrapping_sub(self.sequence) as usize;
+        if consumed == 0 {
+            return Ok(false);
+        }
+        let len = usize::from(self.len);
+        if consumed >= len {
+            self.active = false;
+            self.len = 0;
+            self.duplicate_acks = 0;
+            return Ok(true);
+        }
+        self.payload.copy_within(consumed..len, 0);
+        self.sequence = acknowledgment;
+        self.len = (len - consumed) as u16;
+        self.duplicate_acks = 0;
+        Ok(false)
+    }
+
+    fn encode(&self, client: &Client, output: &mut [u8]) -> Result<usize, Error> {
+        if !self.active {
+            return Err(Error::State);
+        }
+        encode(
+            client.local.address,
+            client.remote.address,
+            client.local.port,
+            client.remote.port,
+            self.sequence,
+            client.rcv_nxt,
+            FLAG_ACK | FLAG_PSH,
+            u16::MAX,
+            &self.payload[..usize::from(self.len)],
+            output,
+        )
+    }
+}
+
+impl Default for RetransmissionBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Client {
     local: Endpoint,
     remote: Endpoint,
@@ -637,6 +745,95 @@ impl Client {
         self.congestion = CongestionControl::new(u32::from(self.peer_mss))?;
         self.state = State::Established;
         self.ack_segment(output)
+    }
+
+    /// Send one segment while retaining a bounded copy for live loss recovery.
+    ///
+    /// This early transport deliberately retains at most one in-flight payload.
+    /// A second reliable send is rejected until cumulative acknowledgment
+    /// releases the buffer.
+    pub fn send_reliable(
+        &mut self,
+        payload: &[u8],
+        retained: &mut RetransmissionBuffer,
+        output: &mut [u8],
+    ) -> Result<usize, Error> {
+        if retained.is_active() {
+            return Err(Error::State);
+        }
+        if payload.is_empty() {
+            return Err(Error::Length);
+        }
+        let sequence = self.snd_nxt;
+        let len = self.send(payload, output)?;
+        retained.retain(sequence, payload)?;
+        Ok(len)
+    }
+
+    /// Process one ACK-only segment and perform bounded fast retransmit.
+    ///
+    /// Three duplicate ACKs for SND.UNA enter RFC-5681 fast recovery and
+    /// reproduce the retained segment. New cumulative ACKs trim or release the
+    /// retained bytes. The caller owns actual NIC transmission of the returned
+    /// retransmission bytes.
+    pub fn accept_ack_with_recovery(
+        &mut self,
+        input: &[u8],
+        retained: &mut RetransmissionBuffer,
+        retransmit_output: &mut [u8],
+    ) -> Result<Option<usize>, Error> {
+        if self.state != State::Established {
+            return Err(Error::State);
+        }
+        let segment = parse(self.remote.address, self.local.address, input)?;
+        self.validate_ports(&segment)?;
+        if segment.rst() {
+            return Err(Error::Reset);
+        }
+        if !segment.ack() || segment.syn() || segment.fin() || !segment.payload().is_empty() {
+            return Err(Error::Header);
+        }
+        let acknowledgment = segment.acknowledgment();
+        if sequence_after(acknowledgment, self.snd_nxt)
+            || sequence_before(acknowledgment, self.snd_una)
+        {
+            return Err(Error::Acknowledgment);
+        }
+        self.peer_window = segment.window();
+
+        if acknowledgment == self.snd_una {
+            if retained.is_active() && retained.sequence == self.snd_una {
+                let duplicates = retained.note_duplicate_ack();
+                if duplicates == 3 && !retained.fast_recovery {
+                    let flight = self.snd_nxt.wrapping_sub(self.snd_una);
+                    self.congestion.on_three_duplicate_acks(flight);
+                    retained.fast_recovery = true;
+                    return retained.encode(self, retransmit_output).map(Some);
+                }
+            }
+            return Ok(None);
+        }
+
+        self.accept_ack(acknowledgment)?;
+        let completed = retained.acknowledge(acknowledgment)?;
+        if retained.fast_recovery && completed {
+            self.congestion.on_recovery_ack();
+            retained.fast_recovery = false;
+        }
+        Ok(None)
+    }
+
+    /// Reproduce the retained segment after an RTO and apply congestion backoff.
+    pub fn retransmit_after_timeout(
+        &mut self,
+        retained: &RetransmissionBuffer,
+        output: &mut [u8],
+    ) -> Result<usize, Error> {
+        if self.state != State::Established || !retained.is_active() {
+            return Err(Error::State);
+        }
+        self.retransmission_timeout();
+        retained.encode(self, output)
     }
 
     pub fn send(&mut self, payload: &[u8], output: &mut [u8]) -> Result<usize, Error> {
@@ -1115,10 +1312,39 @@ pub(super) fn self_test() -> Result<(), Error> {
         return Err(Error::State);
     }
 
-    let data_len = client.send(b"GET", &mut wire)?;
+    let mut retained = RetransmissionBuffer::new();
+    let data_len = client.send_reliable(b"GET", &mut retained, &mut wire)?;
     let data = parse(local.address, remote.address, &wire[..data_len])?;
-    if data.payload() != b"GET" || client.send_next() != 2 {
+    if data.payload() != b"GET" || client.send_next() != 2 || !retained.is_active() {
         return Err(Error::Sequence);
+    }
+
+    // A live duplicate-ACK stream must trigger exactly one fast retransmit of
+    // the retained bytes without advancing sequence state.
+    for duplicate in 1..=3 {
+        let duplicate_len = synthetic_peer(
+            remote,
+            local,
+            client.receive_next(),
+            client.send_next().wrapping_sub(3),
+            FLAG_ACK,
+            &[],
+            &mut wire,
+        )?;
+        let retransmitted =
+            client.accept_ack_with_recovery(&wire[..duplicate_len], &mut retained, &mut reply)?;
+        if duplicate < 3 && retransmitted.is_some() {
+            return Err(Error::Invariant);
+        }
+        if duplicate == 3 {
+            let Some(retransmitted) = retransmitted else {
+                return Err(Error::Invariant);
+            };
+            let retry = parse(local.address, remote.address, &reply[..retransmitted])?;
+            if retry.payload() != b"GET" || retry.sequence() != 0xffff_ffff {
+                return Err(Error::Invariant);
+            }
+        }
     }
 
     let ack_len = synthetic_peer(
@@ -1130,8 +1356,11 @@ pub(super) fn self_test() -> Result<(), Error> {
         &[],
         &mut wire,
     )?;
-    client.accept_ack_only(&wire[..ack_len])?;
-    if client.congestion_window() <= DEFAULT_SMSS {
+    client.accept_ack_with_recovery(&wire[..ack_len], &mut retained, &mut reply)?;
+    if retained.is_active()
+        || retained.in_fast_recovery()
+        || client.congestion_window() <= DEFAULT_SMSS
+    {
         return Err(Error::Invariant);
     }
 
@@ -1551,6 +1780,142 @@ mod tests {
         assert_eq!(cc.cwnd(), 7000);
         cc.on_recovery_ack();
         assert_eq!(cc.cwnd(), 4000);
+    }
+
+    #[test]
+    fn live_duplicate_acks_fast_retransmit_retained_payload() {
+        let (local, remote) = endpoints();
+        let mut client = Client::new(local, remote, 100);
+        let mut wire = [0u8; ipv4::MAX_PAYLOAD];
+        let mut output = [0u8; ipv4::MAX_PAYLOAD];
+
+        client.connect(&mut wire).unwrap();
+        let peer_isn = 500;
+        let syn_ack = synthetic_peer(
+            remote,
+            local,
+            peer_isn,
+            client.send_next(),
+            FLAG_SYN | FLAG_ACK,
+            &[],
+            &mut wire,
+        )
+        .unwrap();
+        let input = wire;
+        client
+            .accept_syn_ack(&input[..syn_ack], &mut output)
+            .unwrap();
+
+        let mut retained = RetransmissionBuffer::new();
+        let sent = client
+            .send_reliable(b"hello", &mut retained, &mut wire)
+            .unwrap();
+        let original = parse(local.address, remote.address, &wire[..sent]).unwrap();
+        let original_sequence = original.sequence();
+        let duplicate_ack = original_sequence;
+
+        for count in 1..=3 {
+            let ack_len = synthetic_peer(
+                remote,
+                local,
+                client.receive_next(),
+                duplicate_ack,
+                FLAG_ACK,
+                &[],
+                &mut wire,
+            )
+            .unwrap();
+            let input = wire;
+            let retransmit = client
+                .accept_ack_with_recovery(&input[..ack_len], &mut retained, &mut output)
+                .unwrap();
+            if count < 3 {
+                assert_eq!(retransmit, None);
+            } else {
+                let length = retransmit.expect("third duplicate ACK must retransmit");
+                let retry = parse(local.address, remote.address, &output[..length]).unwrap();
+                assert_eq!(retry.sequence(), original_sequence);
+                assert_eq!(retry.payload(), b"hello");
+                assert!(retained.in_fast_recovery());
+            }
+        }
+        assert_eq!(retained.duplicate_acks(), 3);
+
+        let full_ack = synthetic_peer(
+            remote,
+            local,
+            client.receive_next(),
+            original_sequence.wrapping_add(5),
+            FLAG_ACK,
+            &[],
+            &mut wire,
+        )
+        .unwrap();
+        let input = wire;
+        assert_eq!(
+            client
+                .accept_ack_with_recovery(&input[..full_ack], &mut retained, &mut output)
+                .unwrap(),
+            None
+        );
+        assert!(!retained.is_active());
+        assert!(!retained.in_fast_recovery());
+        assert_eq!(client.congestion_window(), client.slow_start_threshold());
+    }
+
+    #[test]
+    fn partial_ack_trims_retained_segment_and_timeout_reuses_suffix() {
+        let (local, remote) = endpoints();
+        let mut client = Client::new(local, remote, 1000);
+        let mut wire = [0u8; ipv4::MAX_PAYLOAD];
+        let mut output = [0u8; ipv4::MAX_PAYLOAD];
+
+        client.connect(&mut wire).unwrap();
+        let peer_isn = 2000;
+        let syn_ack = synthetic_peer(
+            remote,
+            local,
+            peer_isn,
+            client.send_next(),
+            FLAG_SYN | FLAG_ACK,
+            &[],
+            &mut wire,
+        )
+        .unwrap();
+        let input = wire;
+        client
+            .accept_syn_ack(&input[..syn_ack], &mut output)
+            .unwrap();
+
+        let mut retained = RetransmissionBuffer::new();
+        client
+            .send_reliable(b"abcdef", &mut retained, &mut wire)
+            .unwrap();
+        let first = retained.sequence;
+        let partial_ack = synthetic_peer(
+            remote,
+            local,
+            client.receive_next(),
+            first.wrapping_add(2),
+            FLAG_ACK,
+            &[],
+            &mut wire,
+        )
+        .unwrap();
+        let input = wire;
+        client
+            .accept_ack_with_recovery(&input[..partial_ack], &mut retained, &mut output)
+            .unwrap();
+        assert!(retained.is_active());
+        assert_eq!(retained.sequence, first.wrapping_add(2));
+
+        let retry_len = client
+            .retransmit_after_timeout(&retained, &mut output)
+            .unwrap();
+        let retry = parse(local.address, remote.address, &output[..retry_len]).unwrap();
+        assert_eq!(retry.sequence(), first.wrapping_add(2));
+        assert_eq!(retry.payload(), b"cdef");
+        assert_eq!(client.congestion_window(), u32::from(client.peer_mss()));
     }
 
     #[test]
