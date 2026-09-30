@@ -45,6 +45,20 @@ const SIMPLE_FILE_SYSTEM_PROTOCOL_GUID: Guid = Guid {
     data4: [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b],
 };
 
+const BLOCK_IO_PROTOCOL_GUID: Guid = Guid {
+    data1: 0x964e5b21,
+    data2: 0x6459,
+    data3: 0x11d2,
+    data4: [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b],
+};
+
+const DEVICE_PATH_PROTOCOL_GUID: Guid = Guid {
+    data1: 0x09576e91,
+    data2: 0x6d3f,
+    data3: 0x11d2,
+    data4: [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b],
+};
+
 // UEFI Specification 2.9A: ACPI configuration table GUIDs.
 const ACPI_20_TABLE_GUID: Guid = Guid {
     data1: 0x8868e871,
@@ -185,20 +199,9 @@ struct BlockIoMedia {
 }
 
 type BlockReset = extern "efiapi" fn(*mut BlockIoProtocol, u8) -> Status;
-type BlockRead = extern "efiapi" fn(
-    *mut BlockIoProtocol,
-    u32,
-    u64,
-    usize,
-    *mut c_void,
-) -> Status;
-type BlockWrite = extern "efiapi" fn(
-    *mut BlockIoProtocol,
-    u32,
-    u64,
-    usize,
-    *const c_void,
-) -> Status;
+type BlockRead = extern "efiapi" fn(*mut BlockIoProtocol, u32, u64, usize, *mut c_void) -> Status;
+type BlockWrite =
+    extern "efiapi" fn(*mut BlockIoProtocol, u32, u64, usize, *const c_void) -> Status;
 type BlockFlush = extern "efiapi" fn(*mut BlockIoProtocol) -> Status;
 
 #[repr(C)]
@@ -210,7 +213,6 @@ struct BlockIoProtocol {
     write_blocks: BlockWrite,
     flush_blocks: BlockFlush,
 }
-
 
 #[repr(C)]
 pub struct BootServices {
@@ -608,7 +610,6 @@ impl KernelFile {
         unsafe { slice::from_raw_parts(self.ptr, self.len) }
     }
 }
-
 
 const MAX_BOOT_DEVICE_PATH_BYTES: usize = 1024;
 
