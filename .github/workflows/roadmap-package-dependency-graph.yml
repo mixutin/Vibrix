@@ -33,4 +33,4 @@ jobs:
         run: |
           VIBRIX_KERNEL_FEATURES=qemu-debugcon,package-metadata-probe bash tools/build-qemu.sh
           VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
-          grep -Fq "VIBRIX: userspace package metadata verified" build/qemu/debugcon.log
+          grep -Fq "VIBRIX: package metadata userspace verified" build/qemu/debugcon.log
