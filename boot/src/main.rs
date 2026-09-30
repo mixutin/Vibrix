@@ -370,20 +370,19 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
     // No firmware calls after successful map acquisition: preserve exactly
     // this buffer's length, stride and descriptor version, and keep the key
     // strictly loader-local for the later ExitBootServices implementation.
-    let boot_info =
-        match create_boot_info(
-            &framebuffer,
-            rsdp_address,
-            &memory_map,
-            kernel_window_table,
-            boot_identity,
-        ) {
-            Ok(info) => info,
-            Err(_error) => {
-                uefi::debug_write("VIBRIX: BootInfo v4 validation failed\r\n");
-                return EFI_LOAD_ERROR;
-            }
-        };
+    let boot_info = match create_boot_info(
+        &framebuffer,
+        rsdp_address,
+        &memory_map,
+        kernel_window_table,
+        boot_identity,
+    ) {
+        Ok(info) => info,
+        Err(_error) => {
+            uefi::debug_write("VIBRIX: BootInfo v4 validation failed\r\n");
+            return EFI_LOAD_ERROR;
+        }
+    };
     // SAFETY: UEFI AllocatePages granted one page of EfiLoaderData, writable
     // and mapped in the firmware address space. The checked address is aligned
     // for BootInfo and the 168-byte object fits in the exclusive 4096-byte page.
@@ -422,15 +421,13 @@ pub unsafe extern "efiapi" fn efi_main(image: Handle, system_table: *mut SystemT
             uefi::debug_write("VIBRIX: ExitBootServices map refresh failed\r\n");
             break;
         }
-        let Ok(updated) =
-            create_boot_info(
-                &framebuffer,
-                rsdp_address,
-                &memory_map,
-                kernel_window_table,
-                boot_identity,
-            )
-        else {
+        let Ok(updated) = create_boot_info(
+            &framebuffer,
+            rsdp_address,
+            &memory_map,
+            kernel_window_table,
+            boot_identity,
+        ) else {
             uefi::debug_write("VIBRIX: ExitBootServices map version rejected\r\n");
             break;
         };
