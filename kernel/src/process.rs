@@ -341,7 +341,7 @@ impl<const N: usize> Table<N> {
 /// self-test. It exercises identity allocation, zombie retention, reaping,
 /// parent validation and orphan adoption without touching scheduler state.
 pub fn self_test() -> Result<(), Error> {
-    let mut table = Table::<4>::new();
+    let mut table = Table::<6>::new();
     let init = table.spawn_init()?;
     if init != Pid::INIT {
         return Err(Error::NotFound);
