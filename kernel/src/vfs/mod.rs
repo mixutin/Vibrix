@@ -16,6 +16,10 @@ pub const NAME_MAX: usize = 31;
 pub const PATH_MAX: usize = 255;
 pub const DEPTH_MAX: usize = 16;
 
+pub const FLAG_IMMUTABLE: u8 = 1 << 0;
+pub const FLAG_APPEND_ONLY: u8 = 1 << 1;
+pub const FILE_FLAGS_ALL: u8 = FLAG_IMMUTABLE | FLAG_APPEND_ONLY;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     InvalidPath,
@@ -120,6 +124,17 @@ pub trait Filesystem {
     fn read(&mut self, id: NodeId, offset: usize, buffer: &mut [u8]) -> Result<usize>;
     fn write(&mut self, id: NodeId, offset: usize, buffer: &[u8]) -> Result<usize>;
     fn truncate(&mut self, id: NodeId) -> Result<()>;
+
+    /// Optional persistent-style file flags. Backends that do not implement
+    /// mutable flags remain explicitly unsupported rather than silently
+    /// ignoring a security policy.
+    fn file_flags(&self, _id: NodeId) -> Result<u8> {
+        Ok(0)
+    }
+
+    fn set_file_flags(&mut self, _id: NodeId, _flags: u8) -> Result<()> {
+        Err(Error::Unsupported)
+    }
 
     /// Inject one byte from a kernel-owned device driver into a device node.
     /// Regular filesystems reject this by default.
@@ -339,6 +354,17 @@ impl<'a, const M: usize> Vfs<'a, M> {
 
     pub fn truncate(&mut self, node: Node) -> Result<()> {
         self.fs_mut(node)?.truncate(node.id)
+    }
+
+    pub fn file_flags(&self, node: Node) -> Result<u8> {
+        self.fs(node)?.file_flags(node.id)
+    }
+
+    pub fn set_file_flags(&mut self, node: Node, flags: u8) -> Result<()> {
+        if flags & !FILE_FLAGS_ALL != 0 {
+            return Err(Error::Unsupported);
+        }
+        self.fs_mut(node)?.set_file_flags(node.id, flags)
     }
 
     pub fn device_input(&mut self, node: Node, byte: u8) -> Result<()> {
