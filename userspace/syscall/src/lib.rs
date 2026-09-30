@@ -157,6 +157,17 @@ pub fn set_no_new_privileges() -> Result<()> {
     call(abi::Syscall::NoNewPrivileges, [1, 0, 0, 0, 0, 0]).map(|_| ())
 }
 
+pub fn promises() -> Result<u64> {
+    call(abi::Syscall::Promises, [0, 0, 0, 0, 0, 0])
+}
+
+pub fn restrict_promises(promises: u64) -> Result<()> {
+    if promises & !abi::PROMISE_ALL != 0 {
+        return Err(abi::Errno::InvalidArgument.code());
+    }
+    call(abi::Syscall::Promises, [1, promises, 0, 0, 0, 0]).map(|_| ())
+}
+
 pub fn read(fd: u64, buffer: &mut [u8]) -> Result<usize> {
     let raw = call(
         abi::Syscall::Read,
@@ -316,6 +327,15 @@ mod tests {
     fn host_backend_never_executes_host_syscalls() {
         assert_eq!(getpid(), Err(abi::Errno::NotSupported.code()));
         assert_eq!(yield_now(), Err(abi::Errno::NotSupported.code()));
+        assert_eq!(promises(), Err(abi::Errno::NotSupported.code()));
+        assert_eq!(
+            restrict_promises(abi::PROMISE_IO),
+            Err(abi::Errno::NotSupported.code())
+        );
+        assert_eq!(
+            restrict_promises(abi::PROMISE_ALL | (1 << 63)),
+            Err(abi::Errno::InvalidArgument.code())
+        );
         let mut ids = abi::IdTriple::ROOT;
         assert_eq!(getresuid(&mut ids), Err(abi::Errno::NotSupported.code()));
         assert_eq!(
@@ -357,5 +377,6 @@ mod tests {
         assert_eq!(abi::Syscall::GetResGid.number(), 21);
         assert_eq!(abi::Syscall::SetResGid.number(), 22);
         assert_eq!(abi::Syscall::NoNewPrivileges.number(), 23);
+        assert_eq!(abi::Syscall::Promises.number(), 24);
     }
 }
