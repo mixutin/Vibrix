@@ -331,18 +331,35 @@ impl<'a, const M: usize> Vfs<'a, M> {
             return Err(Error::Unsupported);
         }
 
-        let source_covered = Node { mount: from_parent.mount, id: self.fs(from_parent)?.lookup(from_parent.id, from_name)? };
-        if self.mounts.iter().flatten().any(|mount| mount.covered == Some(source_covered)) {
+        let source_covered = Node {
+            mount: from_parent.mount,
+            id: self.fs(from_parent)?.lookup(from_parent.id, from_name)?,
+        };
+        if self
+            .mounts
+            .iter()
+            .flatten()
+            .any(|mount| mount.covered == Some(source_covered))
+        {
             return Err(Error::Busy);
         }
         if let Ok(destination_id) = self.fs(to_parent)?.lookup(to_parent.id, to_name) {
-            let destination = Node { mount: to_parent.mount, id: destination_id };
-            if self.mounts.iter().flatten().any(|mount| mount.covered == Some(destination)) {
+            let destination = Node {
+                mount: to_parent.mount,
+                id: destination_id,
+            };
+            if self
+                .mounts
+                .iter()
+                .flatten()
+                .any(|mount| mount.covered == Some(destination))
+            {
                 return Err(Error::Busy);
             }
         }
 
-        self.fs_mut(from_parent)?.rename(from_parent.id, from_name, to_parent.id, to_name)
+        self.fs_mut(from_parent)?
+            .rename(from_parent.id, from_name, to_parent.id, to_name)
     }
 
     pub fn remove(&mut self, path: &str) -> Result<()> {
