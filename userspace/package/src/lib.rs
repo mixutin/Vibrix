@@ -293,6 +293,30 @@ impl Database {
             .find(|package| package.name == name)
     }
 
+    pub fn direct_dependencies(&self, name: Name) -> Result<&[Dependency], Error> {
+        self.get(name)
+            .map(Manifest::dependencies)
+            .ok_or(Error::NotInstalled)
+    }
+
+    pub fn direct_dependents(
+        &self,
+        name: Name,
+        output: &mut [Name; DATABASE_CAPACITY],
+    ) -> Result<usize, Error> {
+        if self.get(name).is_none() {
+            return Err(Error::NotInstalled);
+        }
+        let mut count = 0usize;
+        for package in self.packages[..self.used].iter().flatten() {
+            if package.dependencies().iter().any(|dependency| dependency.name == name) {
+                output[count] = package.name;
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
     pub fn validate_dependencies(&self, manifest: &Manifest) -> Result<(), Error> {
         for dependency in manifest.dependencies() {
             let installed = self.get(dependency.name).ok_or(Error::MissingDependency)?;
@@ -433,6 +457,33 @@ mod tests {
         db.install(app).unwrap();
         assert_eq!(db.len(), 2);
         assert_eq!(db.install(app), Err(Error::AlreadyInstalled));
+    }
+
+    #[test]
+    fn dependency_graph_inspection_reports_both_directions() {
+        let core = manifest(b"core", Version::new(1, 0, 0), &[]);
+        let dep = Dependency {
+            name: core.name,
+            minimum: Version::new(1, 0, 0),
+        };
+        let app = manifest(b"app", Version::new(1, 0, 0), &[dep]);
+        let tool = manifest(b"tool", Version::new(1, 0, 0), &[dep]);
+        let mut db = Database::new();
+        db.install(core).unwrap();
+        db.install(app).unwrap();
+        db.install(tool).unwrap();
+
+        assert_eq!(db.direct_dependencies(core.name).unwrap(), &[]);
+        assert_eq!(db.direct_dependencies(app.name).unwrap(), &[dep]);
+
+        let mut dependents = [Name::EMPTY; DATABASE_CAPACITY];
+        let count = db.direct_dependents(core.name, &mut dependents).unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(&dependents[..count], &[app.name, tool.name]);
+        assert_eq!(
+            db.direct_dependencies(name(b"missing")),
+            Err(Error::NotInstalled)
+        );
     }
 
     #[test]
