@@ -151,13 +151,15 @@ impl Table {
         let header_checksum = internet_checksum(&packet[..IPV4_HEADER_BYTES]);
         packet[10..12].copy_from_slice(&header_checksum.to_be_bytes());
 
+        let source = [packet[12], packet[13], packet[14], packet[15]];
+        let destination = [packet[16], packet[17], packet[18], packet[19]];
         let transport = &mut packet[IPV4_HEADER_BYTES..parsed.total_len];
         match parsed.protocol {
             Protocol::Tcp => {
                 transport[16] = 0;
                 transport[17] = 0;
                 let checksum =
-                    transport_checksum(&packet[12..16], &packet[16..20], PROTO_TCP, transport);
+                    transport_checksum(&source, &destination, PROTO_TCP, transport);
                 transport[16..18].copy_from_slice(&checksum.to_be_bytes());
             }
             Protocol::Udp => {
@@ -166,7 +168,7 @@ impl Table {
                     transport[6] = 0;
                     transport[7] = 0;
                     let mut checksum =
-                        transport_checksum(&packet[12..16], &packet[16..20], PROTO_UDP, transport);
+                        transport_checksum(&source, &destination, PROTO_UDP, transport);
                     if checksum == 0 {
                         checksum = 0xffff;
                     }
