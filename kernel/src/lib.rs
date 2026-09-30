@@ -30,6 +30,7 @@ pub mod scsi;
 pub mod secure_random;
 pub mod service_manager;
 pub mod service_order;
+pub mod service_sandbox;
 pub mod sync;
 #[path = "../../shared/syscall_abi.rs"]
 pub mod syscall_abi;
@@ -101,6 +102,8 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel service manager state verified");
     service_order::self_test().expect("service dependency policy self-test failed");
     report("VIBRIX: kernel service dependency order verified");
+    service_sandbox::self_test().expect("service sandbox policy self-test failed");
+    report("VIBRIX: kernel service sandbox policy verified");
     ntp::self_test().expect("NTPv4 client discipline self-test failed");
     report("VIBRIX: kernel NTPv4 client discipline verified");
     nic::tcp_self_test().expect("TCP transport self-test failed");
