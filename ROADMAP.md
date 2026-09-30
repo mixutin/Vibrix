@@ -1273,7 +1273,7 @@ this milestone begins.
 - [ ] Transactional update staging
 - [ ] Automatic rollback after failed boot/update
 - [ ] Explicit `vpm update` / system-update workflow
-- [ ] Update history and rollback selection
+- [x] Update history and rollback selection
 - [ ] Known-good recovery environment on the Vibrix USB itself
 - [ ] Recovery can inspect and repair Vibrix FS without another OS
 - [ ] Recovery can restore previous system generation
@@ -1296,6 +1296,17 @@ automatic update execution remain separate work.
 
 **Exit:** a failed system update can be diagnosed and rolled back from the same
 Vibrix USB without another computer or operating system.
+
+**Verified M16 update history and rollback selection (PR #285):**
+the exact-head repository matrix passed implementation head
+`762ff6fdd6f27d2d39b16636500110a3c721ea08`, including dedicated
+update-history/rollback evidence. The fixed-capacity generation history records
+candidate/healthy generations, enforces a security floor, chooses only eligible
+healthy rollback targets, and fails closed when no valid target exists.
+
+This checks **Update history and rollback selection** as a bounded control-plane
+state machine. It does not claim persistent on-disk history, automatic reboot
+rollback, signed artifacts, or a complete recovery environment.
 
 ## M17 — Package ecosystem and profiles
 
@@ -1357,7 +1368,7 @@ weakening the default system.
 - [x] Driver binding/missing-driver diagnostics
 - [ ] Filesystem/network/update health checks
 - [x] Privacy-reviewed `vibrix doctor --bundle` support bundle
-- [ ] Verbose boot mode while normal boot remains clean
+- [x] Verbose boot mode while normal boot remains clean
 - [x] Hardware compatibility/quirk reporting
 - [x] Optional anonymized compatibility reports only with explicit opt-in
 
@@ -1464,6 +1475,16 @@ This checks only the **optional anonymized compatibility report with explicit
 opt-in** item. It does not create telemetry, remote submission, or an automatic
 reporting service.
 
+**Verified M18 explicit verbose boot mode (PR #280):**
+all exact-head workflows passed implementation head
+`4b51fccdd2b4d3b9b5f38676891d7f69dde535e1`, including dedicated two-mode
+QEMU evidence. Normal boot contains no verbose markers, while an explicit
+feature-enabled boot emits bounded BootInfo and PCI summaries over native
+serial/debugcon.
+
+This checks **Verbose boot mode while normal boot remains clean** only. It does
+not add persistent logging, crash storage, or a general tracing facility.
+
 ## M19 — Isolation and security workstation
 
 This extends the security roadmap; it does not replace the security gates that
@@ -1542,11 +1563,11 @@ inspect system state and perform routine maintenance without another OS.
 - [ ] anti-spoofing and fragment/resource limits
 - [ ] interface configuration utility
 - [ ] route and neighbor inspection utilities
-- [ ] resolver configuration and local caching resolver option
+- [x] resolver configuration and local caching resolver option
 - [ ] NTP client with clock-discipline policy
 - [ ] SSH client
 - [ ] privilege-separated SSH server
-- [ ] network services disabled by default unless explicitly enabled
+- [x] network services disabled by default unless explicitly enabled
 - [ ] per-service user, filesystem and network sandbox policy
 - [x] packet-filter ruleset validation before activation
 
@@ -1562,6 +1583,19 @@ implemented yet.
 
 **Exit:** Vibrix can act as a defensible workstation or small server with
 auditable network configuration and no surprise listening services.
+
+**Verified M22 network administration policy slices (PRs #281 and #284):**
+all exact-head workflows passed both implementation heads
+`5b4faf05b824e239204be2469435619a3937c3f4` and
+`beb7a659cff04debe2715f556fb70c52da328e45`. PR #281 provides a
+deny-by-default service-start policy for SSH/resolver/NTP slots; PR #284 adds
+bounded resolver configuration and a fixed-capacity DNS A cache with strict
+name validation, TTL expiry and deterministic replacement.
+
+These check **network services disabled by default unless explicitly enabled**
+and **resolver configuration and local caching resolver option** as bounded
+policy/control-plane items. They do not claim running SSH/NTP daemons, DNSSEC,
+persistent resolver state, or a complete network service manager.
 
 ## M23 — Process hardening and sandboxing
 
@@ -1615,7 +1649,7 @@ execution, a core-dump implementation, or secret classification enforcement.
 
 - [x] stable libc/system-call compatibility layer
 - [x] documented POSIX compatibility target and conformance matrix
-- [ ] fork/exec or documented compatible process-creation semantics
+- [x] fork/exec or documented compatible process-creation semantics
 - [ ] signals, pthreads and thread-local errno
 - [ ] mmap/shared-memory primitives
 - [ ] file locking and advisory locks
@@ -1663,6 +1697,18 @@ Rust compatibility wrapper. It does **not** claim a C/POSIX libc, glibc/musl
 compatibility, source compatibility with arbitrary Unix software, dynamic
 linking, pthreads or complete POSIX semantics; those remain separate M24 work.
 
+**Verified M24 documented compatible process-creation semantics (PR #279):**
+the exact-head repository matrix passed implementation head
+`0f1f7a7819383542ff0c45d585a14d2b20597a1e`, including the dedicated
+process-creation-semantics contract. The accepted contract defines Vibrix's
+transactional spawn/exec direction, descriptor and credential inheritance,
+security-state handling, and explicitly documents that POSIX `fork()` is not
+currently provided.
+
+This checks **fork/exec or documented compatible process-creation semantics**
+as the roadmap's documented-compatible alternative. It does not claim a working
+general-purpose spawn/exec userspace API or POSIX fork semantics.
+
 ## Optional later storage support
 
 Internal NVMe/SATA disks may be supported as user-accessible **data devices**. They are not Vibrix root/system installation targets.
@@ -1670,7 +1716,7 @@ Internal NVMe/SATA disks may be supported as user-accessible **data devices**. T
 ## Future
 - [x] aarch64 design
 - [ ] aarch64 UEFI boot
-- [ ] architecture-independent driver boundaries
+- [x] architecture-independent driver boundaries
 
 **Accepted AArch64 platform architecture (ADR 0025):** Vibrix keeps UEFI as
 the first firmware interface, defines EL0 userspace / EL1 kernel ownership,
@@ -1685,6 +1731,16 @@ driver, page-table implementation, physical ARM support, Device Tree parser or
 architecture-independent driver implementation is claimed. See
 [ADR 0025](docs/decisions/0025-aarch64-platform-design.md).
 
+
+**Verified architecture-independent driver boundary (PR #258):**
+all exact-head workflows passed implementation head
+`6406c1765bd49068e1091019c5a87de76f38e6c3`, including a no_std AArch64
+harness compiling the same transport-neutral `kernel/src/device.rs` matching
+and ownership policy used on x86-64. Source guards reject architecture/MMIO/CPU
+mechanism leakage from that shared boundary.
+
+This checks **architecture-independent driver boundaries** only. It does not
+claim AArch64 boot, ARM device backends, or working hardware drivers on ARM.
 
 ## Early non-goals
 
