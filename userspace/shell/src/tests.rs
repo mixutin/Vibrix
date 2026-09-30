@@ -202,7 +202,11 @@ impl System for Memory {
         let from = canonical(from);
         let to = canonical(to);
         if from == to {
-            return self.files.contains_key(&from).then_some(()).ok_or(abi::Errno::NotFound.code());
+            return self
+                .files
+                .contains_key(&from)
+                .then_some(())
+                .ok_or(abi::Errno::NotFound.code());
         }
         if from == b"/" {
             return Err(abi::Errno::PermissionDenied.code());
@@ -213,7 +217,10 @@ impl System for Memory {
         if self.handles.values().any(|handle| handle.path == to) {
             return Err(abi::Errno::Busy.code());
         }
-        let source = self.files.remove(&from).ok_or(abi::Errno::NotFound.code())?;
+        let source = self
+            .files
+            .remove(&from)
+            .ok_or(abi::Errno::NotFound.code())?;
         if let Some(destination) = self.files.get(&to)
             && destination.is_none() != source.is_none()
         {
@@ -448,7 +455,10 @@ fn atomic_move_and_system_configuration_use_rename() {
     let mut io = Memory::new();
     let mut shell = Shell::new();
 
-    io.files.insert(Vec::from(&b"/tmp/source"[..]), Some(Vec::from(&b"payload"[..])));
+    io.files.insert(
+        Vec::from(&b"/tmp/source"[..]),
+        Some(Vec::from(&b"payload"[..])),
+    );
     assert_eq!(io.run(&mut shell, b"mv /tmp/source /tmp/destination"), 0);
     assert!(!io.files.contains_key(&b"/tmp/source"[..]));
     assert_eq!(io.data(b"/tmp/destination"), b"payload");
