@@ -475,3 +475,88 @@ impl<'a, const M: usize, const D: usize, const P: usize, const B: usize> Files<'
         self.vfs.device_output(node, buffer)
     }
 }
+
+
+#[cfg(test)]
+mod advisory_lock_tests {
+    use super::*;
+    use crate::vfs::{Kind, Vfs, memfs::MemFs};
+
+    #[test]
+    fn shared_locks_coexist_and_exclusive_conflicts() {
+        let mut root = MemFs::<8, 64>::new().unwrap();
+        let mut vfs = Vfs::<1>::new(&mut root).unwrap();
+        vfs.create("/file", Kind::File).unwrap();
+        let mut files = Files::<1, 8, 1, 16>::new(vfs);
+
+        let first = files.open("/file", Open::READ_WRITE).unwrap();
+        let second = files.open("/file", Open::READ_WRITE).unwrap();
+        let third = files.open("/file", Open::READ_WRITE).unwrap();
+
+        files.lock(first, AdvisoryLock::Shared).unwrap();
+        files.lock(second, AdvisoryLock::Shared).unwrap();
+        assert_eq!(
+            files.lock(third, AdvisoryLock::Exclusive),
+            Err(Error::WouldBlock)
+        );
+        assert_eq!(
+            files.lock(first, AdvisoryLock::Exclusive),
+            Err(Error::WouldBlock)
+        );
+
+        files.unlock(second).unwrap();
+        files.unlock(first).unwrap();
+        files.lock(first, AdvisoryLock::Exclusive).unwrap();
+        assert_eq!(
+            files.lock(second, AdvisoryLock::Shared),
+            Err(Error::WouldBlock)
+        );
+    }
+
+    #[test]
+    fn duplicate_descriptors_share_lock_until_final_close() {
+        let mut root = MemFs::<8, 64>::new().unwrap();
+        let mut vfs = Vfs::<1>::new(&mut root).unwrap();
+        vfs.create("/file", Kind::File).unwrap();
+        let mut files = Files::<1, 8, 1, 16>::new(vfs);
+
+        let owner = files.open("/file", Open::READ_WRITE).unwrap();
+        files.lock(owner, AdvisoryLock::Exclusive).unwrap();
+        let duplicate = files.dup(owner).unwrap();
+        assert_eq!(
+            files.advisory_lock(duplicate),
+            Ok(Some(AdvisoryLock::Exclusive))
+        );
+
+        let contender = files.open("/file", Open::READ_WRITE).unwrap();
+        assert_eq!(
+            files.lock(contender, AdvisoryLock::Shared),
+            Err(Error::WouldBlock)
+        );
+
+        files.close(owner).unwrap();
+        assert_eq!(
+            files.lock(contender, AdvisoryLock::Shared),
+            Err(Error::WouldBlock)
+        );
+        files.close(duplicate).unwrap();
+        files.lock(contender, AdvisoryLock::Exclusive).unwrap();
+    }
+
+    #[test]
+    fn pipes_and_directories_are_not_lockable_files() {
+        let mut root = MemFs::<8, 64>::new().unwrap();
+        let vfs = Vfs::<1>::new(&mut root).unwrap();
+        let mut files = Files::<1, 8, 1, 16>::new(vfs);
+        let directory = files.open("/", Open::READ).unwrap();
+        assert_eq!(
+            files.lock(directory, AdvisoryLock::Shared),
+            Err(Error::NotSeekable)
+        );
+        let (reader, _) = files.pipe().unwrap();
+        assert_eq!(
+            files.lock(reader, AdvisoryLock::Shared),
+            Err(Error::NotSeekable)
+        );
+    }
+}
