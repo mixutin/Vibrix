@@ -160,6 +160,7 @@ pub struct Node {
 struct Mount<'a> {
     covered: Option<Node>,
     fs: &'a mut dyn Filesystem,
+    read_only: bool,
 }
 
 pub struct Vfs<'a, const M: usize> {
@@ -178,6 +179,7 @@ impl<'a, const M: usize> Vfs<'a, M> {
         mounts[0] = Some(Mount {
             covered: None,
             fs: root,
+            read_only: false,
         });
         Ok(Self { mounts })
     }
@@ -193,6 +195,14 @@ impl<'a, const M: usize> Vfs<'a, M> {
     fn fs_mut(&mut self, node: Node) -> Result<&mut (dyn Filesystem + 'a)> {
         match self.mounts.get_mut(node.mount).and_then(Option::as_mut) {
             Some(mount) => Ok(&mut *mount.fs),
+            None => Err(Error::StaleNode),
+        }
+    }
+
+    fn require_writable(&self, node: Node) -> Result<()> {
+        match self.mounts.get(node.mount).and_then(Option::as_ref) {
+            Some(mount) if mount.read_only => Err(Error::ReadOnly),
+            Some(_) => Ok(()),
             None => Err(Error::StaleNode),
         }
     }
@@ -219,6 +229,22 @@ impl<'a, const M: usize> Vfs<'a, M> {
     }
 
     pub fn mount(&mut self, path: &str, fs: &'a mut dyn Filesystem) -> Result<()> {
+        self.mount_with_mode(path, fs, false)
+    }
+
+    /// Mount a filesystem for forensic inspection. Reads and metadata queries
+    /// remain available, but all mutation is rejected by the VFS before the
+    /// backend is entered, even when the backend itself is writable.
+    pub fn mount_read_only(&mut self, path: &str, fs: &'a mut dyn Filesystem) -> Result<()> {
+        self.mount_with_mode(path, fs, true)
+    }
+
+    fn mount_with_mode(
+        &mut self,
+        path: &str,
+        fs: &'a mut dyn Filesystem,
+        read_only: bool,
+    ) -> Result<()> {
         let covered = self.resolve(path)?;
         if self.metadata(covered)?.kind != Kind::Directory
             || fs.metadata(fs.root())?.kind != Kind::Directory
@@ -237,6 +263,7 @@ impl<'a, const M: usize> Vfs<'a, M> {
         self.mounts[slot] = Some(Mount {
             covered: Some(covered),
             fs,
+            read_only,
         });
         Ok(())
     }
@@ -295,6 +322,7 @@ impl<'a, const M: usize> Vfs<'a, M> {
             return Err(Error::NotDirectory);
         }
         let (parent, name, depth) = self.parent(path)?;
+        self.require_writable(parent)?;
         if depth == DEPTH_MAX {
             return Err(Error::NameTooLong);
         }
@@ -311,6 +339,7 @@ impl<'a, const M: usize> Vfs<'a, M> {
             return Err(Error::Busy);
         }
         let (parent, name, _) = self.parent(path)?;
+        self.require_writable(parent)?;
         let id = self.fs(parent)?.lookup(parent.id, name)?;
         let covered = Node {
             mount: parent.mount,
@@ -345,6 +374,7 @@ impl<'a, const M: usize> Vfs<'a, M> {
     }
 
     pub fn write(&mut self, node: Node, offset: usize, buffer: &[u8]) -> Result<usize> {
+        self.require_writable(node)?;
         let count = self.fs_mut(node)?.write(node.id, offset, buffer)?;
         if count > buffer.len() {
             return Err(Error::BackendContract);
@@ -353,6 +383,7 @@ impl<'a, const M: usize> Vfs<'a, M> {
     }
 
     pub fn truncate(&mut self, node: Node) -> Result<()> {
+        self.require_writable(node)?;
         self.fs_mut(node)?.truncate(node.id)
     }
 
@@ -361,6 +392,7 @@ impl<'a, const M: usize> Vfs<'a, M> {
     }
 
     pub fn set_file_flags(&mut self, node: Node, flags: u8) -> Result<()> {
+        self.require_writable(node)?;
         if flags & !FILE_FLAGS_ALL != 0 {
             return Err(Error::Unsupported);
         }
@@ -368,10 +400,12 @@ impl<'a, const M: usize> Vfs<'a, M> {
     }
 
     pub fn device_input(&mut self, node: Node, byte: u8) -> Result<()> {
+        self.require_writable(node)?;
         self.fs_mut(node)?.device_input(node.id, byte)
     }
 
     pub fn device_output(&mut self, node: Node, buffer: &mut [u8]) -> Result<usize> {
+        self.require_writable(node)?;
         let limit = buffer.len();
         let count = self.fs_mut(node)?.device_output(node.id, buffer)?;
         if count > limit {
