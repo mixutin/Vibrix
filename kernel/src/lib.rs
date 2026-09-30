@@ -9,6 +9,7 @@ pub mod cpu_topology;
 pub mod credentials;
 pub mod device;
 pub mod klog;
+pub mod network_services;
 pub mod nic;
 pub mod packet_filter;
 pub mod per_cpu;
@@ -36,6 +37,8 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel block abstraction verified");
     nic::self_test().expect("NIC abstraction self-test failed");
     report("VIBRIX: kernel NIC abstraction verified");
+    network_services::self_test().expect("network service policy self-test failed");
+    report("VIBRIX: kernel network service default-off policy verified");
     packet_filter::self_test().expect("packet filter validation self-test failed");
     report("VIBRIX: kernel packet filter ruleset validation verified");
     nic::ipv4_icmp_self_test().expect("IPv4/ICMP self-test failed");
