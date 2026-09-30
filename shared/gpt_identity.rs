@@ -5,12 +5,10 @@
 //! System partition GUID tuple used by boot-device reacquisition.
 
 pub const ESP_TYPE_GUID: [u8; 16] = [
-    0x28, 0x73, 0x2a, 0xc1, 0x1f, 0xf8, 0xd2, 0x11,
-    0xba, 0x4b, 0x00, 0xa0, 0xc9, 0x3e, 0xc9, 0x3b,
+    0x28, 0x73, 0x2a, 0xc1, 0x1f, 0xf8, 0xd2, 0x11, 0xba, 0x4b, 0x00, 0xa0, 0xc9, 0x3e, 0xc9, 0x3b,
 ];
 pub const VIBRIX_SYSTEM_TYPE_GUID: [u8; 16] = [
-    0x3b, 0x0f, 0x4a, 0x2e, 0x3d, 0x6a, 0x96, 0x4e,
-    0xb9, 0x9a, 0x55, 0x3d, 0x7c, 0x0b, 0x12, 0x01,
+    0x3b, 0x0f, 0x4a, 0x2e, 0x3d, 0x6a, 0x96, 0x4e, 0xb9, 0x9a, 0x55, 0x3d, 0x7c, 0x0b, 0x12, 0x01,
 ];
 
 const HEADER_MIN: usize = 92;
@@ -63,11 +61,19 @@ pub enum Error {
 }
 
 fn u32_at(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("validated GPT field"))
+    u32::from_le_bytes(
+        bytes[offset..offset + 4]
+            .try_into()
+            .expect("validated GPT field"),
+    )
 }
 
 fn u64_at(bytes: &[u8], offset: usize) -> u64 {
-    u64::from_le_bytes(bytes[offset..offset + 8].try_into().expect("validated GPT field"))
+    u64::from_le_bytes(
+        bytes[offset..offset + 8]
+            .try_into()
+            .expect("validated GPT field"),
+    )
 }
 
 pub fn crc32(bytes: &[u8]) -> u32 {
@@ -115,7 +121,10 @@ pub fn validate_header(
     }
     let first_usable = u64_at(header, 40);
     let last_usable = u64_at(header, 48);
-    if first_usable < 2 || first_usable > last_usable || last_usable >= expected_backup.max(expected_current) {
+    if first_usable < 2
+        || first_usable > last_usable
+        || last_usable >= expected_backup.max(expected_current)
+    {
         return Err(Error::HeaderLayout);
     }
     let entry_lba = u64_at(header, 72);
@@ -182,7 +191,8 @@ pub fn validate_identity(
     if primary_entries.len() != expected_entries || backup_entries.len() != expected_entries {
         return Err(Error::EntryLength);
     }
-    if crc32(primary_entries) != primary.1.entry_crc || crc32(backup_entries) != backup.1.entry_crc {
+    if crc32(primary_entries) != primary.1.entry_crc || crc32(backup_entries) != backup.1.entry_crc
+    {
         return Err(Error::EntryCrc);
     }
     if primary_entries != backup_entries {
@@ -191,17 +201,9 @@ pub fn validate_identity(
 
     let primary_array_sectors = expected_entries.div_ceil(sector_size) as u64;
     if primary.1.entry_lba < 2
-        || primary
-            .1
-            .entry_lba
-            .saturating_add(primary_array_sectors)
-            > primary.1.first_usable
+        || primary.1.entry_lba.saturating_add(primary_array_sectors) > primary.1.first_usable
         || backup.1.entry_lba <= backup.1.last_usable
-        || backup
-            .1
-            .entry_lba
-            .saturating_add(primary_array_sectors)
-            > last_lba
+        || backup.1.entry_lba.saturating_add(primary_array_sectors) > last_lba
     {
         return Err(Error::HeaderLayout);
     }
