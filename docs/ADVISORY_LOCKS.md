@@ -21,3 +21,16 @@ role and avoids turning an advisory API into mandatory access control.
 This is the kernel core for M24 file locking/advisory locks. The roadmap item
 remains unchecked until a userspace ABI and native Ring-3 evidence are layered
 on top.
+
+
+## Userspace ABI extension
+
+This branch now reserves ABI v1 syscall 27 for non-blocking advisory locks.
+Syscall 26 is intentionally left available to the concurrent atomic-rename M21
+lane. The lock operation argument is one of unlock/shared/exclusive; unknown
+operations fail with InvalidArgument. The syscall is covered by the IO process
+promise and maps lock conflicts to the existing Busy errno. The safe Rust
+userspace wrapper validates the operation before entering the kernel.
+
+A native Ring-3 contention proof is still required before the M24 roadmap
+checkbox is marked complete.
