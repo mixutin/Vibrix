@@ -98,7 +98,7 @@ fn required_promise(call: abi::Syscall) -> Option<u64> {
     match call {
         abi::Syscall::Read | abi::Syscall::Write | abi::Syscall::Close | abi::Syscall::FdRights => {
             Some(abi::PROMISE_IO)
-        },
+        }
         abi::Syscall::Open
         | abi::Syscall::Create
         | abi::Syscall::Mkdir
@@ -248,7 +248,7 @@ pub fn dispatch<const N: usize>(
                 operation: args[1],
                 rights: args[2],
             })
-        },
+        }
         abi::Syscall::Create => Ok(Action::Create {
             path: args[0],
             length: args[1],
