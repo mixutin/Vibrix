@@ -436,7 +436,10 @@ impl Listener {
         };
         let rcv_nxt = segment.sequence().wrapping_add(1);
         let snd_nxt = initial_sequence.wrapping_add(1);
-        let peer_mss = segment.maximum_segment_size()?.unwrap_or(DEFAULT_SMSS as u16);
+        let peer_mss = segment
+            .maximum_segment_size()?
+            .unwrap_or(DEFAULT_SMSS as u16)
+            .min(local_mss());
         let options = mss_option(local_mss());
         let len = encode_with_options(
             self.local.address,
@@ -628,7 +631,10 @@ impl Client {
         self.snd_una = segment.acknowledgment();
         self.rcv_nxt = segment.sequence().wrapping_add(1);
         self.peer_window = segment.window();
-        self.peer_mss = segment.maximum_segment_size()?.unwrap_or(DEFAULT_SMSS as u16);
+        self.peer_mss = segment
+            .maximum_segment_size()?
+            .unwrap_or(DEFAULT_SMSS as u16)
+            .min(local_mss());
         self.congestion = CongestionControl::new(u32::from(self.peer_mss))?;
         self.state = State::Established;
         self.ack_segment(output)
@@ -1281,6 +1287,109 @@ mod tests {
                 port: 443,
             },
         )
+    }
+
+    #[test]
+    fn mss_option_round_trips_and_rejects_malformed_lists() {
+        let (local, remote) = endpoints();
+        let mut wire = [0u8; 64];
+        let options = mss_option(1200);
+        let len = encode_with_options(
+            remote.address,
+            local.address,
+            remote.port,
+            local.port,
+            10,
+            0,
+            FLAG_SYN,
+            4096,
+            &options,
+            &[],
+            &mut wire,
+        )
+        .unwrap();
+        let segment = parse(remote.address, local.address, &wire[..len]).unwrap();
+        assert_eq!(segment.maximum_segment_size(), Ok(Some(1200)));
+        assert_eq!(segment.options(), options.as_slice());
+
+        assert_eq!(parse_mss_option(&[OPTION_MSS, 3, 0]), Err(Error::Header));
+        assert_eq!(
+            parse_mss_option(&[OPTION_MSS, 4, 0, 0]),
+            Err(Error::Header)
+        );
+        assert_eq!(
+            parse_mss_option(&[
+                OPTION_MSS,
+                4,
+                0x04,
+                0xb0,
+                OPTION_MSS,
+                4,
+                0x04,
+                0xb0,
+            ]),
+            Err(Error::Header)
+        );
+    }
+
+    #[test]
+    fn active_open_negotiates_peer_mss_and_enforces_it() {
+        let (local, remote) = endpoints();
+        let mut client = Client::new(local, remote, 100);
+        let mut wire = [0u8; ipv4::MAX_PAYLOAD];
+        let mut reply = [0u8; ipv4::MAX_PAYLOAD];
+        let syn_len = client.connect(&mut wire).unwrap();
+        let syn = parse(local.address, remote.address, &wire[..syn_len]).unwrap();
+        assert_eq!(syn.maximum_segment_size(), Ok(Some(local_mss())));
+
+        let peer_options = mss_option(128);
+        let syn_ack_len = encode_with_options(
+            remote.address,
+            local.address,
+            remote.port,
+            local.port,
+            200,
+            client.send_next(),
+            FLAG_SYN | FLAG_ACK,
+            u16::MAX,
+            &peer_options,
+            &[],
+            &mut wire,
+        )
+        .unwrap();
+        client
+            .accept_syn_ack(&wire[..syn_ack_len], &mut reply)
+            .unwrap();
+        assert_eq!(client.peer_mss(), 128);
+        assert_eq!(client.congestion_window(), 128);
+        assert_eq!(client.send(&[0u8; 129], &mut wire), Err(Error::Length));
+        assert!(client.send(&[0u8; 128], &mut wire).is_ok());
+    }
+
+    #[test]
+    fn excessive_peer_mss_is_clamped_to_local_payload_limit() {
+        let (local, remote) = endpoints();
+        let mut client = Client::new(local, remote, 10);
+        let mut wire = [0u8; ipv4::MAX_PAYLOAD];
+        let mut reply = [0u8; ipv4::MAX_PAYLOAD];
+        client.connect(&mut wire).unwrap();
+        let peer_options = mss_option(u16::MAX);
+        let len = encode_with_options(
+            remote.address,
+            local.address,
+            remote.port,
+            local.port,
+            20,
+            client.send_next(),
+            FLAG_SYN | FLAG_ACK,
+            u16::MAX,
+            &peer_options,
+            &[],
+            &mut wire,
+        )
+        .unwrap();
+        client.accept_syn_ack(&wire[..len], &mut reply).unwrap();
+        assert_eq!(client.peer_mss(), local_mss());
     }
 
     #[test]
