@@ -105,7 +105,7 @@ Every name below has a built-in `man NAME` page and `NAME --help` path. Options 
 | `ps` | Actual kernel PID, parent PID and running/zombie state. |
 | `kill` | `kill PID [STATUS]`: current bootstrap termination operation; default exit status 143, **not POSIX signal syntax**. |
 | `pid` | Current process ID from the kernel. |
-| `vibrix` | `vibrix status | vibrix doctor [--bundle]`: kernel-backed status plus read-only process/VFS/bootstrap-device diagnostics with explicit persistence/network/update limits. `--bundle` emits a bounded aggregate text report and deliberately excludes file contents, PID lists, memory addresses, hardware identifiers, environment variables and shell history. |
+| `vibrix` | `vibrix status | vibrix doctor [--bundle]`: kernel-backed status plus read-only process/VFS/bootstrap-device diagnostics. Doctor reports a real bootstrap filesystem health pass and explicit LIMITED states when live network/update state is not exposed; it never converts unavailable state into a pass. `--bundle` emits the same bounded health states and deliberately excludes file contents, PID lists, memory addresses, hardware identifiers, environment variables and shell history. |
 | `vfetch` | Original CPUID, privilege, PID and build summary; unavailable accounting is labelled unavailable. |
 | `uname` | `uname [-a|-s|-m|-r]`: identity, architecture or shell build version; `-r` is not a compatibility promise. |
 | `sysctl` | `sysctl -a | sysctl NAME`: read-only bounded runtime queries. Live `kern.pid`/`kern.processes` use process syscalls and `vfs.root`/`vfs.dev` probe the current namespace; assignment is unsupported. |
@@ -210,3 +210,18 @@ remains a separate explicit operator action outside the command.
 This is not hardware telemetry and does not prove physical compatibility. It is
 a privacy-bounded compatibility-report format suitable for future manual or
 explicitly consented submission workflows.
+
+## Bounded doctor health checks
+
+`vibrix doctor` now separates **health** from **availability**. The filesystem check
+reuses the real root-directory, `/welcome`, `/dev/zero`, and `/dev/null` probes;
+it reports PASS only after those live syscall-backed contracts succeed. Network
+and update health are reported as LIMITED while the current userspace ABI does
+not expose live link/control-plane state or a mounted persistent update history.
+Those states are intentionally not labelled PASS. The privacy-reviewed support
+bundle carries the same three machine-readable health fields.
+
+This completes only the bounded M18 diagnostic surface for filesystem/network/
+update health awareness. It does not claim a physical NIC link test, remote
+connectivity probe, persistent USB fsck, signature verification, or installed
+update-generation validation.
