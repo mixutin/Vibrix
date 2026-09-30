@@ -352,10 +352,7 @@ mod tests {
 
         let mut corrupt = info;
         corrupt.boot_identity_flags = BOOT_USB_SYSTEM_GUID_PRESENT;
-        assert_eq!(
-            corrupt.validate(),
-            Err(BootInfoError::InvalidBootIdentity)
-        );
+        assert_eq!(corrupt.validate(), Err(BootInfoError::InvalidBootIdentity));
 
         let mut corrupt = valid();
         corrupt.boot_disk_guid = [1; 16];
