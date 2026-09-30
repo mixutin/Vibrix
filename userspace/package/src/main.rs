@@ -57,7 +57,24 @@ fn package_runtime_self_test() -> bool {
     if database.install(app) != Err(Error::MissingDependency) || !database.is_empty() {
         return false;
     }
-    if database.install(core).is_err() || database.install(app).is_err() || database.len() != 2 {
+    if database.install(core).is_err() {
+        return false;
+    }
+    if database.install_reviewed(app, declaration, Capabilities::FILESYSTEM_READ)
+        != Err(Error::PermissionReviewRequired)
+        || database.len() != 1
+    {
+        return false;
+    }
+    if database
+        .install_reviewed(
+            app,
+            declaration,
+            Capabilities::FILESYSTEM_READ.union(Capabilities::NETWORK),
+        )
+        .is_err()
+        || database.len() != 2
+    {
         return false;
     }
     let Ok(dependencies) = database.direct_dependencies(app_name) else {
