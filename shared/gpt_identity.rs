@@ -295,6 +295,20 @@ impl EntryScanner {
     }
 }
 
+pub fn layouts_match(primary: HeaderLayout, backup: HeaderLayout) -> Result<(), Error> {
+    if primary.first_usable != backup.first_usable
+        || primary.last_usable != backup.last_usable
+        || primary.entry_count != backup.entry_count
+        || primary.entry_size != backup.entry_size
+        || primary.entry_array_bytes != backup.entry_array_bytes
+        || primary.entry_crc != backup.entry_crc
+        || primary.disk_guid != backup.disk_guid
+    {
+        return Err(Error::MetadataMismatch);
+    }
+    Ok(())
+}
+
 pub fn identities_match(primary: Identity, backup: Identity) -> Result<Identity, Error> {
     if primary != backup {
         return Err(Error::MetadataMismatch);
