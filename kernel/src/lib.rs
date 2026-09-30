@@ -52,6 +52,8 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel network service default-off policy verified");
     packet_filter::self_test().expect("packet filter validation self-test failed");
     report("VIBRIX: kernel packet filter ruleset validation verified");
+    sync::self_test().expect("synchronization primitives self-test failed");
+    report("VIBRIX: kernel synchronization primitives verified");
     nic::ipv4_icmp_self_test().expect("IPv4/ICMP self-test failed");
     report("VIBRIX: kernel IPv4 ICMP echo verified");
     nic::udp_self_test().expect("UDP self-test failed");
