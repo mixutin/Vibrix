@@ -1372,7 +1372,7 @@ hardware power-cut durability.
 - [ ] Server profile
 - [ ] Recovery profile
 - [ ] Optional security-lab profile
-- [ ] Profile installation/removal is transactional
+- [x] Profile installation/removal is transactional
 - [ ] Offline package cache
 - [ ] Package repository mirrors cannot bypass signature verification
 
@@ -1576,11 +1576,11 @@ must already exist before third-party software is trusted.
 - [ ] Network namespace/isolation
 - [ ] Device-access mediation
 - [ ] Per-application resource limits
-- [ ] Audit log for security-sensitive operations
+- [x] Audit log for security-sensitive operations
 - [ ] Security-lab disposable environment integration
 - [ ] Read-only forensic mounting mode
 - [ ] Package permission review before installation
-- [ ] Hardened developer/debug mode separation
+- [x] Hardened developer/debug mode separation
 
 **Verified M19 package/application capability declarations (PR #306):**
 all 45 exact-head workflows passed implementation head
@@ -1613,6 +1613,24 @@ namespaces, device mediation, resource limits, service jails, complete pathname
 enforcement for every future syscall, or a finished application sandbox
 orchestrator. Those remain separate M19/M23 items.
 
+
+**Verified documentation/profile/security reconciliation (PRs #335, #336, #342, #349, #350):**
+exact-head evidence passed before merge for each implementation. PR #335's
+[developer manual run 36701804023](https://github.com/mixutin/Vibrix/actions/runs/36701804023)
+proves installed sectioned developer/base manuals; PR #336's
+[developer-mode separation run 36700547621](https://github.com/mixutin/Vibrix/actions/runs/36700547621)
+proves standard and explicit developer/debug boots remain distinct; PR #342's
+[upstream tracking run 36697914907](https://github.com/mixutin/Vibrix/actions/runs/36697914907)
+validates deterministic port tracking metadata and patch drift checks; PR #349's
+[profile transaction run 36701725448](https://github.com/mixutin/Vibrix/actions/runs/36701725448)
+proves publish-on-complete package-profile install/removal; and PR #350's
+[security audit run 36701948443](https://github.com/mixutin/Vibrix/actions/runs/36701948443)
+proves reserve-before-mutate audit logging for security-sensitive authority changes.
+
+These check only the bounded roadmap items named above; they do not imply a
+complete package ecosystem, full multi-user administration, persistent audit
+storage, native self-hosted toolchain, or universal POSIX documentation.
+
 ## M20 — Self-hosted engineering workstation
 
 M15 proves self-hosting fundamentals; M20 turns them into a sustainable
@@ -1621,7 +1639,7 @@ day-to-day development environment.
 - [ ] Native Vibrix SDK
 - [ ] Rust toolchain packaged through `vpm`
 - [ ] Debugger and profiler packages
-- [ ] Local API/manual documentation
+- [x] Local API/manual documentation
 - [ ] Reproducible package build environment
 - [ ] Build recipes usable entirely on Vibrix
 - [ ] Build and test third-party Rust applications on Vibrix
@@ -1653,7 +1671,7 @@ compatibility unless a later item explicitly says so.
 - [ ] ordered boot/service dependency policy
 - [ ] periodic job scheduler
 - [x] sysctl-like runtime/query interface
-- [ ] complete base-system manual pages
+- [x] complete base-system manual pages
 - [ ] coherent /etc-style system configuration with atomic updates
 - [ ] rescue/single-user administrative mode
 
@@ -1923,8 +1941,8 @@ execution, a core-dump implementation, or secret classification enforcement.
 - [ ] pkg-config/build-tool compatibility layer
 - [ ] shell scripting sufficient for conventional build systems
 - [ ] ports recipes for representative editors, shells and servers
-- [ ] automated upstream-port patch tracking
-- [ ] manual-page sections and installed developer documentation
+- [x] automated upstream-port patch tracking
+- [x] manual-page sections and installed developer documentation
 - [ ] compatibility test suite against selected portable Unix software
 
 **Verified M24 compatibility/design deliverables (PR #259):**
