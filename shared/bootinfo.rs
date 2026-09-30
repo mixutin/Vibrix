@@ -356,10 +356,7 @@ mod tests {
 
         let mut corrupt = valid();
         corrupt.boot_disk_guid = [1; 16];
-        assert_eq!(
-            corrupt.validate(),
-            Err(BootInfoError::InvalidBootIdentity)
-        );
+        assert_eq!(corrupt.validate(), Err(BootInfoError::InvalidBootIdentity));
     }
 
     #[test]
