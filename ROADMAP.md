@@ -1585,10 +1585,24 @@ compatibility unless a later item explicitly says so.
 - [ ] service manager with enable/disable/start/stop/reload/status
 - [ ] ordered boot/service dependency policy
 - [ ] periodic job scheduler
-- [ ] sysctl-like runtime/query interface
+- [x] sysctl-like runtime/query interface
 - [ ] complete base-system manual pages
 - [ ] coherent /etc-style system configuration with atomic updates
 - [ ] rescue/single-user administrative mode
+
+**Verified M21 bounded sysctl-like runtime/query interface (PR #305):**
+all 45 exact-head workflows passed implementation head
+`b75fe21093df66e1d10bdefe412c0e5db8082912`, including dedicated
+[sysctl evidence run 36679668384](https://github.com/mixutin/Vibrix/actions/runs/36679668384).
+The native Ring 3 shell exposes a read-only `sysctl` built-in for documented
+identity, live PID/process-count and current root/dev mount state. `sysctl -a`
+enumerates only the bounded namespace; unknown names and assignment syntax fail
+closed. Syscall-backed values are collected before line emission so shared
+kernel serial diagnostics cannot corrupt machine-readable output.
+
+This checks **sysctl-like runtime/query interface** for the current bounded
+read-only namespace. Mutable tunables, persistence and privileged configuration
+remain separate work.
 
 **Exit:** an administrator can boot, log in, manage users/services/filesystems,
 inspect system state and perform routine maintenance without another OS.
