@@ -4,6 +4,7 @@
 extern crate std;
 
 pub mod block;
+pub mod boot_clock;
 pub mod config_policy;
 pub mod cpu_topology;
 pub mod credentials;
