@@ -41,6 +41,8 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     vfs::self_test(&mut report).expect("bootstrap VFS self-test failed");
     klog::self_test().expect("structured kernel log self-test failed");
     report("VIBRIX: kernel structured log verified");
+    audit::self_test().expect("security audit self-test failed");
+    report("VIBRIX: kernel security audit log verified");
     block::self_test().expect("block abstraction self-test failed");
     report("VIBRIX: kernel block abstraction verified");
     nic::self_test().expect("NIC abstraction self-test failed");
