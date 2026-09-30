@@ -121,6 +121,14 @@ pub trait Filesystem {
     fn entry(&self, dir: NodeId, index: usize) -> Result<Option<Entry>>;
     fn create(&mut self, dir: NodeId, name: &str, kind: Kind) -> Result<NodeId>;
     fn remove(&mut self, dir: NodeId, name: &str) -> Result<()>;
+
+    /// Atomically move/replace one directory entry inside this filesystem.
+    /// Backends that cannot provide an indivisible namespace update must reject
+    /// the operation rather than emulate it with copy/remove.
+    fn rename(&mut self, _from_dir: NodeId, _from: &str, _to_dir: NodeId, _to: &str) -> Result<()> {
+        Err(Error::Unsupported)
+    }
+
     fn read(&mut self, id: NodeId, offset: usize, buffer: &mut [u8]) -> Result<usize>;
     fn write(&mut self, id: NodeId, offset: usize, buffer: &[u8]) -> Result<usize>;
     fn truncate(&mut self, id: NodeId) -> Result<()>;
@@ -303,6 +311,55 @@ impl<'a, const M: usize> Vfs<'a, M> {
             mount: parent.mount,
             id,
         })
+    }
+
+    pub fn rename(&mut self, from: &str, to: &str) -> Result<()> {
+        if from == to {
+            self.resolve(from)?;
+            return Ok(());
+        }
+        let source = self.resolve(from)?;
+        if source == self.root() {
+            return Err(Error::Busy);
+        }
+        let (from_parent, from_name, _) = self.parent(from)?;
+        let (to_parent, to_name, depth) = self.parent(to)?;
+        if depth == DEPTH_MAX {
+            return Err(Error::NameTooLong);
+        }
+        if from_parent.mount != to_parent.mount {
+            return Err(Error::Unsupported);
+        }
+
+        let source_covered = Node {
+            mount: from_parent.mount,
+            id: self.fs(from_parent)?.lookup(from_parent.id, from_name)?,
+        };
+        if self
+            .mounts
+            .iter()
+            .flatten()
+            .any(|mount| mount.covered == Some(source_covered))
+        {
+            return Err(Error::Busy);
+        }
+        if let Ok(destination_id) = self.fs(to_parent)?.lookup(to_parent.id, to_name) {
+            let destination = Node {
+                mount: to_parent.mount,
+                id: destination_id,
+            };
+            if self
+                .mounts
+                .iter()
+                .flatten()
+                .any(|mount| mount.covered == Some(destination))
+            {
+                return Err(Error::Busy);
+            }
+        }
+
+        self.fs_mut(from_parent)?
+            .rename(from_parent.id, from_name, to_parent.id, to_name)
     }
 
     pub fn remove(&mut self, path: &str) -> Result<()> {

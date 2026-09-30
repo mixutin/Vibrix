@@ -140,6 +140,74 @@ impl<const N: usize, const B: usize> Filesystem for MemFs<N, B> {
         Ok(self.id(index))
     }
 
+    fn rename(&mut self, from_dir: NodeId, from: &str, to_dir: NodeId, to: &str) -> Result<()> {
+        self.directory(from_dir)?;
+        self.directory(to_dir)?;
+        let new_name = Name::new(to)?;
+        let source = self.lookup(from_dir, from)?;
+        let source_index = self.index(source)?;
+        let source_node = *self.nodes[source_index].as_ref().expect("live source");
+        if source_node.flags & (super::FLAG_IMMUTABLE | super::FLAG_APPEND_ONLY) != 0 {
+            return Err(Error::AccessDenied);
+        }
+
+        if source_node.kind == Kind::Directory {
+            let mut cursor = to_dir;
+            loop {
+                if cursor == source {
+                    return Err(Error::InvalidPath);
+                }
+                if cursor == self.root() {
+                    break;
+                }
+                cursor = self.node(cursor)?.parent;
+            }
+        }
+
+        let destination = match self.lookup(to_dir, to) {
+            Ok(id) if id == source => return Ok(()),
+            Ok(id) => Some(id),
+            Err(Error::NotFound) => None,
+            Err(error) => return Err(error),
+        };
+
+        let destination_index = if let Some(id) = destination {
+            let index = self.index(id)?;
+            let node = self.nodes[index].as_ref().expect("live destination");
+            if node.flags & (super::FLAG_IMMUTABLE | super::FLAG_APPEND_ONLY) != 0 {
+                return Err(Error::AccessDenied);
+            }
+            if source_node.kind != node.kind {
+                return Err(if source_node.kind == Kind::Directory {
+                    Error::NotDirectory
+                } else {
+                    Error::IsDirectory
+                });
+            }
+            if node.kind == Kind::Directory
+                && self.nodes.iter().flatten().any(|child| child.parent == id)
+            {
+                return Err(Error::NotEmpty);
+            }
+            Some(index)
+        } else {
+            None
+        };
+
+        // Every fallible validation is complete. Exclusive filesystem ownership
+        // makes the replacement and source relink one indivisible namespace step.
+        if let Some(index) = destination_index {
+            self.nodes[index] = None;
+            self.generations[index] = self.generations[index].checked_add(1).unwrap_or(0);
+        }
+        let node = self.nodes[source_index]
+            .as_mut()
+            .expect("validated live source");
+        node.parent = to_dir;
+        node.name = new_name;
+        Ok(())
+    }
+
     fn remove(&mut self, dir: NodeId, name: &str) -> Result<()> {
         let id = self.lookup(dir, name)?;
         let flags = self.node(id)?.flags;
@@ -226,5 +294,71 @@ impl<const N: usize, const B: usize> Filesystem for MemFs<N, B> {
         // operation; ordinary mutation paths cannot bypass it.
         node.flags = flags;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod rename_tests {
+    use super::*;
+
+    #[test]
+    fn rename_moves_inode_without_changing_identity_or_contents() {
+        let mut fs = MemFs::<8, 32>::new().unwrap();
+        let root = fs.root();
+        let a = fs.create(root, "a", Kind::Directory).unwrap();
+        let b = fs.create(root, "b", Kind::Directory).unwrap();
+        let file = fs.create(a, "config", Kind::File).unwrap();
+        fs.write(file, 0, b"new").unwrap();
+
+        fs.rename(a, "config", b, "config").unwrap();
+        assert_eq!(fs.lookup(a, "config"), Err(Error::NotFound));
+        assert_eq!(fs.lookup(b, "config"), Ok(file));
+        let mut bytes = [0u8; 3];
+        assert_eq!(fs.read(file, 0, &mut bytes), Ok(3));
+        assert_eq!(&bytes, b"new");
+    }
+
+    #[test]
+    fn rename_replaces_existing_file_only_after_validation() {
+        let mut fs = MemFs::<8, 32>::new().unwrap();
+        let root = fs.root();
+        let old = fs.create(root, "old", Kind::File).unwrap();
+        let target = fs.create(root, "target", Kind::File).unwrap();
+        fs.write(old, 0, b"replacement").unwrap();
+        fs.write(target, 0, b"previous").unwrap();
+
+        fs.rename(root, "old", root, "target").unwrap();
+        assert_eq!(fs.lookup(root, "old"), Err(Error::NotFound));
+        assert_eq!(fs.lookup(root, "target"), Ok(old));
+        assert_eq!(fs.metadata(target), Err(Error::StaleNode));
+    }
+
+    #[test]
+    fn failed_replace_preserves_both_entries() {
+        let mut fs = MemFs::<8, 32>::new().unwrap();
+        let root = fs.root();
+        let source = fs.create(root, "source", Kind::File).unwrap();
+        let target = fs.create(root, "target", Kind::Directory).unwrap();
+
+        assert_eq!(
+            fs.rename(root, "source", root, "target"),
+            Err(Error::IsDirectory)
+        );
+        assert_eq!(fs.lookup(root, "source"), Ok(source));
+        assert_eq!(fs.lookup(root, "target"), Ok(target));
+    }
+
+    #[test]
+    fn directory_cannot_be_moved_inside_itself() {
+        let mut fs = MemFs::<8, 32>::new().unwrap();
+        let root = fs.root();
+        let parent = fs.create(root, "parent", Kind::Directory).unwrap();
+        let child = fs.create(parent, "child", Kind::Directory).unwrap();
+
+        assert_eq!(
+            fs.rename(root, "parent", child, "parent"),
+            Err(Error::InvalidPath)
+        );
+        assert_eq!(fs.lookup(root, "parent"), Ok(parent));
     }
 }
