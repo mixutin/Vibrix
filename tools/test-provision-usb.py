@@ -19,22 +19,22 @@ class ProvisionSafetyTests(unittest.TestCase):
 
     def test_device_tree_detects_parent_and_partition(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            disk = root / "sdb"
-            part = root / "sdb1"
-            disk.mkdir()
-            part.mkdir()
-            (disk / "dev").write_text("8:16\n")
-            (part / "dev").write_text("8:17\n")
-            (part / "partition").write_text("1\n")
-            # emulate sysfs partition nesting with symlink targets
-            real = root / "real"
-            (real / "sdb" / "sdb1").mkdir(parents=True)
-            (real / "sdb" / "dev").write_text("8:16\n")
-            (real / "sdb" / "sdb1" / "dev").write_text("8:17\n")
-            (real / "sdb" / "sdb1" / "partition").write_text("1\n")
-            disk.rmdir()
-            part.unlink(missing_ok=True) if False else None
+            base = Path(tmp)
+            sys_class = base / "sys"
+            real_disk = base / "devices" / "block" / "sdb"
+            real_part = real_disk / "sdb1"
+            sys_class.mkdir()
+            real_part.mkdir(parents=True)
+            (real_disk / "dev").write_text("8:16\n")
+            (real_disk / "removable").write_text("1\n")
+            (real_part / "dev").write_text("8:17\n")
+            (real_part / "partition").write_text("1\n")
+            (sys_class / "sdb").symlink_to(real_disk, target_is_directory=True)
+            (sys_class / "sdb1").symlink_to(real_part, target_is_directory=True)
+            self.assertEqual(
+                mod.device_tree_numbers("sdb", sys_class),
+                {(8, 16), (8, 17)},
+            )
 
     def test_refuse_if_mounted_detects_any_overlap(self):
         with tempfile.TemporaryDirectory() as tmp:
