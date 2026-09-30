@@ -23,6 +23,7 @@ jobs:
       - name: Test installed manual sections
         run: |
           cargo fmt --all -- --check
+          cargo test --locked -p vibrix-shell --lib every_registered_command_has_a_complete_manual_and_exact_lookup
           cargo test --locked -p vibrix-shell --lib developer_manual_sections_are_installed_and_searchable
           cargo clippy --locked -p vibrix-shell --target x86_64-unknown-none -- -D warnings
           grep -Fq 'section: 2' userspace/shell/src/manual.rs
