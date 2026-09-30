@@ -356,6 +356,14 @@ mod tests {
             Err(abi::Errno::InvalidArgument.code())
         );
         assert_eq!(
+            advisory_lock(1, abi::FD_LOCK_SHARED),
+            Err(abi::Errno::NotSupported.code())
+        );
+        assert_eq!(
+            advisory_lock(1, 99),
+            Err(abi::Errno::InvalidArgument.code())
+        );
+        assert_eq!(
             restrict_promises(abi::PROMISE_IO),
             Err(abi::Errno::NotSupported.code())
         );
