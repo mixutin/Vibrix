@@ -919,11 +919,26 @@ root unique-GUID identity checks; a partition type alone never selects a disk.
 - [ ] Flash-write reduction
 - [x] Hardware rediscovery every boot
 - [x] Portable configuration policy
-- [ ] Safe USB provisioning/imaging tool
+- [x] Safe USB provisioning/imaging tool
 - [ ] Recovery partition/environment
 - [x] System update + rollback strategy
 - [ ] Target 001 real USB boot
 - [ ] Move the same USB drive between two compatible machines
+
+**Verified M9 fail-closed USB provisioning tool (PR #352):**
+all 59 exact-head workflows passed implementation head
+`1d9bdb2ab4e9cfa196eb7ad28e1618016266c42c`, including dedicated
+[Safe USB provisioning evidence run 36718722489](https://github.com/mixutin/Vibrix/actions/runs/36718722489).
+The Linux host-side provisioner accepts only `/dev/disk/by-id/usb-*` paths,
+requires a removable whole block device, rejects mounted targets and children,
+checks image/device size, requires exact canonical-device confirmation, writes
+synchronously, and verifies the resulting bytes with a read-back SHA-256.
+CI exercises the safety/refusal paths without touching physical media.
+
+This checks **Safe USB provisioning/imaging tool** for the current Linux-host
+workflow. It does not claim Target 001 boot success, portability across two
+machines, persistent root/home/package state, or recovery-environment
+completion.
 
 **Exit:** boot from USB, modify files/configuration/apps, power off, move or reboot the drive, and retain all state without touching an internal system disk.
 
@@ -1673,7 +1688,7 @@ compatibility unless a later item explicitly says so.
 - [x] sysctl-like runtime/query interface
 - [x] complete base-system manual pages
 - [ ] coherent /etc-style system configuration with atomic updates
-- [ ] rescue/single-user administrative mode
+- [x] rescue/single-user administrative mode
 
 **Verified M21 bounded sysctl-like runtime/query interface (PR #305):**
 all 45 exact-head workflows passed implementation head
@@ -1688,6 +1703,20 @@ kernel serial diagnostics cannot corrupt machine-readable output.
 This checks **sysctl-like runtime/query interface** for the current bounded
 read-only namespace. Mutable tunables, persistence and privileged configuration
 remain separate work.
+
+**Verified M21 rescue/single-user administrative mode (PR #353):**
+all 59 exact-head workflows passed implementation head
+`3bc27e45b696bcb780f53a352431db9d7c93d713`, including dedicated
+[Rescue single-user mode evidence run 36718854419](https://github.com/mixutin/Vibrix/actions/runs/36718854419).
+The explicit rescue profile boots native PID 1 directly into a root
+administrative shell with the normal kernel/userspace isolation and syscall
+path, while keeping the mode opt-in rather than silently weakening ordinary
+boots.
+
+This checks **rescue/single-user administrative mode** for the current bounded
+profile. It does not by itself provide persistent account authentication,
+service management, persistent mount configuration, or recovery filesystem
+repair.
 
 **Exit:** an administrator can boot, log in, manage users/services/filesystems,
 inspect system state and perform routine maintenance without another OS.
