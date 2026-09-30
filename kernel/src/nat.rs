@@ -17,15 +17,6 @@ pub enum Protocol {
     Udp,
 }
 
-impl Protocol {
-    const fn number(self) -> u8 {
-        match self {
-            Self::Tcp => PROTO_TCP,
-            Self::Udp => PROTO_UDP,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Endpoint {
     pub address: [u8; 4],
@@ -158,8 +149,7 @@ impl Table {
             Protocol::Tcp => {
                 transport[16] = 0;
                 transport[17] = 0;
-                let checksum =
-                    transport_checksum(&source, &destination, PROTO_TCP, transport);
+                let checksum = transport_checksum(&source, &destination, PROTO_TCP, transport);
                 transport[16..18].copy_from_slice(&checksum.to_be_bytes());
             }
             Protocol::Udp => {
@@ -247,11 +237,11 @@ fn parse(packet: &[u8]) -> Result<Parsed, Error> {
 }
 
 fn add_words(mut sum: u32, bytes: &[u8]) -> u32 {
-    let mut chunks = bytes.chunks_exact(2);
-    for chunk in &mut chunks {
-        sum = sum.wrapping_add(u32::from(u16::from_be_bytes([chunk[0], chunk[1]])));
+    let (chunks, remainder) = bytes.as_chunks::<2>();
+    for chunk in chunks {
+        sum = sum.wrapping_add(u32::from(u16::from_be_bytes(*chunk)));
     }
-    if let Some(&byte) = chunks.remainder().first() {
+    if let Some(&byte) = remainder.first() {
         sum = sum.wrapping_add(u32::from(byte) << 8);
     }
     sum
