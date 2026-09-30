@@ -184,6 +184,7 @@ pub struct UsbStorageSummary {
     pub blocks: u64,
     pub block_bytes: u32,
     pub verified_lba: u32,
+    pub boot_identity_matched: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1245,6 +1246,7 @@ unsafe fn enumerate_first_device_inner(
                     descriptor_buffer,
                     descriptor_base,
                     device: device_summary,
+                    boot_identity: info.boot_usb_identity(),
                 },
                 protocol,
                 probe.expected_usage,
@@ -1310,6 +1312,7 @@ unsafe fn enumerate_first_device_inner(
             blocks: evidence.capacity.blocks().map_err(InitError::Scsi)?,
             block_bytes: evidence.capacity.block_bytes,
             verified_lba: evidence.verified_lba,
+            boot_identity_matched: evidence.boot_identity_matched,
         });
     }
 
