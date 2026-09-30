@@ -761,6 +761,9 @@ impl Client {
         if retained.is_active() {
             return Err(Error::State);
         }
+        if payload.is_empty() {
+            return Err(Error::Length);
+        }
         let sequence = self.snd_nxt;
         let len = self.send(payload, output)?;
         retained.retain(sequence, payload)?;
