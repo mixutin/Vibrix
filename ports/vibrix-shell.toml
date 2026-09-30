@@ -1,0 +1,10 @@
+name = "vibrix-shell"
+version = "0.0.1"
+kind = "application"
+source = "workspace"
+path = "userspace/shell"
+target = "x86_64-unknown-none"
+features = []
+build = "cargo"
+install = "/bin/vibrix-sh"
+license = "0BSD"
