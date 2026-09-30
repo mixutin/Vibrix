@@ -746,10 +746,7 @@ mod tests {
             Err(Error::ResourceLimit)
         );
         assert_eq!(
-            table.restrict_resource_limits(
-                init,
-                ResourceLimits::bounded(5, 2, 1, 1, 1)
-            ),
+            table.restrict_resource_limits(init, ResourceLimits::bounded(5, 2, 1, 1, 1)),
             Err(Error::ResourceLimit)
         );
     }
