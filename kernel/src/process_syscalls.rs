@@ -164,6 +164,21 @@ pub fn dispatch<const N: usize>(
                 .map_err(process_errno)?;
             Ok(Action::Return(0))
         }
+        abi::Syscall::NoNewPrivileges => match args[0] {
+            0 => Ok(Action::Return(u64::from(
+                table
+                    .get(current)
+                    .ok_or(abi::Errno::NotFound)?
+                    .no_new_privileges,
+            ))),
+            1 => {
+                table
+                    .set_no_new_privileges(current)
+                    .map_err(process_errno)?;
+                Ok(Action::Return(0))
+            }
+            _ => Err(abi::Errno::InvalidArgument),
+        },
         abi::Syscall::Read => Ok(Action::Read {
             fd: args[0],
             address: args[1],
@@ -442,6 +457,50 @@ mod tests {
                 output: 0x8000
             })
         );
+    }
+
+    #[test]
+    fn no_new_privileges_syscall_is_monotonic_and_inherited() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::NoNewPrivileges.number(),
+                [0, 0, 0, 0, 0, 0]
+            ),
+            Ok(Action::Return(0))
+        );
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::NoNewPrivileges.number(),
+                [1, 0, 0, 0, 0, 0]
+            ),
+            Ok(Action::Return(0))
+        );
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::NoNewPrivileges.number(),
+                [0, 0, 0, 0, 0, 0]
+            ),
+            Ok(Action::Return(1))
+        );
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::NoNewPrivileges.number(),
+                [2, 0, 0, 0, 0, 0]
+            ),
+            Err(abi::Errno::InvalidArgument)
+        );
+        let child = table.spawn_child(init).unwrap();
+        assert!(table.get(child).unwrap().no_new_privileges);
     }
 
     #[test]
