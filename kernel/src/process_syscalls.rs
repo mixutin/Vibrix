@@ -7,6 +7,7 @@
 //! the status successfully.
 
 use crate::{
+    audit::{self, Action as AuditAction, Outcome as AuditOutcome},
     credentials::{self, Gid, Uid},
     process::{self, Pid, Table, WaitObservation, WaitTarget},
     syscall_abi as abi,
@@ -167,33 +168,87 @@ pub fn dispatch<const N: usize>(
             })
         }
         abi::Syscall::SetResUid => {
+            let requested_real = requested_uid(args[0])?;
+            let requested_effective = requested_uid(args[1])?;
+            let requested_saved = requested_uid(args[2])?;
             let process = table.get(current).ok_or(abi::Errno::NotFound)?;
+            let before = u64::from(process.credentials.effective_uid.get());
             let mut credentials = process.credentials;
-            credentials
-                .set_res_uids(
-                    requested_uid(args[0])?,
-                    requested_uid(args[1])?,
-                    requested_uid(args[2])?,
-                )
-                .map_err(credential_errno)?;
-            table
-                .replace_credentials(current, credentials)
-                .map_err(process_errno)?;
+            let reservation = audit::reserve().map_err(|_| abi::Errno::NoMemory)?;
+            if let Err(error) =
+                credentials.set_res_uids(requested_real, requested_effective, requested_saved)
+            {
+                audit::commit(
+                    reservation,
+                    current.get(),
+                    AuditAction::SetResUid,
+                    AuditOutcome::Denied,
+                    before,
+                    requested_effective.map_or(abi::ID_UNCHANGED, |uid| u64::from(uid.get())),
+                );
+                return Err(credential_errno(error));
+            }
+            if let Err(error) = table.replace_credentials(current, credentials) {
+                audit::commit(
+                    reservation,
+                    current.get(),
+                    AuditAction::SetResUid,
+                    AuditOutcome::Failed,
+                    before,
+                    u64::from(credentials.effective_uid.get()),
+                );
+                return Err(process_errno(error));
+            }
+            audit::commit(
+                reservation,
+                current.get(),
+                AuditAction::SetResUid,
+                AuditOutcome::Allowed,
+                before,
+                u64::from(credentials.effective_uid.get()),
+            );
             Ok(Action::Return(0))
         }
         abi::Syscall::SetResGid => {
+            let requested_real = requested_gid(args[0])?;
+            let requested_effective = requested_gid(args[1])?;
+            let requested_saved = requested_gid(args[2])?;
             let process = table.get(current).ok_or(abi::Errno::NotFound)?;
+            let before = u64::from(process.credentials.effective_gid.get());
             let mut credentials = process.credentials;
-            credentials
-                .set_res_gids(
-                    requested_gid(args[0])?,
-                    requested_gid(args[1])?,
-                    requested_gid(args[2])?,
-                )
-                .map_err(credential_errno)?;
-            table
-                .replace_credentials(current, credentials)
-                .map_err(process_errno)?;
+            let reservation = audit::reserve().map_err(|_| abi::Errno::NoMemory)?;
+            if let Err(error) =
+                credentials.set_res_gids(requested_real, requested_effective, requested_saved)
+            {
+                audit::commit(
+                    reservation,
+                    current.get(),
+                    AuditAction::SetResGid,
+                    AuditOutcome::Denied,
+                    before,
+                    requested_effective.map_or(abi::ID_UNCHANGED, |gid| u64::from(gid.get())),
+                );
+                return Err(credential_errno(error));
+            }
+            if let Err(error) = table.replace_credentials(current, credentials) {
+                audit::commit(
+                    reservation,
+                    current.get(),
+                    AuditAction::SetResGid,
+                    AuditOutcome::Failed,
+                    before,
+                    u64::from(credentials.effective_gid.get()),
+                );
+                return Err(process_errno(error));
+            }
+            audit::commit(
+                reservation,
+                current.get(),
+                AuditAction::SetResGid,
+                AuditOutcome::Allowed,
+                before,
+                u64::from(credentials.effective_gid.get()),
+            );
             Ok(Action::Return(0))
         }
         abi::Syscall::NoNewPrivileges => match args[0] {
@@ -204,10 +259,35 @@ pub fn dispatch<const N: usize>(
                     .no_new_privileges,
             ))),
             1 => {
-                table
-                    .set_no_new_privileges(current)
-                    .map_err(process_errno)?;
-                Ok(Action::Return(0))
+                let before = table
+                    .get(current)
+                    .ok_or(abi::Errno::NotFound)?
+                    .no_new_privileges;
+                let reservation = audit::reserve().map_err(|_| abi::Errno::NoMemory)?;
+                match table.set_no_new_privileges(current) {
+                    Ok(()) => {
+                        audit::commit(
+                            reservation,
+                            current.get(),
+                            AuditAction::EnableNoNewPrivileges,
+                            AuditOutcome::Allowed,
+                            u64::from(before),
+                            1,
+                        );
+                        Ok(Action::Return(0))
+                    }
+                    Err(error) => {
+                        audit::commit(
+                            reservation,
+                            current.get(),
+                            AuditAction::EnableNoNewPrivileges,
+                            AuditOutcome::Failed,
+                            u64::from(before),
+                            1,
+                        );
+                        Err(process_errno(error))
+                    }
+                }
             }
             _ => Err(abi::Errno::InvalidArgument),
         },
@@ -216,10 +296,32 @@ pub fn dispatch<const N: usize>(
                 table.get(current).ok_or(abi::Errno::NotFound)?.promises,
             )),
             1 => {
-                table
-                    .restrict_promises(current, args[1])
-                    .map_err(process_errno)?;
-                Ok(Action::Return(0))
+                let before = table.get(current).ok_or(abi::Errno::NotFound)?.promises;
+                let reservation = audit::reserve().map_err(|_| abi::Errno::NoMemory)?;
+                match table.restrict_promises(current, args[1]) {
+                    Ok(()) => {
+                        audit::commit(
+                            reservation,
+                            current.get(),
+                            AuditAction::RestrictPromises,
+                            AuditOutcome::Allowed,
+                            before,
+                            args[1],
+                        );
+                        Ok(Action::Return(0))
+                    }
+                    Err(error) => {
+                        audit::commit(
+                            reservation,
+                            current.get(),
+                            AuditAction::RestrictPromises,
+                            AuditOutcome::Denied,
+                            before,
+                            args[1],
+                        );
+                        Err(process_errno(error))
+                    }
+                }
             }
             _ => Err(abi::Errno::InvalidArgument),
         },
