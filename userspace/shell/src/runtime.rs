@@ -858,10 +858,21 @@ fn render_vibrix_doctor(io: &mut dyn System, fd: u64) -> Result<()> {
     write_all(io, fd, b"  /welcome read: PASS\n")?;
     write_all(io, fd, b"  /dev/zero: PASS\n")?;
     write_all(io, fd, b"  /dev/null: PASS\n")?;
+    write_all(io, fd, b"  filesystem health: PASS (bootstrap namespace/read/device contracts)\n")?;
     write_all(
         io,
         fd,
-        b"doctor: PASS (bootstrap checks only; persistent USB, network link, updates and hardware health not tested)\n",
+        b"  network health: LIMITED (kernel network control plane is not exposed to this userspace ABI)\n",
+    )?;
+    write_all(
+        io,
+        fd,
+        b"  update health: LIMITED (no persistent update state is mounted in bootstrap userspace)\n",
+    )?;
+    write_all(
+        io,
+        fd,
+        b"doctor: PASS (available checks passed; persistent USB, live link and installed-update state remain unavailable)\n",
     )?;
     Ok(())
 }
@@ -883,7 +894,7 @@ fn render_vibrix_doctor_bundle(io: &mut dyn System, fd: u64) -> Result<()> {
     write_all(
         io,
         fd,
-        b"persistence=unavailable\nnetwork_link=unavailable\nupdates=unavailable\nhardware_health=unavailable\n",
+        b"filesystem_health=pass-bootstrap\nnetwork_health=limited-no-userspace-control-plane\nupdate_health=limited-no-persistent-state\npersistence=unavailable\nnetwork_link=unavailable\nupdates=unavailable\nhardware_health=unavailable\n",
     )?;
     write_all(
         io,
