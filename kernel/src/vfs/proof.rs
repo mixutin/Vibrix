@@ -38,7 +38,10 @@ pub fn self_test(mut report: impl FnMut(&str)) -> Result<()> {
         vfs.set_file_flags(evidence_node, FLAG_IMMUTABLE),
         Err(Error::ReadOnly)
     );
-    assert_eq!(vfs.create("/evidence/new", Kind::File), Err(Error::ReadOnly));
+    assert_eq!(
+        vfs.create("/evidence/new", Kind::File),
+        Err(Error::ReadOnly)
+    );
     assert_eq!(vfs.remove("/evidence/image"), Err(Error::ReadOnly));
     report("VIBRIX: kernel read-only forensic mount verified");
 
