@@ -821,6 +821,9 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             debugcon::write("VIBRIX: kernel process probe initialized for userspace I/O\r\n");
             userspace_io::init()
                 .unwrap_or_else(|error| panic!("userspace stdio init failed: {:?}", error));
+            arch::x86_64::syscall::account_stdio_descriptors()
+                .unwrap_or_else(|error| panic!("userspace stdio accounting failed: {:?}", error));
+            debugcon::write("VIBRIX: process file resource accounting active\r\n");
             // SAFETY: build-qemu produced the fixed-layout no_std Rust shell
             // ELF before compiling the kernel; load_elf_probe validates it.
             let probe = unsafe { memory::address_space::load_elf_probe() }
