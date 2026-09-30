@@ -9,7 +9,9 @@ import hashlib
 import os
 from pathlib import Path
 import stat
+import subprocess
 import sys
+import tempfile
 
 BLKGETSIZE64 = 0x80081272
 CHUNK = 1024 * 1024
@@ -101,6 +103,39 @@ def refuse_if_mounted(name: str, sys_class_block: Path = Path("/sys/class/block"
         raise Refusal("target disk or one of its partitions is mounted")
 
 
+def validate_vibrix_image(image: Path, sector_size: int) -> None:
+    if sector_size not in (512, 4096):
+        raise Refusal("sector size must be 512 or 4096")
+    repo = Path(__file__).resolve().parent.parent
+    inspector_source = repo / "tools" / "inspect-gpt.rs"
+    if not inspector_source.is_file():
+        raise Refusal("repository GPT inspector source is missing")
+    with tempfile.TemporaryDirectory(prefix="vibrix-inspect-") as tmp:
+        inspector = Path(tmp) / "inspect-gpt"
+        try:
+            build = subprocess.run(
+                ["rustc", str(inspector_source), "-O", "-o", str(inspector)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError as error:
+            raise Refusal("rustc is required to validate the Vibrix image") from error
+        if build.returncode != 0:
+            raise Refusal("failed to build the repository GPT inspector")
+        checked = subprocess.run(
+            [str(inspector), str(image), str(sector_size)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        if checked.returncode != 0:
+            detail = checked.stderr.strip() or "GPT inspector rejected the image"
+            raise Refusal(detail)
+
+
 def device_size(handle) -> int:
     buf = bytearray(8)
     fcntl.ioctl(handle.fileno(), BLKGETSIZE64, buf, True)
@@ -133,6 +168,7 @@ def main(argv: list[str] | None = None) -> int:
         metavar="CANONICAL_DEVICE",
         help="must exactly equal the resolved whole-disk device, for example /dev/sdb",
     )
+    parser.add_argument("--sector-size", type=int, choices=(512, 4096), default=512)
     parser.add_argument("--dry-run", action="store_true", help="perform every safety check without writing")
     args = parser.parse_args(argv)
 
@@ -143,6 +179,7 @@ def main(argv: list[str] | None = None) -> int:
         image_size = image.stat().st_size
         if image_size == 0:
             raise Refusal("image is empty")
+        validate_vibrix_image(image, args.sector_size)
 
         target, name = canonical_usb_target(args.target)
         refuse_if_mounted(name)
