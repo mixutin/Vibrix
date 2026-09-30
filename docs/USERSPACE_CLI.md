@@ -88,6 +88,7 @@ Every name below has a built-in `man NAME` page and `NAME --help` path. Options 
 | `mkdir` | `mkdir [--] DIRECTORY...`: create directories; parents must exist. |
 | `touch` | `touch [--] FILE...`: create absent files without truncating existing files; no timestamps are invented. |
 | `write` | `write [--] FILE [TEXT...]`: create/replace a file with a space-separated line. |
+| `edit` | `edit FILE print\|insert OFFSET TEXT\|delete OFFSET COUNT`: bounded native text editing through the real VFS path; mutations validate fully before rewriting. |
 | `cp` | `cp [--] SOURCE DESTINATION`: copy a regular file to the exact destination path; no recursive or metadata copy. |
 | `mv` | `mv [--] SOURCE DESTINATION`: copy, close successfully, then remove the source; not atomic. |
 | `rm` | `rm [--] FILE...`: remove files; refuse directories and recursive deletion. |
