@@ -776,6 +776,13 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
             not(feature = "package-metadata-probe")
         ))]
         {
+            #[cfg(feature = "advisory-lock-probe")]
+            {
+                debugcon::write("VIBRIX: advisory lock userspace I/O initialized\r\n");
+                userspace_io::init().unwrap_or_else(|error| {
+                    panic!("advisory lock userspace I/O init failed: {:?}", error)
+                });
+            }
             // SAFETY: build-qemu produced the fixed-layout no_std Rust init ELF
             // before compiling the kernel. The same validated ImageSink stages
             // it into the private lower-half CR3 with final W^X permissions.
