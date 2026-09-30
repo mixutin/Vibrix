@@ -1,0 +1,28 @@
+name: IPv4 ingress guard evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  ipv4-ingress-guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt,clippy --target x86_64-unknown-none
+      - name: Test IPv4 ingress guard
+        run: |
+          cargo fmt --all -- --check
+          cargo test --locked -p vibrix-kernel --lib network_guard::
+          cargo clippy --locked -p vibrix-kernel --lib --target x86_64-unknown-none -- -D warnings
+          grep -Fq 'network_guard::self_test()' kernel/src/lib.rs
+          grep -Fq 'IPv4 ingress anti-spoofing guard verified' kernel/src/lib.rs
