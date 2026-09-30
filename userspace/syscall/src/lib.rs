@@ -248,6 +248,21 @@ pub fn remove(path: &[u8]) -> Result<()> {
     .map(|_| ())
 }
 
+pub fn rename(from: &[u8], to: &[u8]) -> Result<()> {
+    call(
+        abi::Syscall::Rename,
+        [
+            from.as_ptr() as u64,
+            from.len() as u64,
+            to.as_ptr() as u64,
+            to.len() as u64,
+            0,
+            0,
+        ],
+    )
+    .map(|_| ())
+}
+
 pub fn read_dir(path: &[u8], index: u64, entry: &mut abi::DirEntry) -> Result<bool> {
     let raw = call(
         abi::Syscall::ReadDir,
@@ -399,5 +414,6 @@ mod tests {
         assert_eq!(abi::Syscall::NoNewPrivileges.number(), 23);
         assert_eq!(abi::Syscall::Promises.number(), 24);
         assert_eq!(abi::Syscall::FdRights.number(), 25);
+        assert_eq!(abi::Syscall::Rename.number(), 26);
     }
 }
