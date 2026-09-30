@@ -1293,7 +1293,7 @@ this milestone begins.
 - [ ] Recovery never selects internal disks as Vibrix system targets
 - [ ] Offline signed update bundles
 - [ ] USB health and write/endurance diagnostics
-- [ ] Power-loss/update interruption tests
+- [x] Power-loss/update interruption tests
 
 **Verified M16 stable / beta / nightly update-channel policy (PR #265):**
 all 23 exact-head workflows passed implementation head
@@ -1334,6 +1334,20 @@ trial-boot policy without promoting it to known-good.
 This checks **Transactional update staging** as the control-plane durability
 policy. It does not claim physical USB writes, filesystem flush semantics,
 signature verification, power-loss-safe media behavior, or a complete updater.
+
+**Verified M16 exhaustive update-interruption crash-cut tests (PR #307):**
+the exact-head repository matrix passed implementation head
+`0d248ba271de5e39556661b5e4d7fb5d83d1601b`, including dedicated
+[update-interruption evidence run 36677996532](https://github.com/mixutin/Vibrix/actions/runs/36677996532).
+The production transactional staging state machine is exercised at every
+persistence cut: incomplete manifest/payload/verification stages are discarded,
+only an exact durable candidate survives recovery, stale/rollback records are
+rejected, transaction IDs advance without reuse, and sequence exhaustion fails
+closed.
+
+This checks **Power-loss/update interruption tests** at the bounded control-plane
+crash-cut model. It does not claim physical USB flush/barrier semantics or
+hardware power-cut durability.
 
 ## M17 — Package ecosystem and profiles
 
@@ -1591,7 +1605,7 @@ inspect system state and perform routine maintenance without another OS.
 - [ ] interface configuration utility
 - [ ] route and neighbor inspection utilities
 - [x] resolver configuration and local caching resolver option
-- [ ] NTP client with clock-discipline policy
+- [x] NTP client with clock-discipline policy
 - [ ] SSH client
 - [ ] privilege-separated SSH server
 - [x] network services disabled by default unless explicitly enabled
@@ -1634,6 +1648,18 @@ This checks the bounded **stateful packet filter with default-deny policy
 option** item. It does not claim NIC-hook integration, forwarding/NAT, IPv6,
 timeouts, logging, administrator UX, or physical firewall throughput.
 
+**Verified M22 bounded NTPv4 client and clock-discipline policy (PR #304):**
+all exact-head workflows passed implementation head
+`c1e3d3f59140b968b7ae100228a354b634b68aa4`, including dedicated
+[NTP evidence run 36676636895](https://github.com/mixutin/Vibrix/actions/runs/36676636895).
+The bounded RFC 5905 client validates response/version/mode/origin fields,
+computes four-timestamp offset and delay, and applies explicit Ignore/Slew/Step
+policy thresholds with malformed-response coverage.
+
+This checks **NTP client with clock-discipline policy** as a protocol and policy
+primitive. It does not claim persistent wall-clock state, hardware RTC
+synchronization, authenticated NTS, or live external-network service operation.
+
 **Exit:** Vibrix can act as a defensible workstation or small server with
 auditable network configuration and no surprise listening services.
 
@@ -1654,7 +1680,7 @@ persistent resolver state, or a complete network service manager.
 
 - [x] monotonic process-operation promise API inspired by capability reduction
 - [ ] path visibility/access allow-list API
-- [ ] descriptor-rights restriction
+- [x] descriptor-rights restriction
 - [x] no-new-privileges process flag
 - [ ] privilege-separated daemon patterns in the base system
 - [ ] chroot/service-jail style filesystem roots
@@ -1677,6 +1703,19 @@ write-protection page fault, and a real CPL3 stack-guard page fault.
 This checks the current **exploit-mitigation regression suite** item. It does not
 claim unimplemented mitigations such as userspace ASLR, KASLR execution,
 compiler canaries, RELRO, IOMMU enforcement, or broad fuzzing.
+
+**Verified M23 monotonic descriptor-rights restriction (PR #302):**
+all exact-head workflows passed implementation head
+`6f09d2c5e001857b49047efefdaada388f294350`, including dedicated
+[descriptor-rights evidence run 36677091836](https://github.com/mixutin/Vibrix/actions/runs/36677091836).
+Each descriptor carries an independent read/write/seek rights mask, duplication
+inherits the already-reduced mask, close clears rights before reuse, and the new
+ABI-v1 query/restrict operation is monotonic: rights can be removed but not
+regained.
+
+This checks **descriptor-rights restriction** for the current file-descriptor
+model. It does not claim path allow-lists, namespaces, service jails or a general
+capability object system.
 
 OpenBSD documents monotonic syscall restriction with `pledge(2)` and
 path visibility restriction with `unveil(2)`. Vibrix may adopt comparable
