@@ -19,6 +19,11 @@ use vibrix_vmm::{Error, GuardedLayout, GuardedVm, Vm};
 
 const ADDRESS_SPACE_POOL_FRAMES: usize = if cfg!(feature = "userspace-desktop") {
     128
+} else if cfg!(feature = "package-metadata-probe") {
+    // The package probe links the manifest database plus capability-declaration
+    // codec. Keep a fixed, feature-scoped budget rather than inflating every
+    // userspace address space.
+    48
 } else {
     32
 };
