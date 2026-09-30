@@ -1,0 +1,29 @@
+name: Ports build recipe evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  ports-recipes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Validate recipe schema and referenced crates
+        run: |
+          python3 tools/validate_ports.py
+          python3 -m py_compile tools/validate_ports.py
+      - name: Check the recipe targets compile
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --target x86_64-unknown-none
+          cargo check --locked -p vibrix-shell --target x86_64-unknown-none
+          cargo check --locked -p vibrix-ui --target x86_64-unknown-none
+          cargo check --locked -p vibrix-package --target x86_64-unknown-none
