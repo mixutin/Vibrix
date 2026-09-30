@@ -40,6 +40,8 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel block abstraction verified");
     nic::self_test().expect("NIC abstraction self-test failed");
     report("VIBRIX: kernel NIC abstraction verified");
+    network_guard::self_test().expect("IPv4 ingress guard self-test failed");
+    report("VIBRIX: kernel IPv4 ingress anti-spoofing guard verified");
     network_services::self_test().expect("network service policy self-test failed");
     report("VIBRIX: kernel network service default-off policy verified");
     packet_filter::self_test().expect("packet filter validation self-test failed");
