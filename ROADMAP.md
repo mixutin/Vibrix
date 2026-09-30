@@ -1678,7 +1678,7 @@ inspect system state and perform routine maintenance without another OS.
 
 - [x] IPv6 core, neighbor discovery and ICMPv6
 - [x] routing table and route-selection policy
-- [ ] loopback and Unix-domain sockets
+- [x] loopback and Unix-domain sockets
 - [ ] poll/select/event-notification API for network daemons
 - [x] stateful packet filter with default-deny policy option
 - [ ] NAT and port redirection
@@ -1692,6 +1692,17 @@ inspect system state and perform routine maintenance without another OS.
 - [x] network services disabled by default unless explicitly enabled
 - [ ] per-service user, filesystem and network sandbox policy
 - [x] packet-filter ruleset validation before activation
+
+**Verified M22 bounded loopback and Unix-domain datagram sockets (PR #330):**
+all 52 exact-head workflows passed implementation head
+`986310f8b433c71a3e416e9b535303a8f01db18a`. The kernel provides a fixed-capacity
+loopback datagram queue plus pathname-bound Unix-domain datagram endpoints with
+bounded addressing and deterministic failure behavior.
+
+This checks **loopback and Unix-domain sockets** for the current datagram-only
+primitive. It does not claim Unix stream sockets, ancillary data, credential
+passing, namespace isolation, poll/select readiness, or full POSIX socket
+semantics.
 
 **Verified M22 bounded IPv6/ICMPv6 and neighbor discovery core (PR #321):**
 all 52 exact-head workflows passed implementation head
