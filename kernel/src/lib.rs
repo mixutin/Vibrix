@@ -8,6 +8,8 @@ pub mod config_policy;
 pub mod cpu_topology;
 pub mod credentials;
 pub mod device;
+#[path = "../../shared/gpt_identity.rs"]
+pub mod gpt_identity;
 pub mod ipv6;
 pub mod klog;
 pub mod local_ipc;
