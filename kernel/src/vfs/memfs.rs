@@ -292,3 +292,70 @@ impl<const N: usize, const B: usize> Filesystem for MemFs<N, B> {
         Ok(())
     }
 }
+
+
+#[cfg(test)]
+mod rename_tests {
+    use super::*;
+
+    #[test]
+    fn rename_moves_inode_without_changing_identity_or_contents() {
+        let mut fs = MemFs::<8, 32>::new().unwrap();
+        let root = fs.root();
+        let a = fs.create(root, "a", Kind::Directory).unwrap();
+        let b = fs.create(root, "b", Kind::Directory).unwrap();
+        let file = fs.create(a, "config", Kind::File).unwrap();
+        fs.write(file, 0, b"new").unwrap();
+
+        fs.rename(a, "config", b, "config").unwrap();
+        assert_eq!(fs.lookup(a, "config"), Err(Error::NotFound));
+        assert_eq!(fs.lookup(b, "config"), Ok(file));
+        let mut bytes = [0u8; 3];
+        assert_eq!(fs.read(file, 0, &mut bytes), Ok(3));
+        assert_eq!(&bytes, b"new");
+    }
+
+    #[test]
+    fn rename_replaces_existing_file_only_after_validation() {
+        let mut fs = MemFs::<8, 32>::new().unwrap();
+        let root = fs.root();
+        let old = fs.create(root, "old", Kind::File).unwrap();
+        let target = fs.create(root, "target", Kind::File).unwrap();
+        fs.write(old, 0, b"replacement").unwrap();
+        fs.write(target, 0, b"previous").unwrap();
+
+        fs.rename(root, "old", root, "target").unwrap();
+        assert_eq!(fs.lookup(root, "old"), Err(Error::NotFound));
+        assert_eq!(fs.lookup(root, "target"), Ok(old));
+        assert_eq!(fs.metadata(target), Err(Error::StaleNode));
+    }
+
+    #[test]
+    fn failed_replace_preserves_both_entries() {
+        let mut fs = MemFs::<8, 32>::new().unwrap();
+        let root = fs.root();
+        let source = fs.create(root, "source", Kind::File).unwrap();
+        let target = fs.create(root, "target", Kind::Directory).unwrap();
+
+        assert_eq!(
+            fs.rename(root, "source", root, "target"),
+            Err(Error::IsDirectory)
+        );
+        assert_eq!(fs.lookup(root, "source"), Ok(source));
+        assert_eq!(fs.lookup(root, "target"), Ok(target));
+    }
+
+    #[test]
+    fn directory_cannot_be_moved_inside_itself() {
+        let mut fs = MemFs::<8, 32>::new().unwrap();
+        let root = fs.root();
+        let parent = fs.create(root, "parent", Kind::Directory).unwrap();
+        let child = fs.create(parent, "child", Kind::Directory).unwrap();
+
+        assert_eq!(
+            fs.rename(root, "parent", child, "parent"),
+            Err(Error::InvalidPath)
+        );
+        assert_eq!(fs.lookup(root, "parent"), Ok(parent));
+    }
+}
