@@ -60,20 +60,19 @@ fn package_runtime_self_test() -> bool {
     if database.install(core).is_err() {
         return false;
     }
-    if database.install_reviewed(
-        app,
-        declaration,
-        Capabilities::FILESYSTEM_READ,
-    ) != Err(Error::PermissionReviewRequired)
+    if database.install_reviewed(app, declaration, Capabilities::FILESYSTEM_READ)
+        != Err(Error::PermissionReviewRequired)
         || database.len() != 1
     {
         return false;
     }
-    if database.install_reviewed(
-        app,
-        declaration,
-        Capabilities::FILESYSTEM_READ.union(Capabilities::NETWORK),
-    ).is_err()
+    if database
+        .install_reviewed(
+            app,
+            declaration,
+            Capabilities::FILESYSTEM_READ.union(Capabilities::NETWORK),
+        )
+        .is_err()
         || database.len() != 2
     {
         return false;
