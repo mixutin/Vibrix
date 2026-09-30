@@ -1429,17 +1429,12 @@ pub unsafe fn probe_hid_boot_mouse(info: &BootInfo) -> Result<UsbHidMouseSummary
 #[allow(dead_code)] // all-features Clippy enables mutually exclusive USB evidence profiles together
 pub unsafe fn probe_mass_storage(info: &BootInfo) -> Result<UsbStorageSummary, InitError> {
     unsafe {
-        enumerate_first_device_inner(
-            info,
-            false,
-            None,
-            Some(storage::Mode::ReversibleWrite),
-        )
+        enumerate_first_device_inner(info, false, None, Some(storage::Mode::ReversibleWrite))
     }?
     .4
-        .ok_or(InitError::Storage(
-            vibrix_kernel::usb_storage::Error::Missing,
-        ))
+    .ok_or(InitError::Storage(
+        vibrix_kernel::usb_storage::Error::Missing,
+    ))
 }
 
 /// Reacquire the firmware-selected boot USB through native xHCI/BOT/SCSI and
