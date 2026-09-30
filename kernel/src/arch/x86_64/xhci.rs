@@ -1246,7 +1246,6 @@ unsafe fn enumerate_first_device_inner(
                     descriptor_buffer,
                     descriptor_base,
                     device: device_summary,
-                    boot_identity: info.boot_usb_identity(),
                 },
                 protocol,
                 probe.expected_usage,
@@ -1298,6 +1297,7 @@ unsafe fn enumerate_first_device_inner(
                     descriptor_buffer,
                     descriptor_base,
                     device: device_summary,
+                    boot_identity: info.boot_usb_identity(),
                 },
             )
         }?;
