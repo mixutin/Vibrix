@@ -148,9 +148,7 @@ impl CapabilityDeclaration {
         if wire.len() != CAPABILITY_WIRE_BYTES || wire[..8] != CAPABILITY_MAGIC {
             return Err(Error::Format);
         }
-        if wire[9..16].iter().any(|&byte| byte != 0)
-            || wire[56..].iter().any(|&byte| byte != 0)
-        {
+        if wire[9..16].iter().any(|&byte| byte != 0) || wire[56..].iter().any(|&byte| byte != 0) {
             return Err(Error::Reserved);
         }
         let package = decode_name(wire[8], &wire[24..56])?;
@@ -505,12 +503,16 @@ mod tests {
         let wire = declaration.encode();
         assert_eq!(&wire[..8], b"VCAPv001");
         assert_eq!(CapabilityDeclaration::decode(&wire), Ok(declaration));
-        assert!(declaration
-            .capabilities
-            .contains(Capabilities::FILESYSTEM_READ));
-        assert!(!declaration
-            .capabilities
-            .contains(Capabilities::FILESYSTEM_WRITE));
+        assert!(
+            declaration
+                .capabilities
+                .contains(Capabilities::FILESYSTEM_READ)
+        );
+        assert!(
+            !declaration
+                .capabilities
+                .contains(Capabilities::FILESYSTEM_WRITE)
+        );
 
         let mut unknown = wire;
         unknown[23] = 0x80;
@@ -535,8 +537,7 @@ mod tests {
 
     #[test]
     fn empty_capability_declaration_is_explicit_and_round_trips() {
-        let declaration =
-            CapabilityDeclaration::new(name(b"calculator"), Capabilities::empty());
+        let declaration = CapabilityDeclaration::new(name(b"calculator"), Capabilities::empty());
         assert_eq!(
             CapabilityDeclaration::decode(&declaration.encode()),
             Ok(declaration)
