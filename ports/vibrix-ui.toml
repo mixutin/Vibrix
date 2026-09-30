@@ -1,0 +1,10 @@
+name = "vibrix-ui"
+version = "0.0.1"
+kind = "library"
+source = "workspace"
+path = "userspace/ui"
+target = "x86_64-unknown-none"
+features = []
+build = "cargo"
+install = "/lib/libvibrix_ui.rlib"
+license = "0BSD"
