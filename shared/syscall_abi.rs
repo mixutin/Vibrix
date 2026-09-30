@@ -50,6 +50,8 @@ pub enum Syscall {
     NoNewPrivileges = 23,
     Promises = 24,
     FdRights = 25,
+    // 26 is reserved for the atomic rename syscall landing in the M21 lane.
+    FdLock = 27,
 }
 
 impl Syscall {
@@ -81,6 +83,7 @@ impl Syscall {
             23 => Some(Self::NoNewPrivileges),
             24 => Some(Self::Promises),
             25 => Some(Self::FdRights),
+            27 => Some(Self::FdLock),
             _ => None,
         }
     }
@@ -106,6 +109,10 @@ pub const FD_RIGHT_READ: u64 = 1 << 0;
 pub const FD_RIGHT_WRITE: u64 = 1 << 1;
 pub const FD_RIGHT_SEEK: u64 = 1 << 2;
 pub const FD_RIGHT_ALL: u64 = FD_RIGHT_READ | FD_RIGHT_WRITE | FD_RIGHT_SEEK;
+
+pub const FD_LOCK_UNLOCK: u64 = 0;
+pub const FD_LOCK_SHARED: u64 = 1;
+pub const FD_LOCK_EXCLUSIVE: u64 = 2;
 
 pub const ENTRY_FILE: u8 = 1;
 pub const ENTRY_DIRECTORY: u8 = 2;
@@ -275,7 +282,10 @@ mod tests {
             assert_eq!(call.number(), expected as u64);
             assert_eq!(Syscall::from_number(expected as u64), Some(call));
         }
-        assert_eq!(Syscall::from_number(calls.len() as u64), None);
+        assert_eq!(Syscall::from_number(26), None);
+        assert_eq!(Syscall::FdLock.number(), 27);
+        assert_eq!(Syscall::from_number(27), Some(Syscall::FdLock));
+        assert_eq!(Syscall::from_number(28), None);
     }
 
     #[test]
