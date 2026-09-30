@@ -434,7 +434,8 @@ impl Shell {
                             .insert(text)
                             .map_err(|_| Error::Message(b"editor capacity exhausted"))?;
                         let fd = open_output(io, path.bytes())?;
-                        finish(io, fd, write_all(io, fd, editor.text()).map_err(Error::from))?;
+                        let result = write_all(io, fd, editor.text()).map_err(Error::from);
+                        finish(io, fd, result)?;
                     }
                     [b"delete", offset, count] => {
                         let offset = parse_number(offset)
