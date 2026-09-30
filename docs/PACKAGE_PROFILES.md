@@ -14,3 +14,12 @@ This is the transactional database primitive for future Minimal, Developer,
 Server, Recovery and optional Security-lab profiles. It does not yet define the
 membership of those profiles, persist package state, fetch payloads, verify
 repository signatures, or modify the filesystem.
+
+The native package metadata probe now executes both the failed and successful
+profile transactions in Vibrix Ring 3 through the same no_std package database
+implementation. Its successful PID-1 exit therefore covers rollback after a
+reverse-dependency conflict as well as complete dependent-first removal.
+
+This evidence targets the M17 **Profile installation/removal is transactional**
+item. Concrete membership for Minimal, Developer, Server, Recovery and
+Security-lab profiles remains separate work.
