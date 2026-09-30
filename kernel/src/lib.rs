@@ -22,6 +22,7 @@ pub mod routing;
 #[path = "../../shared/scsi.rs"]
 pub mod scsi;
 pub mod secure_random;
+pub mod service_order;
 #[path = "../../shared/syscall_abi.rs"]
 pub mod syscall_abi;
 pub mod update_history;
@@ -76,6 +77,8 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel DNS A resolver verified");
     resolver::self_test().expect("resolver config/cache self-test failed");
     report("VIBRIX: kernel resolver configuration and cache verified");
+    service_order::self_test().expect("service dependency policy self-test failed");
+    report("VIBRIX: kernel service dependency order verified");
     ntp::self_test().expect("NTPv4 client discipline self-test failed");
     report("VIBRIX: kernel NTPv4 client discipline verified");
     nic::tcp_self_test().expect("TCP transport self-test failed");
