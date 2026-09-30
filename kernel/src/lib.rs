@@ -19,6 +19,7 @@ pub mod resolver;
 #[path = "../../shared/scsi.rs"]
 pub mod scsi;
 pub mod secure_random;
+pub mod update_history;
 pub mod update_policy;
 pub mod usb_hid;
 #[path = "../../shared/usb_mass_bulk.rs"]
@@ -73,6 +74,8 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel process lifecycle verified");
     config_policy::self_test().expect("portable configuration policy self-test failed");
     report("VIBRIX: kernel portable configuration policy verified");
+    update_history::self_test().expect("update history self-test failed");
+    report("VIBRIX: kernel update history and rollback selection verified");
     update_policy::self_test().expect("update policy model self-test failed");
     report("VIBRIX: kernel update policy model verified");
 }
