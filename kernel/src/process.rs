@@ -714,6 +714,68 @@ mod tests {
     }
 
     #[test]
+    fn resource_limits_only_shrink_and_failed_reservations_do_not_mutate_usage() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+        let limits = ResourceLimits::bounded(10, 4, 2, 1, 1);
+        table.restrict_resource_limits(init, limits).unwrap();
+
+        table.charge_cpu(init, 6).unwrap();
+        assert_eq!(table.charge_cpu(init, 5), Err(Error::ResourceLimit));
+        assert_eq!(table.get(init).unwrap().resource_usage.cpu_ticks, 6);
+
+        table.reserve_memory_pages(init, 4).unwrap();
+        assert_eq!(
+            table.reserve_memory_pages(init, 1),
+            Err(Error::ResourceLimit)
+        );
+        assert_eq!(table.get(init).unwrap().resource_usage.memory_pages, 4);
+        table.release_memory_pages(init, 2).unwrap();
+
+        table.reserve_file(init).unwrap();
+        table.reserve_file(init).unwrap();
+        assert_eq!(table.reserve_file(init), Err(Error::ResourceLimit));
+        table.release_file(init).unwrap();
+
+        table.reserve_socket(init).unwrap();
+        assert_eq!(table.reserve_socket(init), Err(Error::ResourceLimit));
+        table.release_socket(init).unwrap();
+
+        assert_eq!(
+            table.restrict_resource_limits(init, ResourceLimits::UNLIMITED),
+            Err(Error::ResourceLimit)
+        );
+        assert_eq!(
+            table.restrict_resource_limits(
+                init,
+                ResourceLimits::bounded(5, 2, 1, 1, 1)
+            ),
+            Err(Error::ResourceLimit)
+        );
+    }
+
+    #[test]
+    fn child_limit_is_inherited_and_released_only_on_reap() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+        let limits = ResourceLimits::bounded(100, 10, 4, 2, 1);
+        table.restrict_resource_limits(init, limits).unwrap();
+
+        let child = table.spawn_child(init).unwrap();
+        assert_eq!(table.get(child).unwrap().resource_limits, limits);
+        assert_eq!(table.get(init).unwrap().resource_usage.children, 1);
+        assert_eq!(table.spawn_child(init), Err(Error::ResourceLimit));
+
+        table.exit(child, 0).unwrap();
+        assert_eq!(table.get(init).unwrap().resource_usage.children, 1);
+        assert_eq!(table.spawn_child(init), Err(Error::ResourceLimit));
+
+        assert_eq!(table.reap(init, child), Ok(0));
+        assert_eq!(table.get(init).unwrap().resource_usage.children, 0);
+        table.spawn_child(init).unwrap();
+    }
+
+    #[test]
     fn exited_process_stays_zombie_until_parent_reaps_it() {
         let mut table = Table::<3>::new();
         let init = table.spawn_init().unwrap();
