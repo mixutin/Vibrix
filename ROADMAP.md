@@ -1354,7 +1354,7 @@ hardware power-cut durability.
 - [ ] `vpm` package manager UX
 - [ ] `vpm search/install/remove/update/why/audit`
 - [ ] Package provenance, license and signature display
-- [ ] Package dependency graph inspection
+- [x] Package dependency graph inspection
 - [ ] Minimal profile
 - [ ] Developer profile
 - [ ] Server profile
@@ -1391,6 +1391,19 @@ Possible package categories:
 
 **Exit:** Vibrix can install signed package profiles without bloating or
 weakening the default system.
+
+**Verified M17 package dependency graph inspection (PR #318):**
+all exact-head workflows passed implementation head
+`5c9e0a01a872e933caf04f5a9f1650a4e3b4326c`, including dedicated
+[package dependency graph run 36689258755](https://github.com/mixutin/Vibrix/actions/runs/36689258755).
+The native package metadata path exposes bounded installed dependency and reverse-
+dependency relationships using the same package database implementation exercised
+inside Ring 3, with missing dependencies and removal of required packages still
+failing transactionally.
+
+This checks **Package dependency graph inspection** for the current bounded
+package database. It does not claim a persistent package database, repository
+resolution, package-manager installation UX, or signed remote repositories.
 
 ## M18 — Observability and troubleshooting
 
@@ -1712,7 +1725,7 @@ persistent resolver state, or a complete network service manager.
 - [x] no-new-privileges process flag
 - [ ] privilege-separated daemon patterns in the base system
 - [ ] chroot/service-jail style filesystem roots
-- [ ] immutable and append-only file flags
+- [x] immutable and append-only file flags
 - [ ] per-process CPU/memory/file/socket resource limits
 - [x] core-dump policy that excludes secret material
 - [ ] stack canaries for supported userspace toolchains
@@ -1792,6 +1805,18 @@ This checks the current **fuzz and hostile-input tests for every privileged
 daemon/parser** roadmap item for parser classes that exist today. It does not
 claim coverage for future daemons/parsers, formal verification, exhaustive
 state-space exploration, or memory-unsafe external components.
+
+**Verified M23 immutable and append-only VFS flags (PR #319):**
+all exact-head workflows passed implementation head
+`b659b0f14cef754533592a3da3b69449719a9529`, including dedicated
+[VFS file flags run 36689251608](https://github.com/mixutin/Vibrix/actions/runs/36689251608).
+The production VFS enforces immutable and append-only state at its mutation
+boundary, preserves the flags in the tested file-node lifecycle, and rejects
+disallowed writes/removal instead of treating the flags as descriptive metadata.
+
+This checks **immutable and append-only file flags** for the current in-memory
+VFS model. Persistent VibrixFS flag encoding, privileged flag-changing syscalls,
+and physical USB persistence remain separate work.
 
 **Exit:** ordinary applications and daemons can permanently discard ambient
 authority, and the base system uses those mechanisms by default where practical.
