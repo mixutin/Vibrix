@@ -260,6 +260,91 @@ impl Default for RetransmissionTimer {
     }
 }
 
+pub const DELAYED_ACK_TICKS: u64 = 200;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AckDecision {
+    DelayUntil(u64),
+    SendNow,
+    Waiting,
+}
+
+/// Bounded delayed-ACK policy.
+///
+/// RFC 9293 permits delaying ACKs but requires bounded delay and recommends an
+/// ACK at least every second full-sized segment. This policy uses a fixed
+/// 200-tick deadline and forces an ACK on the second accepted in-order segment.
+/// Out-of-order/gap handling remains immediate through the existing reassembly
+/// path and should call `force()`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DelayedAck {
+    deadline: u64,
+    pending_segments: u8,
+    armed: bool,
+}
+
+impl DelayedAck {
+    pub const fn new() -> Self {
+        Self {
+            deadline: 0,
+            pending_segments: 0,
+            armed: false,
+        }
+    }
+
+    pub fn on_in_order_segment(&mut self, now_ticks: u64) -> AckDecision {
+        if !self.armed {
+            self.deadline = now_ticks.saturating_add(DELAYED_ACK_TICKS);
+            self.pending_segments = 1;
+            self.armed = true;
+            return AckDecision::DelayUntil(self.deadline);
+        }
+
+        self.pending_segments = self.pending_segments.saturating_add(1);
+        if self.pending_segments >= 2 {
+            self.clear();
+            AckDecision::SendNow
+        } else {
+            AckDecision::DelayUntil(self.deadline)
+        }
+    }
+
+    pub fn poll(&mut self, now_ticks: u64) -> AckDecision {
+        if !self.armed {
+            return AckDecision::Waiting;
+        }
+        if now_ticks >= self.deadline {
+            self.clear();
+            AckDecision::SendNow
+        } else {
+            AckDecision::DelayUntil(self.deadline)
+        }
+    }
+
+    pub fn force(&mut self) -> AckDecision {
+        if self.armed {
+            self.clear();
+        }
+        AckDecision::SendNow
+    }
+
+    pub const fn pending_segments(&self) -> u8 {
+        self.pending_segments
+    }
+
+    fn clear(&mut self) {
+        self.deadline = 0;
+        self.pending_segments = 0;
+        self.armed = false;
+    }
+}
+
+impl Default for DelayedAck {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub const REASSEMBLY_SLOTS: usize = 4;
 pub const REASSEMBLY_SEGMENT_BYTES: usize = 256;
 
@@ -1310,6 +1395,28 @@ pub(super) fn self_test() -> Result<(), Error> {
     client.accept_syn_ack(&wire[..syn_ack_len], &mut reply)?;
     if client.state() != State::Established || client.receive_next() != peer_isn.wrapping_add(1) {
         return Err(Error::State);
+    }
+
+    let mut delayed_ack = DelayedAck::new();
+    if delayed_ack.on_in_order_segment(100) != AckDecision::DelayUntil(300)
+        || delayed_ack.pending_segments() != 1
+        || delayed_ack.poll(299) != AckDecision::DelayUntil(300)
+        || delayed_ack.poll(300) != AckDecision::SendNow
+        || delayed_ack.pending_segments() != 0
+    {
+        return Err(Error::Invariant);
+    }
+    if delayed_ack.on_in_order_segment(500) != AckDecision::DelayUntil(700)
+        || delayed_ack.on_in_order_segment(501) != AckDecision::SendNow
+        || delayed_ack.poll(800) != AckDecision::Waiting
+    {
+        return Err(Error::Invariant);
+    }
+    if delayed_ack.on_in_order_segment(u64::MAX - 10) != AckDecision::DelayUntil(u64::MAX)
+        || delayed_ack.force() != AckDecision::SendNow
+        || delayed_ack.pending_segments() != 0
+    {
+        return Err(Error::Invariant);
     }
 
     let mut retained = RetransmissionBuffer::new();
