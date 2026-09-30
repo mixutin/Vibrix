@@ -230,8 +230,7 @@ mod tests {
         // first staging record becomes durable. Every non-Durable phase must
         // disappear during recovery.
         for persisted in [None, Some(manifest), Some(payload), Some(verified)] {
-            let recovered =
-                Stager::recover(KNOWN_GOOD, manifest.transaction, persisted).unwrap();
+            let recovered = Stager::recover(KNOWN_GOOD, manifest.transaction, persisted).unwrap();
             assert_eq!(recovered.pending(), None);
         }
 
@@ -240,10 +239,7 @@ mod tests {
         let mut recovered =
             Stager::recover(KNOWN_GOOD, durable.transaction, Some(durable)).unwrap();
         assert_eq!(recovered.pending(), Some(durable));
-        assert_eq!(
-            recovered.take_durable(durable.transaction),
-            Ok(CANDIDATE)
-        );
+        assert_eq!(recovered.take_durable(durable.transaction), Ok(CANDIDATE));
         assert_eq!(recovered.pending(), None);
 
         // Torn/stale metadata cannot accidentally resurrect an older or
@@ -262,8 +258,7 @@ mod tests {
                 ..durable
             },
         ] {
-            let recovered =
-                Stager::recover(KNOWN_GOOD, durable.transaction, Some(record)).unwrap();
+            let recovered = Stager::recover(KNOWN_GOOD, durable.transaction, Some(record)).unwrap();
             assert_eq!(recovered.pending(), None);
         }
     }
