@@ -77,6 +77,89 @@ fn valid_name_byte(byte: u8) -> bool {
     byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_' | b'.')
 }
 
+pub const CAPABILITY_WIRE_BYTES: usize = 64;
+const CAPABILITY_MAGIC: [u8; 8] = *b"VCAPv001";
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Capabilities(u64);
+
+impl Capabilities {
+    pub const FILESYSTEM_READ: Self = Self(1 << 0);
+    pub const FILESYSTEM_WRITE: Self = Self(1 << 1);
+    pub const NETWORK: Self = Self(1 << 2);
+    pub const DEVICE: Self = Self(1 << 3);
+    pub const PROCESS_CONTROL: Self = Self(1 << 4);
+    pub const ALL: Self = Self(
+        Self::FILESYSTEM_READ.0
+            | Self::FILESYSTEM_WRITE.0
+            | Self::NETWORK.0
+            | Self::DEVICE.0
+            | Self::PROCESS_CONTROL.0,
+    );
+
+    pub const fn empty() -> Self {
+        Self(0)
+    }
+
+    pub const fn bits(self) -> u64 {
+        self.0
+    }
+
+    pub const fn contains(self, required: Self) -> bool {
+        self.0 & required.0 == required.0
+    }
+
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub fn from_bits(bits: u64) -> Result<Self, Error> {
+        if bits & !Self::ALL.0 != 0 {
+            return Err(Error::UnknownCapabilities);
+        }
+        Ok(Self(bits))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CapabilityDeclaration {
+    pub package: Name,
+    pub capabilities: Capabilities,
+}
+
+impl CapabilityDeclaration {
+    pub const fn new(package: Name, capabilities: Capabilities) -> Self {
+        Self {
+            package,
+            capabilities,
+        }
+    }
+
+    pub fn encode(self) -> [u8; CAPABILITY_WIRE_BYTES] {
+        let mut wire = [0u8; CAPABILITY_WIRE_BYTES];
+        wire[..8].copy_from_slice(&CAPABILITY_MAGIC);
+        wire[8] = self.package.len;
+        put_u64(&mut wire[16..24], self.capabilities.bits());
+        wire[24..56].copy_from_slice(&self.package.bytes);
+        wire
+    }
+
+    pub fn decode(wire: &[u8]) -> Result<Self, Error> {
+        if wire.len() != CAPABILITY_WIRE_BYTES || wire[..8] != CAPABILITY_MAGIC {
+            return Err(Error::Format);
+        }
+        if wire[9..16].iter().any(|&byte| byte != 0) || wire[56..].iter().any(|&byte| byte != 0) {
+            return Err(Error::Reserved);
+        }
+        let package = decode_name(wire[8], &wire[24..56])?;
+        let capabilities = Capabilities::from_bits(get_u64(&wire[16..24]))?;
+        Ok(Self {
+            package,
+            capabilities,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Dependency {
     pub name: Name,
@@ -263,6 +346,7 @@ pub enum Error {
     RequiredByInstalled,
     DatabaseFull,
     NotInstalled,
+    UnknownCapabilities,
 }
 
 pub struct Database {
@@ -408,6 +492,57 @@ mod tests {
             ),
             Err(Error::DuplicateDependency)
         );
+    }
+
+    #[test]
+    fn capability_declarations_are_canonical_and_reject_unknown_authority() {
+        let caps = Capabilities::FILESYSTEM_READ
+            .union(Capabilities::NETWORK)
+            .union(Capabilities::DEVICE);
+        let declaration = CapabilityDeclaration::new(name(b"browser"), caps);
+        let wire = declaration.encode();
+        assert_eq!(&wire[..8], b"VCAPv001");
+        assert_eq!(CapabilityDeclaration::decode(&wire), Ok(declaration));
+        assert!(
+            declaration
+                .capabilities
+                .contains(Capabilities::FILESYSTEM_READ)
+        );
+        assert!(
+            !declaration
+                .capabilities
+                .contains(Capabilities::FILESYSTEM_WRITE)
+        );
+
+        let mut unknown = wire;
+        unknown[23] = 0x80;
+        assert_eq!(
+            CapabilityDeclaration::decode(&unknown),
+            Err(Error::UnknownCapabilities)
+        );
+
+        let mut reserved = wire;
+        reserved[9] = 1;
+        assert_eq!(
+            CapabilityDeclaration::decode(&reserved),
+            Err(Error::Reserved)
+        );
+        let mut trailing = wire;
+        trailing[63] = 1;
+        assert_eq!(
+            CapabilityDeclaration::decode(&trailing),
+            Err(Error::Reserved)
+        );
+    }
+
+    #[test]
+    fn empty_capability_declaration_is_explicit_and_round_trips() {
+        let declaration = CapabilityDeclaration::new(name(b"calculator"), Capabilities::empty());
+        assert_eq!(
+            CapabilityDeclaration::decode(&declaration.encode()),
+            Ok(declaration)
+        );
+        assert_eq!(declaration.capabilities.bits(), 0);
     }
 
     #[test]
