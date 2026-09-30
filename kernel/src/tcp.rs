@@ -1784,6 +1784,138 @@ mod tests {
     }
 
     #[test]
+    fn live_duplicate_acks_fast_retransmit_retained_payload() {
+        let (local, remote) = endpoints();
+        let mut client = Client::new(local, remote, 100);
+        let mut wire = [0u8; ipv4::MAX_PAYLOAD];
+        let mut output = [0u8; ipv4::MAX_PAYLOAD];
+
+        client.connect(&mut wire).unwrap();
+        let peer_isn = 500;
+        let syn_ack = synthetic_peer(
+            remote,
+            local,
+            peer_isn,
+            client.send_next(),
+            FLAG_SYN | FLAG_ACK,
+            &[],
+            &mut wire,
+        )
+        .unwrap();
+        let input = wire;
+        client.accept_syn_ack(&input[..syn_ack], &mut output).unwrap();
+
+        let mut retained = RetransmissionBuffer::new();
+        let sent = client
+            .send_reliable(b"hello", &mut retained, &mut wire)
+            .unwrap();
+        let original = parse(local.address, remote.address, &wire[..sent]).unwrap();
+        let original_sequence = original.sequence();
+        let duplicate_ack = original_sequence;
+
+        for count in 1..=3 {
+            let ack_len = synthetic_peer(
+                remote,
+                local,
+                client.receive_next(),
+                duplicate_ack,
+                FLAG_ACK,
+                &[],
+                &mut wire,
+            )
+            .unwrap();
+            let input = wire;
+            let retransmit = client
+                .accept_ack_with_recovery(&input[..ack_len], &mut retained, &mut output)
+                .unwrap();
+            if count < 3 {
+                assert_eq!(retransmit, None);
+            } else {
+                let length = retransmit.expect("third duplicate ACK must retransmit");
+                let retry = parse(local.address, remote.address, &output[..length]).unwrap();
+                assert_eq!(retry.sequence(), original_sequence);
+                assert_eq!(retry.payload(), b"hello");
+                assert!(retained.in_fast_recovery());
+            }
+        }
+        assert_eq!(retained.duplicate_acks(), 3);
+
+        let full_ack = synthetic_peer(
+            remote,
+            local,
+            client.receive_next(),
+            original_sequence.wrapping_add(5),
+            FLAG_ACK,
+            &[],
+            &mut wire,
+        )
+        .unwrap();
+        let input = wire;
+        assert_eq!(
+            client
+                .accept_ack_with_recovery(&input[..full_ack], &mut retained, &mut output)
+                .unwrap(),
+            None
+        );
+        assert!(!retained.is_active());
+        assert!(!retained.in_fast_recovery());
+        assert_eq!(client.congestion_window(), client.slow_start_threshold());
+    }
+
+    #[test]
+    fn partial_ack_trims_retained_segment_and_timeout_reuses_suffix() {
+        let (local, remote) = endpoints();
+        let mut client = Client::new(local, remote, 1000);
+        let mut wire = [0u8; ipv4::MAX_PAYLOAD];
+        let mut output = [0u8; ipv4::MAX_PAYLOAD];
+
+        client.connect(&mut wire).unwrap();
+        let peer_isn = 2000;
+        let syn_ack = synthetic_peer(
+            remote,
+            local,
+            peer_isn,
+            client.send_next(),
+            FLAG_SYN | FLAG_ACK,
+            &[],
+            &mut wire,
+        )
+        .unwrap();
+        let input = wire;
+        client.accept_syn_ack(&input[..syn_ack], &mut output).unwrap();
+
+        let mut retained = RetransmissionBuffer::new();
+        client
+            .send_reliable(b"abcdef", &mut retained, &mut wire)
+            .unwrap();
+        let first = retained.sequence;
+        let partial_ack = synthetic_peer(
+            remote,
+            local,
+            client.receive_next(),
+            first.wrapping_add(2),
+            FLAG_ACK,
+            &[],
+            &mut wire,
+        )
+        .unwrap();
+        let input = wire;
+        client
+            .accept_ack_with_recovery(&input[..partial_ack], &mut retained, &mut output)
+            .unwrap();
+        assert!(retained.is_active());
+        assert_eq!(retained.sequence, first.wrapping_add(2));
+
+        let retry_len = client
+            .retransmit_after_timeout(&retained, &mut output)
+            .unwrap();
+        let retry = parse(local.address, remote.address, &output[..retry_len]).unwrap();
+        assert_eq!(retry.sequence(), first.wrapping_add(2));
+        assert_eq!(retry.payload(), b"cdef");
+        assert_eq!(client.congestion_window(), u32::from(client.peer_mss()));
+    }
+
+    #[test]
     fn retransmission_timer_backs_off_and_exhausts_without_wrap() {
         let mut timer = RetransmissionTimer::new();
         timer.arm(0);
