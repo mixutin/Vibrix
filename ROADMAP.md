@@ -1556,7 +1556,7 @@ not add persistent logging, crash storage, or a general tracing facility.
 This extends the security roadmap; it does not replace the security gates that
 must already exist before third-party software is trusted.
 
-- [ ] Application sandbox primitives
+- [x] Application sandbox primitives
 - [x] Package/application capability declarations
 - [ ] Filesystem namespace/mount isolation
 - [ ] Network namespace/isolation
@@ -1584,6 +1584,20 @@ separate M19 work.
 
 **Exit:** optional engineering/security tooling can be used without automatically
 receiving unrestricted access to the persistent Vibrix system.
+
+**Verified M19 bounded application sandbox primitives (PRs #291, #295, #302 and #309):**
+the exact-head workflow matrices for the component implementations passed before
+merge. Vibrix process identity now combines a monotonic no-new-privileges flag,
+monotonic process-operation promise reduction, per-descriptor rights reduction,
+and a component-aware monotonic path visibility/access allow-list. Child
+processes inherit the already-reduced process policy, and attempts to regain
+discarded authority fail closed.
+
+This checks **Application sandbox primitives** as the current composable
+authority-reduction foundation. It does not claim filesystem or network
+namespaces, device mediation, resource limits, service jails, complete pathname
+enforcement for every future syscall, or a finished application sandbox
+orchestrator. Those remain separate M19/M23 items.
 
 ## M20 — Self-hosted engineering workstation
 
