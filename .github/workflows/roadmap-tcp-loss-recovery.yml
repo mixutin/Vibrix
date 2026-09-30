@@ -1,0 +1,39 @@
+name: TCP live loss recovery evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  tcp-loss-recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rust-src,rustfmt,clippy --target x86_64-unknown-none,x86_64-unknown-uefi
+      - name: Test integrated loss recovery
+        run: |
+          cargo fmt --all -- --check
+          cargo test --locked -p vibrix-kernel --lib tcp::tests::live_duplicate_acks_fast_retransmit_retained_payload
+          cargo test --locked -p vibrix-kernel --lib tcp::tests::partial_ack_trims_retained_segment_and_timeout_reuses_suffix
+          cargo test --locked -p vibrix-kernel --lib tcp::tests::production_active_open_data_and_close_path
+          cargo clippy --locked -p vibrix-kernel --lib --target x86_64-unknown-none -- -D warnings
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+      - name: Prove integrated TCP self-test post firmware
+        run: |
+          bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: kernel TCP active-open foundation verified" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "VIBRIX: kernel TCP active-open foundation verified"
