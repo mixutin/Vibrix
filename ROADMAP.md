@@ -1676,7 +1676,7 @@ inspect system state and perform routine maintenance without another OS.
 
 ## M22 — Network security and administration
 
-- [ ] IPv6 core, neighbor discovery and ICMPv6
+- [x] IPv6 core, neighbor discovery and ICMPv6
 - [x] routing table and route-selection policy
 - [ ] loopback and Unix-domain sockets
 - [ ] poll/select/event-notification API for network daemons
@@ -1692,6 +1692,20 @@ inspect system state and perform routine maintenance without another OS.
 - [x] network services disabled by default unless explicitly enabled
 - [ ] per-service user, filesystem and network sandbox policy
 - [x] packet-filter ruleset validation before activation
+
+**Verified M22 bounded IPv6/ICMPv6 and neighbor discovery core (PR #321):**
+all 52 exact-head workflows passed implementation head
+`a22d515e85f1d61eca8f393717dc8535fcc25a2b`, including dedicated
+[IPv6 and neighbor discovery run 36692761724](https://github.com/mixutin/Vibrix/actions/runs/36692761724).
+The fixed-header IPv6/ICMPv6 path validates lengths and pseudo-header checksums,
+handles Echo Request/Reply, validates Neighbor Solicitations with the required
+hop-limit 255, and generates solicited Neighbor Advertisements only for the exact
+local target.
+
+This checks the bounded **IPv6 core, neighbor discovery and ICMPv6** item. It
+does not claim IPv6 routing, SLAAC/DHCPv6, extension headers, fragmentation,
+multicast listener discovery, live NIC integration, or physical-network
+interoperability.
 
 **Verified M22 packet-filter ruleset activation validation (PR #266):**
 the exact-head repository matrix passed before merge. The fixed-capacity control
