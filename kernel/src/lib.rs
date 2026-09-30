@@ -3,6 +3,7 @@
 #[cfg(test)]
 extern crate std;
 
+pub mod admin_broker;
 pub mod block;
 pub mod config_policy;
 pub mod cpu_topology;
@@ -38,6 +39,8 @@ pub mod vfs;
 /// QEMU-only caller supplies the real kernel's independent output paths.
 /// A marker is emitted only after the corresponding behavior succeeds.
 pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
+    admin_broker::self_test().expect("administrative broker policy self-test failed");
+    report("VIBRIX: kernel administrative broker policy verified");
     vfs::self_test(&mut report).expect("bootstrap VFS self-test failed");
     klog::self_test().expect("structured kernel log self-test failed");
     report("VIBRIX: kernel structured log verified");
