@@ -162,6 +162,84 @@ impl CapabilityDeclaration {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Profile {
+    Minimal,
+    Developer,
+    Server,
+    Recovery,
+    SecurityLab,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProfilePolicy {
+    pub disposable_workspace: bool,
+    pub restricted_persistent_mounts: bool,
+    pub isolated_network_optional: bool,
+    pub network_services_default_off: bool,
+}
+
+const MINIMAL_MEMBERS: &[&[u8]] = &[b"vibrix-shell"];
+const DEVELOPER_MEMBERS: &[&[u8]] = &[b"vibrix-shell", b"vibrix-package", b"vibrix-ui"];
+const SERVER_MEMBERS: &[&[u8]] = &[b"vibrix-shell"];
+const RECOVERY_MEMBERS: &[&[u8]] = &[b"vibrix-shell"];
+const SECURITY_LAB_MEMBERS: &[&[u8]] = &[
+    b"vibrix-shell",
+    b"vibrix-package",
+];
+
+impl Profile {
+    pub const fn name(self) -> &'static [u8] {
+        match self {
+            Self::Minimal => b"minimal",
+            Self::Developer => b"developer",
+            Self::Server => b"server",
+            Self::Recovery => b"recovery",
+            Self::SecurityLab => b"security-lab",
+        }
+    }
+
+    pub const fn members(self) -> &'static [&'static [u8]] {
+        match self {
+            Self::Minimal => MINIMAL_MEMBERS,
+            Self::Developer => DEVELOPER_MEMBERS,
+            Self::Server => SERVER_MEMBERS,
+            Self::Recovery => RECOVERY_MEMBERS,
+            Self::SecurityLab => SECURITY_LAB_MEMBERS,
+        }
+    }
+
+    pub const fn policy(self) -> ProfilePolicy {
+        match self {
+            Self::SecurityLab => ProfilePolicy {
+                disposable_workspace: true,
+                restricted_persistent_mounts: true,
+                isolated_network_optional: true,
+                network_services_default_off: true,
+            },
+            _ => ProfilePolicy {
+                disposable_workspace: false,
+                restricted_persistent_mounts: false,
+                isolated_network_optional: false,
+                network_services_default_off: true,
+            },
+        }
+    }
+
+    pub fn validate(self) -> Result<(), Error> {
+        if self.members().is_empty() || self.members().len() > MAX_PROFILE_PACKAGES {
+            return Err(Error::TooManyProfilePackages);
+        }
+        for (index, member) in self.members().iter().enumerate() {
+            Name::new(member)?;
+            if self.members()[..index].contains(member) {
+                return Err(Error::DuplicateProfilePackage);
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Dependency {
     pub name: Name,
     pub minimum: Version,
@@ -351,6 +429,7 @@ pub enum Error {
     CapabilityPackageMismatch,
     PermissionReviewRequired,
     TooManyProfilePackages,
+    DuplicateProfilePackage,
 }
 
 #[derive(Clone, Copy)]
@@ -723,6 +802,39 @@ mod tests {
         db.install(core).unwrap();
         assert_eq!(db.install(app), Err(Error::DependencyVersion));
         assert_eq!(db.len(), 1);
+    }
+
+    #[test]
+    fn named_profiles_are_bounded_unique_and_valid() {
+        for profile in [
+            Profile::Minimal,
+            Profile::Developer,
+            Profile::Server,
+            Profile::Recovery,
+            Profile::SecurityLab,
+        ] {
+            profile.validate().unwrap();
+            assert!(!profile.name().is_empty());
+            assert!(profile.members().len() <= MAX_PROFILE_PACKAGES);
+        }
+    }
+
+    #[test]
+    fn security_lab_profile_is_explicit_and_safe_by_default() {
+        let policy = Profile::SecurityLab.policy();
+        assert!(policy.disposable_workspace);
+        assert!(policy.restricted_persistent_mounts);
+        assert!(policy.isolated_network_optional);
+        assert!(policy.network_services_default_off);
+
+        for profile in [
+            Profile::Minimal,
+            Profile::Developer,
+            Profile::Server,
+            Profile::Recovery,
+        ] {
+            assert!(profile.policy().network_services_default_off);
+        }
     }
 
     #[test]
