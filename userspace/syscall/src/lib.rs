@@ -179,6 +179,13 @@ pub fn restrict_descriptor_rights(fd: u64, rights: u64) -> Result<()> {
     call(abi::Syscall::FdRights, [fd, 1, rights, 0, 0, 0]).map(|_| ())
 }
 
+pub fn advisory_lock(fd: u64, operation: u64) -> Result<()> {
+    if operation > abi::FD_LOCK_EXCLUSIVE {
+        return Err(abi::Errno::InvalidArgument.code());
+    }
+    call(abi::Syscall::FdLock, [fd, operation, 0, 0, 0, 0]).map(|_| ())
+}
+
 pub fn read(fd: u64, buffer: &mut [u8]) -> Result<usize> {
     let raw = call(
         abi::Syscall::Read,
@@ -349,6 +356,14 @@ mod tests {
             Err(abi::Errno::InvalidArgument.code())
         );
         assert_eq!(
+            advisory_lock(1, abi::FD_LOCK_SHARED),
+            Err(abi::Errno::NotSupported.code())
+        );
+        assert_eq!(
+            advisory_lock(1, 99),
+            Err(abi::Errno::InvalidArgument.code())
+        );
+        assert_eq!(
             restrict_promises(abi::PROMISE_IO),
             Err(abi::Errno::NotSupported.code())
         );
@@ -399,5 +414,6 @@ mod tests {
         assert_eq!(abi::Syscall::NoNewPrivileges.number(), 23);
         assert_eq!(abi::Syscall::Promises.number(), 24);
         assert_eq!(abi::Syscall::FdRights.number(), 25);
+        assert_eq!(abi::Syscall::FdLock.number(), 27);
     }
 }
