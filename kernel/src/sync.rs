@@ -36,7 +36,7 @@ impl<T> TicketLock<T> {
     pub fn lock(&self) -> Result<TicketGuard<'_, T>, Error> {
         let ticket = self
             .next
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
                 (next != u64::MAX).then_some(next + 1)
             })
             .map_err(|_| Error::TicketExhausted)?;
@@ -102,7 +102,7 @@ impl BootBarrier {
         }
         let arrival = self
             .arrived
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                 (current < self.participants).then_some(current + 1)
             })
             .map_err(|_| Error::BarrierOverrun)?
