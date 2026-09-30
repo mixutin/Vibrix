@@ -4,6 +4,7 @@
 extern crate std;
 
 pub mod audit;
+pub mod admin_broker;
 pub mod block;
 pub mod config_policy;
 pub mod cpu_topology;
@@ -19,6 +20,7 @@ pub mod ntp;
 pub mod packet_filter;
 pub mod path_policy;
 pub mod per_cpu;
+pub mod periodic_jobs;
 pub mod process;
 pub mod process_syscalls;
 pub mod resolver;
@@ -26,6 +28,8 @@ pub mod routing;
 #[path = "../../shared/scsi.rs"]
 pub mod scsi;
 pub mod secure_random;
+pub mod service_manager;
+pub mod service_order;
 pub mod sync;
 #[path = "../../shared/syscall_abi.rs"]
 pub mod syscall_abi;
@@ -44,6 +48,14 @@ pub mod vfs;
 /// A marker is emitted only after the corresponding behavior succeeds.
 pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     vfs::self_test(&mut report).expect("bootstrap VFS self-test failed");
+    admin_broker::self_test().expect("administrative broker self-test failed");
+    report("VIBRIX: kernel administrative broker policy verified");
+    service_manager::self_test().expect("service manager self-test failed");
+    report("VIBRIX: kernel service manager state verified");
+    service_order::self_test().expect("service dependency order self-test failed");
+    report("VIBRIX: kernel service dependency order verified");
+    periodic_jobs::self_test().expect("periodic job scheduler self-test failed");
+    report("VIBRIX: kernel periodic job scheduler verified");
     audit::self_test().expect("security audit self-test failed");
     report("VIBRIX: kernel security audit log verified");
     klog::self_test().expect("structured kernel log self-test failed");
