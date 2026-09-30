@@ -110,6 +110,24 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
     arch::x86_64::serial::init();
     crate::println!("Vibrix kernel started.");
     debugcon::write("VIBRIX: kernel serial initialized\r\n");
+    // Establish one privacy-safe boot identity and wall-clock anchor before
+    // structured subsystem events are published. Neither source falls back to
+    // stable hardware identifiers or an invented timestamp.
+    let mut boot_id = [0u8; 16];
+    vibrix_kernel::secure_random::fill(&mut boot_id)
+        .unwrap_or_else(|error| panic!("boot ID secure-random initialization failed: {:?}", error));
+    let wall_clock = unsafe { arch::x86_64::rtc::read_unix_seconds() }
+        .unwrap_or_else(|error| panic!("CMOS RTC wall-clock initialization failed: {:?}", error));
+    vibrix_kernel::boot_clock::initialize(boot_id, wall_clock)
+        .unwrap_or_else(|error| panic!("boot metadata initialization failed: {:?}", error));
+    let boot_stamp = vibrix_kernel::boot_clock::stamp();
+    crate::println!(
+        "kernel boot metadata: id={:016x}{:016x} wall={}",
+        boot_stamp.boot_id_hi,
+        boot_stamp.boot_id_lo,
+        boot_stamp.wall_clock_seconds
+    );
+    debugcon::write("VIBRIX: kernel boot identity and wall clock initialized\r\n");
     #[cfg(feature = "verbose-boot")]
     {
         crate::println!(
@@ -678,6 +696,30 @@ pub unsafe extern "C" fn vibrix_kernel_entry(boot_info: *const BootInfo) -> ! {
         }
         crate::println!("kernel timer: tick {}", arch::x86_64::irq::timer_ticks());
         debugcon::write("VIBRIX: kernel timer IRQ delivered\r\n");
+        let timestamp_sequence = vibrix_kernel::klog::log(
+            vibrix_kernel::klog::Level::Info,
+            vibrix_kernel::klog::Subsystem::Kernel,
+            0x1802,
+            arch::x86_64::irq::timer_ticks(),
+            0,
+        )
+        .unwrap_or_else(|error| panic!("timestamped structured log failed: {:?}", error));
+        let timestamp_record = vibrix_kernel::klog::KERNEL_LOG
+            .get(timestamp_sequence)
+            .expect("timestamped structured record was not published");
+        if timestamp_record.monotonic_ticks == 0
+            || timestamp_record.wall_clock_seconds < wall_clock
+            || (timestamp_record.boot_id_hi == 0 && timestamp_record.boot_id_lo == 0)
+        {
+            panic!("timestamped structured record metadata invalid");
+        }
+        crate::println!(
+            "kernel timestamped log: seq={} tick={} wall={}",
+            timestamp_record.sequence,
+            timestamp_record.monotonic_ticks,
+            timestamp_record.wall_clock_seconds
+        );
+        debugcon::write("VIBRIX: kernel timestamped structured log verified\r\n");
 
         memory::managed::runtime_smoke_test()
             .unwrap_or_else(|error| panic!("runtime managed VM validation failed: {:?}", error));
