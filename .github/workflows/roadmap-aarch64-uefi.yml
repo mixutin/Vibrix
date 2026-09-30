@@ -1,0 +1,54 @@
+name: AArch64 UEFI boot evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  aarch64-uefi:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install repository toolchain and AArch64 UEFI target
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt,clippy --target aarch64-unknown-uefi
+      - name: Build dependency-free AArch64 UEFI application
+        run: |
+          cargo fmt --manifest-path platform/aarch64-uefi/Cargo.toml -- --check
+          cargo clippy --manifest-path platform/aarch64-uefi/Cargo.toml --target aarch64-unknown-uefi -- -D warnings
+          cargo build --manifest-path platform/aarch64-uefi/Cargo.toml --target aarch64-unknown-uefi
+          mkdir -p build/aarch64-esp/EFI/BOOT
+          cp platform/aarch64-uefi/target/aarch64-unknown-uefi/debug/vibrix-aarch64-uefi.efi build/aarch64-esp/EFI/BOOT/BOOTAA64.EFI
+      - name: Install QEMU AArch64 and AAVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-arm qemu-efi-aarch64
+      - name: Boot through real AAVMF firmware
+        run: |
+          firmware=""
+          for candidate in /usr/share/AAVMF/AAVMF_CODE.fd /usr/share/qemu-efi-aarch64/QEMU_EFI.fd /usr/share/qemu-efi-aarch64/QEMU_EFI-pflash.raw; do
+            if [[ -f "$candidate" ]]; then firmware="$candidate"; break; fi
+          done
+          test -n "$firmware"
+          set +e
+          timeout 20s qemu-system-aarch64             -machine virt -cpu cortex-a57 -m 512M             -bios "$firmware"             -drive format=raw,file=fat:rw:build/aarch64-esp             -nographic -no-reboot > build/aarch64-uefi.log 2>&1
+          status=$?
+          set -e
+          test "$status" -eq 0 -o "$status" -eq 124
+          tr -d '\r' < build/aarch64-uefi.log | grep -Fq "VIBRIX: AArch64 UEFI boot entry verified"
+      - name: Preserve firmware log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: aarch64-uefi-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/aarch64-uefi.log
+          if-no-files-found: warn
+          retention-days: 7
