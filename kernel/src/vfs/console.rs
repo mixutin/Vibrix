@@ -19,6 +19,9 @@ pub fn bootstrap<'a, const N: usize, const B: usize>(
     vfs.create("/dev", Kind::Directory)?;
     vfs.create("/tmp", Kind::Directory)?;
     vfs.create("/run", Kind::Directory)?;
+    vfs.create("/etc", Kind::Directory)?;
+    let config = vfs.create("/etc/vibrix.conf", Kind::File)?;
+    vfs.write(config, 0, b"# Vibrix system configuration\n")?;
     let welcome = vfs.create("/welcome", Kind::File)?;
     vfs.write(
         welcome,

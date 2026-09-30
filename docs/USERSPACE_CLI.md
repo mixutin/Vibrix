@@ -2,7 +2,7 @@
 
 Vibrix boots its native Rust shell in Ring 3 through the existing ELF loader, private address space and syscall-backed TTY. This is an original, allocation-free Unix-style command environment, not Linux, BusyBox, a hosted terminal simulation or a POSIX-conformance claim.
 
-The shell provides **38 built-ins and three aliases**, embedded reference pages, quoted arguments, input/output redirection, command status, bounded history, and byte-oriented file/text tools. No additional runtime or third-party package is required.
+The shell provides **39 built-ins and three aliases**, embedded reference pages, quoted arguments, input/output redirection, command status, bounded history, and byte-oriented file/text tools. No additional runtime or third-party package is required.
 
 ## Boot and learn
 
@@ -68,7 +68,7 @@ cd -
 man shell
 ```
 
-The first `status` prints `1`; the next prints `0`. `touch backup` preserves its contents. `mv` is deliberately documented as copy-then-remove, not an atomic rename. These files exist only in the guest's volatile RAM filesystem.
+The first `status` prints `1`; the next prints `0`. `touch backup` preserves its contents. `mv` uses the kernel's same-filesystem atomic rename primitive. Cross-filesystem moves fail instead of falling back to copy-then-remove. These files exist only in the guest's volatile RAM filesystem.
 
 ## Command reference
 
@@ -89,7 +89,8 @@ Every name below has a built-in `man NAME` page and `NAME --help` path. Options 
 | `touch` | `touch [--] FILE...`: create absent files without truncating existing files; no timestamps are invented. |
 | `write` | `write [--] FILE [TEXT...]`: create/replace a file with a space-separated line. |
 | `cp` | `cp [--] SOURCE DESTINATION`: copy a regular file to the exact destination path; no recursive or metadata copy. |
-| `mv` | `mv [--] SOURCE DESTINATION`: copy, close successfully, then remove the source; not atomic. |
+| `mv` | `mv [--] SOURCE DESTINATION`: atomic same-filesystem rename/replacement; cross-filesystem moves fail closed. |
+| `config` | `config show | config apply KEY=VALUE...`: inspect or atomically replace `/etc/vibrix.conf` through a temporary file and kernel rename. |
 | `rm` | `rm [--] FILE...`: remove files; refuse directories and recursive deletion. |
 | `rmdir` | `rmdir [--] DIRECTORY...`: remove empty directories subject to kernel protection. |
 | `head` | `head [-n COUNT] [--] [FILE]`: first lines, default 10. |
@@ -136,7 +137,7 @@ One `< INPUT` and one `> OUTPUT` are supported. `>` creates or truncates its tar
 
 Parsing completes before opening files. Repeated/append redirection, unclosed quotes, unsupported operators, a missing redirection filename, NUL, too many arguments and saturated input lines are errors rather than partially executed commands. Source/destination aliases are rejected before truncation for copies and input/output redirection. Paths retain kernel lookup validation rather than erasing potentially invalid intermediate components.
 
-A valid command can still fail after opening or writing output. Writes, `cp`, `mv`, and redirection are **not transactional**; an I/O or capacity failure can leave a partial destination. Failed `mv` copies do not remove the source. The shell closes its opened descriptors on both success and error paths.
+A valid command can still fail after opening or writing output. Writes, `cp`, and redirection are **not transactional**; an I/O or capacity failure can leave a partial destination. `mv` is a same-filesystem atomic rename. `config apply` writes and closes a temporary file before atomically replacing `/etc/vibrix.conf`; a failed build leaves the current configuration unchanged. The shell closes its opened descriptors on both success and error paths.
 
 Exit statuses are 0 for success, 1 for an operation failure or no match, 2 for syntax/usage and 127 for an unknown command. `grep` uses 2 for any error and 1 for no selected lines. Empty input and comments preserve the preceding status. `status` replaces unavailable `$?` expansion.
 
@@ -225,3 +226,17 @@ This completes only the bounded M18 diagnostic surface for filesystem/network/
 update health awareness. It does not claim a physical NIC link test, remote
 connectivity probe, persistent USB fsck, signature verification, or installed
 update-generation validation.
+
+
+## Atomic system configuration
+
+The bootstrap namespace contains `/etc/vibrix.conf`. `config apply KEY=VALUE...`
+validates the complete bounded assignment set, writes it to
+`/etc/.vibrix.conf.new`, closes that descriptor successfully, and only then
+uses the kernel rename syscall to replace the current file in one namespace
+operation. Failed validation, writing, close, or rename preserves the previously
+committed configuration and removes the temporary file where possible.
+
+This is a coherent volatile `/etc` configuration mechanism and atomic update
+protocol. Persistence to the USB-root filesystem remains a separate storage
+milestone; the bootstrap RAM copy disappears on reboot.

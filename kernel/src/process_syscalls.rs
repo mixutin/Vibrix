@@ -56,6 +56,12 @@ pub enum Action {
         path: u64,
         length: u64,
     },
+    Rename {
+        from: u64,
+        from_length: u64,
+        to: u64,
+        to_length: u64,
+    },
     ReadDir {
         path: u64,
         length: u64,
@@ -105,6 +111,7 @@ fn required_promise(call: abi::Syscall) -> Option<u64> {
         | abi::Syscall::Create
         | abi::Syscall::Mkdir
         | abi::Syscall::Remove
+        | abi::Syscall::Rename
         | abi::Syscall::ReadDir => Some(abi::PROMISE_FILESYSTEM),
         abi::Syscall::Wait
         | abi::Syscall::Exec
@@ -262,6 +269,12 @@ pub fn dispatch<const N: usize>(
         abi::Syscall::Remove => Ok(Action::Remove {
             path: args[0],
             length: args[1],
+        }),
+        abi::Syscall::Rename => Ok(Action::Rename {
+            from: args[0],
+            from_length: args[1],
+            to: args[2],
+            to_length: args[3],
         }),
         abi::Syscall::ReadDir => Ok(Action::ReadDir {
             path: args[0],

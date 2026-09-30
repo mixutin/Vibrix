@@ -49,6 +49,11 @@ impl Memory {
         let mut files = BTreeMap::new();
         files.insert(Vec::from(&b"/"[..]), None);
         files.insert(Vec::from(&b"/tmp"[..]), None);
+        files.insert(Vec::from(&b"/etc"[..]), None);
+        files.insert(
+            Vec::from(&b"/etc/vibrix.conf"[..]),
+            Some(Vec::from(&b"# Vibrix system configuration\n"[..])),
+        );
         files.insert(
             Vec::from(&b"/welcome"[..]),
             Some(Vec::from(&b"hello RAM\n"[..])),
@@ -189,6 +194,41 @@ impl System for Memory {
         self.files
             .remove(&path)
             .ok_or(abi::Errno::NotFound.code())?;
+        self.mutations += 1;
+        Ok(())
+    }
+
+    fn rename(&mut self, from: &[u8], to: &[u8]) -> Result<()> {
+        let from = canonical(from);
+        let to = canonical(to);
+        if from == to {
+            return self
+                .files
+                .contains_key(&from)
+                .then_some(())
+                .ok_or(abi::Errno::NotFound.code());
+        }
+        if from == b"/" {
+            return Err(abi::Errno::PermissionDenied.code());
+        }
+        if self.files.get(crate::text::dirname(&to)) != Some(&None) {
+            return Err(abi::Errno::NotFound.code());
+        }
+        if self.handles.values().any(|handle| handle.path == to) {
+            return Err(abi::Errno::Busy.code());
+        }
+        let source = self
+            .files
+            .remove(&from)
+            .ok_or(abi::Errno::NotFound.code())?;
+        if let Some(destination) = self.files.get(&to)
+            && destination.is_none() != source.is_none()
+        {
+            self.files.insert(from, source);
+            return Err(abi::Errno::InvalidArgument.code());
+        }
+        self.files.remove(&to);
+        self.files.insert(to, source);
         self.mutations += 1;
         Ok(())
     }
@@ -401,13 +441,51 @@ fn streaming_and_limit_failures_close_all_descriptors_and_keep_move_source() {
     assert_eq!(io.run(&mut shell, b"cat /large"), 0);
     assert_eq!(io.stdout.len(), 1100);
     io.broken_write = true;
-    assert_eq!(io.run(&mut shell, b"mv /welcome /tmp/fail"), 1);
+    assert_eq!(io.run(&mut shell, b"cp /welcome /tmp/fail"), 1);
     assert_eq!(io.data(b"/welcome"), b"hello RAM\n");
     io.broken_write = false;
     io.oversized_read = true;
     assert_eq!(io.run(&mut shell, b"cat /welcome"), 1);
     assert!(io.stdout.is_empty());
     assert_eq!(system::parse_number(b"18446744073709551616"), None);
+}
+
+#[test]
+fn atomic_move_and_system_configuration_use_rename() {
+    let mut io = Memory::new();
+    let mut shell = Shell::new();
+
+    io.files.insert(
+        Vec::from(&b"/tmp/source"[..]),
+        Some(Vec::from(&b"payload"[..])),
+    );
+    assert_eq!(io.run(&mut shell, b"mv /tmp/source /tmp/destination"), 0);
+    assert!(!io.files.contains_key(&b"/tmp/source"[..]));
+    assert_eq!(io.data(b"/tmp/destination"), b"payload");
+
+    assert_eq!(
+        io.run(
+            &mut shell,
+            b"config apply network.mode=dhcp boot.verbose=false"
+        ),
+        0
+    );
+    assert_eq!(io.stdout, b"config: applied atomically\n");
+    assert!(!io.files.contains_key(&b"/etc/.vibrix.conf.new"[..]));
+    assert_eq!(
+        io.data(b"/etc/vibrix.conf"),
+        b"# Vibrix system configuration\nnetwork.mode=dhcp\nboot.verbose=false\n"
+    );
+    assert_eq!(io.run(&mut shell, b"config show"), 0);
+    assert_eq!(
+        io.stdout,
+        b"# Vibrix system configuration\nnetwork.mode=dhcp\nboot.verbose=false\n"
+    );
+
+    let before = Vec::from(io.data(b"/etc/vibrix.conf"));
+    assert_eq!(io.run(&mut shell, b"config apply invalid"), 1);
+    assert_eq!(io.data(b"/etc/vibrix.conf"), before.as_slice());
+    assert!(!io.files.contains_key(&b"/etc/.vibrix.conf.new"[..]));
 }
 
 #[test]

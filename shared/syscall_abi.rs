@@ -50,6 +50,7 @@ pub enum Syscall {
     NoNewPrivileges = 23,
     Promises = 24,
     FdRights = 25,
+    Rename = 26,
 }
 
 impl Syscall {
@@ -81,6 +82,7 @@ impl Syscall {
             23 => Some(Self::NoNewPrivileges),
             24 => Some(Self::Promises),
             25 => Some(Self::FdRights),
+            26 => Some(Self::Rename),
             _ => None,
         }
     }
@@ -270,6 +272,7 @@ mod tests {
             Syscall::NoNewPrivileges,
             Syscall::Promises,
             Syscall::FdRights,
+            Syscall::Rename,
         ];
         for (expected, call) in calls.into_iter().enumerate() {
             assert_eq!(call.number(), expected as u64);

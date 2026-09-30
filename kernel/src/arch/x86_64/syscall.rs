@@ -518,6 +518,35 @@ mod native {
                     abi::encode_error(abi::Errno::NotSupported)
                 }
             }
+            Ok(Action::Rename {
+                from,
+                from_length,
+                to,
+                to_length,
+            }) => {
+                #[cfg(feature = "userspace-io-probe")]
+                {
+                    let mut from_bytes = [0u8; vibrix_kernel::vfs::PATH_MAX];
+                    let mut to_bytes = [0u8; vibrix_kernel::vfs::PATH_MAX];
+                    let from = match user_path(from, from_length, &mut from_bytes) {
+                        Ok(path) => path,
+                        Err(error) => return abi::encode_error(error),
+                    };
+                    let to = match user_path(to, to_length, &mut to_bytes) {
+                        Ok(path) => path,
+                        Err(error) => return abi::encode_error(error),
+                    };
+                    match crate::userspace_io::rename(from, to) {
+                        Ok(()) => 0,
+                        Err(error) => encode_vfs_error(error),
+                    }
+                }
+                #[cfg(not(feature = "userspace-io-probe"))]
+                {
+                    let _ = (from, from_length, to, to_length);
+                    abi::encode_error(abi::Errno::NotSupported)
+                }
+            }
             Ok(Action::ReadDir {
                 path,
                 length,

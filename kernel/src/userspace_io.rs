@@ -171,6 +171,10 @@ pub fn remove(path: &str) -> Result<()> {
     with_files(|files| files.remove(path))
 }
 
+pub fn rename(from: &str, to: &str) -> Result<()> {
+    with_files(|files| files.rename(from, to))
+}
+
 pub fn entry(path: &str, index: usize) -> Result<Option<Entry>> {
     with_files(|files| files.entry(path, index))
 }
