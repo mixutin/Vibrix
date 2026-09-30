@@ -25,6 +25,7 @@ pub mod secure_random;
 pub mod syscall_abi;
 pub mod update_history;
 pub mod update_policy;
+pub mod update_staging;
 pub mod usb_hid;
 #[path = "../../shared/usb_mass_bulk.rs"]
 pub mod usb_mass_bulk;
@@ -85,4 +86,6 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel update history and rollback selection verified");
     update_policy::self_test().expect("update policy model self-test failed");
     report("VIBRIX: kernel update policy model verified");
+    update_staging::self_test().expect("transactional update staging self-test failed");
+    report("VIBRIX: kernel transactional update staging verified");
 }
