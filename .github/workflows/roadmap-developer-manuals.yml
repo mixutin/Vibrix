@@ -1,0 +1,30 @@
+name: Developer manual evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  developer-manuals:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt,clippy --target x86_64-unknown-none
+      - name: Test installed manual sections
+        run: |
+          cargo fmt --all -- --check
+          cargo test --locked -p vibrix-shell --lib developer_manual_sections_are_installed_and_searchable
+          cargo clippy --locked -p vibrix-shell --target x86_64-unknown-none -- -D warnings
+          grep -Fq 'section: 2' userspace/shell/src/manual.rs
+          grep -Fq 'section: 5' userspace/shell/src/manual.rs
+          grep -Fq 'section: 7' userspace/shell/src/manual.rs
