@@ -463,6 +463,34 @@ mod native {
                     abi::encode_error(abi::Errno::NotSupported)
                 }
             }
+            Ok(Action::FdRights {
+                fd,
+                operation,
+                rights,
+            }) => {
+                #[cfg(feature = "userspace-io-probe")]
+                {
+                    let Ok(fd) = usize::try_from(fd) else {
+                        return abi::encode_error(abi::Errno::BadFileDescriptor);
+                    };
+                    match operation {
+                        0 => match crate::userspace_io::descriptor_rights(fd) {
+                            Ok(rights) => rights,
+                            Err(error) => encode_vfs_error(error),
+                        },
+                        1 => match crate::userspace_io::restrict_descriptor_rights(fd, rights) {
+                            Ok(()) => 0,
+                            Err(error) => encode_vfs_error(error),
+                        },
+                        _ => abi::encode_error(abi::Errno::InvalidArgument),
+                    }
+                }
+                #[cfg(not(feature = "userspace-io-probe"))]
+                {
+                    let _ = (fd, operation, rights);
+                    abi::encode_error(abi::Errno::NotSupported)
+                }
+            }
             Ok(Action::Create { path, length })
             | Ok(Action::Mkdir { path, length })
             | Ok(Action::Remove { path, length }) => {
