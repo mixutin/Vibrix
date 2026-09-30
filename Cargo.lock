@@ -16,6 +16,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibrix-editor"
+version = "0.0.1"
+
+[[package]]
 name = "vibrix-init"
 version = "0.0.1"
 dependencies = [
