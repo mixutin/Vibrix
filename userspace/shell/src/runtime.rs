@@ -5,6 +5,7 @@ use crate::parser::{Command, LINE_BYTES};
 use crate::path::{PATH_BYTES, WorkingDir, same_path};
 use crate::system::{self, System, number, parse_number, write_all};
 use crate::{fetch, text};
+use vibrix_editor::Editor;
 use vibrix_syscall::abi;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -181,6 +182,7 @@ impl Shell {
                     | Builtin::Uniq
                     | Builtin::Nl
                     | Builtin::Hexdump
+                    | Builtin::Edit
             ) {
                 for arg in &command.argv()[1..command.argc] {
                     if let Ok(input) = Path::resolve(&self.cwd, arg)
@@ -402,6 +404,61 @@ impl Shell {
                 let fd = open_output(io, path.bytes())?;
                 let result = echo(io, fd, &args[1..], true);
                 finish(io, fd, result)?;
+            }
+            Builtin::Edit => {
+                let args = operands(raw)?;
+                if args.len() < 2 {
+                    return Err(Error::Usage);
+                }
+                let path = Path::resolve(&self.cwd, args[0])?;
+                require_regular(io, path.bytes())?;
+                let source = io.open(path.bytes(), abi::OPEN_READ)?;
+                let mut bytes = [0; text::TEXT_BYTES];
+                let loaded = load_text(io, source, &mut bytes);
+                let len = finish(io, source, loaded)?;
+                let mut editor = Editor::new();
+                editor
+                    .load(&bytes[..len])
+                    .map_err(|_| Error::Message(b"editor input exceeds capacity"))?;
+
+                match args[1..] {
+                    [b"print"] => write_all(io, out, editor.text())?,
+                    [b"insert", offset, text] => {
+                        let offset = parse_number(offset)
+                            .and_then(|value| usize::try_from(value).ok())
+                            .ok_or(Error::Usage)?;
+                        editor
+                            .set_cursor(offset)
+                            .map_err(|_| Error::Message(b"editor cursor outside file"))?;
+                        editor
+                            .insert(text)
+                            .map_err(|_| Error::Message(b"editor capacity exhausted"))?;
+                        let fd = open_output(io, path.bytes())?;
+                        finish(io, fd, write_all(io, fd, editor.text()).map_err(Error::from))?;
+                    }
+                    [b"delete", offset, count] => {
+                        let offset = parse_number(offset)
+                            .and_then(|value| usize::try_from(value).ok())
+                            .ok_or(Error::Usage)?;
+                        let count = parse_number(count)
+                            .and_then(|value| usize::try_from(value).ok())
+                            .ok_or(Error::Usage)?;
+                        editor
+                            .set_cursor(offset)
+                            .map_err(|_| Error::Message(b"editor cursor outside file"))?;
+                        if count > editor.text().len().saturating_sub(offset) {
+                            return Err(Error::Message(b"editor delete exceeds file"));
+                        }
+                        for _ in 0..count {
+                            if !editor.delete() {
+                                return Err(Error::Message(b"editor delete exceeds file"));
+                            }
+                        }
+                        let fd = open_output(io, path.bytes())?;
+                        finish(io, fd, write_all(io, fd, editor.text()).map_err(Error::from))?;
+                    }
+                    _ => return Err(Error::Usage),
+                }
             }
             Builtin::Cp | Builtin::Mv => {
                 let args = operands(raw)?;
