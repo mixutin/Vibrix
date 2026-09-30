@@ -1,0 +1,48 @@
+name: Safe USB provisioning evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  provisioner:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Validate provisioner
+        run: |
+          python3 -m py_compile tools/provision-usb.py tools/test-provision-usb.py
+          python3 tools/test-provision-usb.py
+          rustc tools/create-usb-image.rs -O -o "$RUNNER_TEMP/create-usb-image"
+          "$RUNNER_TEMP/create-usb-image" "$RUNNER_TEMP/vibrix.img" 64 512
+          python3 - "$RUNNER_TEMP/vibrix.img" <<'PY'
+          import importlib.util
+          from pathlib import Path
+          import sys
+          spec = importlib.util.spec_from_file_location("provision_usb", "tools/provision-usb.py")
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          image = Path(sys.argv[1])
+          module.validate_vibrix_image(image, 512)
+          data = bytearray(image.read_bytes())
+          data[512 + 40] ^= 1
+          bad = image.with_name("corrupt.img")
+          bad.write_bytes(data)
+          try:
+              module.validate_vibrix_image(bad, 512)
+          except module.Refusal:
+              pass
+          else:
+              raise SystemExit("corrupt GPT image was accepted")
+          PY
+          if python3 tools/provision-usb.py "$RUNNER_TEMP/vibrix.img" /dev/null --sector-size 512 --dry-run; then
+            echo "unsafe generic target was accepted"
+            exit 1
+          fi
