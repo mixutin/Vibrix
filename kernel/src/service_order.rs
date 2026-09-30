@@ -152,9 +152,7 @@ impl Graph {
             for (dependent_index, dependent) in
                 self.services[..self.len].iter().flatten().enumerate()
             {
-                if !emitted[dependent_index]
-                    && dependent.dependencies().contains(&service.name)
-                {
+                if !emitted[dependent_index] && dependent.dependencies().contains(&service.name) {
                     indegree[dependent_index] -= 1;
                 }
             }
@@ -227,10 +225,7 @@ mod tests {
         let a = n(b"a");
         let b = n(b"b");
         assert_eq!(Service::new(a, &[a]), Err(Error::SelfDependency));
-        assert_eq!(
-            Service::new(a, &[b, b]),
-            Err(Error::DuplicateDependency)
-        );
+        assert_eq!(Service::new(a, &[b, b]), Err(Error::DuplicateDependency));
         let mut graph = Graph::new();
         graph.add(Service::new(a, &[]).unwrap()).unwrap();
         assert_eq!(
