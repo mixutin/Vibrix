@@ -13,6 +13,8 @@ pub mod device;
 pub mod ipv6;
 pub mod klog;
 pub mod local_ipc;
+pub mod nat;
+pub mod local_ipc;
 pub mod network_guard;
 pub mod network_services;
 pub mod nic;
