@@ -450,6 +450,46 @@ mod tests {
     }
 
     #[test]
+    fn advisory_lock_action_is_io_promised_and_validates_operation() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::FdLock.number(),
+                [3, abi::FD_LOCK_EXCLUSIVE, 0, 0, 0, 0]
+            ),
+            Ok(Action::FdLock {
+                fd: 3,
+                operation: abi::FD_LOCK_EXCLUSIVE
+            })
+        );
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::FdLock.number(),
+                [3, 99, 0, 0, 0, 0]
+            ),
+            Err(abi::Errno::InvalidArgument)
+        );
+
+        table
+            .restrict_promises(init, abi::PROMISE_FILESYSTEM)
+            .unwrap();
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::FdLock.number(),
+                [3, abi::FD_LOCK_SHARED, 0, 0, 0, 0]
+            ),
+            Err(abi::Errno::PermissionDenied)
+        );
+    }
+
+    #[test]
     fn utility_actions_preserve_paths_fds_and_process_records() {
         let mut table = Table::<4>::new();
         let init = table.spawn_init().unwrap();
