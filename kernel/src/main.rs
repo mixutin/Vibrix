@@ -8,7 +8,6 @@ mod console;
 mod debugcon;
 #[cfg(feature = "userspace-desktop")]
 mod desktop_input;
-mod device;
 mod framebuffer;
 mod memory;
 mod thread;
@@ -16,6 +15,7 @@ mod thread;
 mod userspace_io;
 
 use core::panic::PanicInfo;
+use vibrix_kernel::device;
 
 // Same representation and validation code is compiled by both loader and kernel.
 #[path = "../../shared/bootinfo.rs"]

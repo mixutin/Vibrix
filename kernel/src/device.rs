@@ -170,12 +170,22 @@ impl Binder {
         self.used
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.used == 0
+    }
+
     pub fn count_driver(&self, driver: DriverKind) -> usize {
         self.bindings[..self.used]
             .iter()
             .flatten()
             .filter(|binding| binding.driver == driver)
             .count()
+    }
+}
+
+impl Default for Binder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
