@@ -84,7 +84,12 @@ impl Manager {
     }
 
     pub fn register(&mut self, name: ServiceName, enabled: bool) -> Result<(), Error> {
-        if self.entries.iter().flatten().any(|entry| entry.name == name) {
+        if self
+            .entries
+            .iter()
+            .flatten()
+            .any(|entry| entry.name == name)
+        {
             return Err(Error::Duplicate);
         }
         let slot = self
@@ -145,7 +150,10 @@ impl Manager {
             return Err(Error::AlreadyRunning);
         }
         let generation = entry.next_generation;
-        entry.next_generation = entry.next_generation.checked_add(1).ok_or(Error::Capacity)?;
+        entry.next_generation = entry
+            .next_generation
+            .checked_add(1)
+            .ok_or(Error::Capacity)?;
         entry.runtime = RuntimeState::Running { generation };
         Ok(generation)
     }
@@ -165,7 +173,10 @@ impl Manager {
             return Err(Error::NotRunning);
         };
         let generation = entry.next_generation;
-        entry.next_generation = entry.next_generation.checked_add(1).ok_or(Error::Capacity)?;
+        entry.next_generation = entry
+            .next_generation
+            .checked_add(1)
+            .ok_or(Error::Capacity)?;
         entry.runtime = RuntimeState::Running { generation };
         Ok(generation)
     }
@@ -194,7 +205,12 @@ pub fn self_test() -> Result<(), Error> {
     }
     manager.stop(ssh)?;
     manager.disable(ssh)?;
-    if manager.status(ssh)? != (Status { enabled: false, runtime: RuntimeState::Stopped }) {
+    if manager.status(ssh)?
+        != (Status {
+            enabled: false,
+            runtime: RuntimeState::Stopped,
+        })
+    {
         return Err(Error::NotRunning);
     }
     Ok(())
