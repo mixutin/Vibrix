@@ -7,7 +7,7 @@ use memfs::MemFs;
 fn guest_behavior_proof_runs_on_production_code() {
     let mut markers = std::vec::Vec::new();
     self_test(|marker| markers.push(std::string::String::from(marker))).unwrap();
-    assert_eq!(markers.len(), 7);
+    assert_eq!(markers.len(), 8);
 }
 
 #[test]

@@ -8,6 +8,7 @@ struct Inode<const B: usize> {
     name: Name,
     kind: Kind,
     len: usize,
+    flags: u8,
     data: [u8; B],
 }
 
@@ -34,6 +35,7 @@ impl<const N: usize, const B: usize> MemFs<N, B> {
             name,
             kind: Kind::Directory,
             len: 0,
+            flags: 0,
             data: [0; B],
         });
         Ok(fs)
@@ -132,6 +134,7 @@ impl<const N: usize, const B: usize> Filesystem for MemFs<N, B> {
             name: validated,
             kind,
             len: 0,
+            flags: 0,
             data: [0; B],
         });
         Ok(self.id(index))
@@ -139,6 +142,10 @@ impl<const N: usize, const B: usize> Filesystem for MemFs<N, B> {
 
     fn remove(&mut self, dir: NodeId, name: &str) -> Result<()> {
         let id = self.lookup(dir, name)?;
+        let flags = self.node(id)?.flags;
+        if flags & (super::FLAG_IMMUTABLE | super::FLAG_APPEND_ONLY) != 0 {
+            return Err(Error::AccessDenied);
+        }
         if self.nodes.iter().flatten().any(|node| node.parent == id) {
             return Err(Error::NotEmpty);
         }
@@ -167,6 +174,12 @@ impl<const N: usize, const B: usize> Filesystem for MemFs<N, B> {
         if node.kind != Kind::File {
             return Err(Error::IsDirectory);
         }
+        if node.flags & super::FLAG_IMMUTABLE != 0 {
+            return Err(Error::AccessDenied);
+        }
+        if node.flags & super::FLAG_APPEND_ONLY != 0 && offset != node.len {
+            return Err(Error::AccessDenied);
+        }
         if buffer.is_empty() {
             return Ok(0);
         }
@@ -188,8 +201,30 @@ impl<const N: usize, const B: usize> Filesystem for MemFs<N, B> {
         if node.kind != Kind::File {
             return Err(Error::IsDirectory);
         }
+        if node.flags & (super::FLAG_IMMUTABLE | super::FLAG_APPEND_ONLY) != 0 {
+            return Err(Error::AccessDenied);
+        }
         node.data.fill(0);
         node.len = 0;
+        Ok(())
+    }
+
+    fn file_flags(&self, id: NodeId) -> Result<u8> {
+        Ok(self.node(id)?.flags)
+    }
+
+    fn set_file_flags(&mut self, id: NodeId, flags: u8) -> Result<()> {
+        if flags & !super::FILE_FLAGS_ALL != 0 {
+            return Err(Error::Unsupported);
+        }
+        let index = self.index(id)?;
+        let node = self.nodes[index].as_mut().expect("live inode");
+        if node.kind != Kind::File {
+            return Err(Error::IsDirectory);
+        }
+        // Once immutable is set it can only be cleared by an explicit flag
+        // operation; ordinary mutation paths cannot bypass it.
+        node.flags = flags;
         Ok(())
     }
 }
