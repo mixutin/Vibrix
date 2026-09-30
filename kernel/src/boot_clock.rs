@@ -1,6 +1,6 @@
 //! Boot-local identity and timestamp metadata for structured records.
 
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
 pub const PIT_HZ: u64 = 100;
 
@@ -20,7 +20,8 @@ pub struct Stamp {
     pub wall_clock_seconds: u64,
 }
 
-static INITIALIZED: AtomicBool = AtomicBool::new(false);
+// 0 = uninitialized, 1 = initializing, 2 = published.
+static STATE: AtomicU8 = AtomicU8::new(0);
 static BOOT_ID_HI: AtomicU64 = AtomicU64::new(0);
 static BOOT_ID_LO: AtomicU64 = AtomicU64::new(0);
 static WALL_CLOCK_ANCHOR: AtomicU64 = AtomicU64::new(0);
@@ -32,8 +33,8 @@ pub fn initialize(boot_id: [u8; 16], wall_clock_seconds: u64) -> Result<(), Erro
     if hi == 0 && lo == 0 {
         return Err(Error::ZeroBootId);
     }
-    if INITIALIZED
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+    if STATE
+        .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
         .is_err()
     {
         return Err(Error::AlreadyInitialized);
@@ -41,11 +42,12 @@ pub fn initialize(boot_id: [u8; 16], wall_clock_seconds: u64) -> Result<(), Erro
     BOOT_ID_HI.store(hi, Ordering::Relaxed);
     BOOT_ID_LO.store(lo, Ordering::Relaxed);
     WALL_CLOCK_ANCHOR.store(wall_clock_seconds, Ordering::Relaxed);
+    STATE.store(2, Ordering::Release);
     Ok(())
 }
 
 pub fn initialized() -> bool {
-    INITIALIZED.load(Ordering::Acquire)
+    STATE.load(Ordering::Acquire) == 2
 }
 
 pub fn record_tick() {
@@ -77,7 +79,7 @@ pub fn stamp() -> Stamp {
 }
 
 const fn leap_year(year: u16) -> bool {
-    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
+    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
 }
 
 const fn days_in_month(year: u16, month: u8) -> Option<u8> {
