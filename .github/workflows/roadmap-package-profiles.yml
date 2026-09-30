@@ -1,0 +1,27 @@
+name: Package profile transaction evidence
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  package-profile-transactions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt,clippy --target x86_64-unknown-none
+      - name: Prove profile transactions fail atomically
+        run: |
+          cargo fmt --all -- --check
+          cargo test --locked -p vibrix-package --lib profile_
+          cargo clippy --locked -p vibrix-package --target x86_64-unknown-none -- -D warnings
