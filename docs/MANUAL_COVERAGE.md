@@ -14,3 +14,9 @@ The dedicated workflow validates both invariants: complete section-1 coverage
 for every registered command and the installed developer sections. This does not
 claim manuals for features that do not exist yet; when new commands are added,
 the registry test requires their manual entry in the same change.
+
+The same installed sections also provide the current M20 **Local API/manual
+documentation** surface for native development: syscall ABI, the safe Rust
+wrapper, VPKG metadata, VibrixFS, BootInfo and package authority policy are
+available through the guest's own `man` command with no network or host OS
+dependency. Future SDK/toolchain APIs must add their own pages as they land.
