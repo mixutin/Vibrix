@@ -18,6 +18,8 @@ pub mod process;
 pub mod process_syscalls;
 pub mod resolver;
 pub mod routing;
+#[path = "../../shared/syscall_abi.rs"]
+pub mod syscall_abi;
 #[path = "../../shared/scsi.rs"]
 pub mod scsi;
 pub mod secure_random;
