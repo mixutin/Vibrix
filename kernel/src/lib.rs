@@ -14,6 +14,7 @@ pub mod network_services;
 pub mod nic;
 pub mod ntp;
 pub mod packet_filter;
+pub mod path_policy;
 pub mod per_cpu;
 pub mod process;
 pub mod process_syscalls;
@@ -80,6 +81,8 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel NTPv4 client discipline verified");
     nic::tcp_self_test().expect("TCP transport self-test failed");
     report("VIBRIX: kernel TCP active-open foundation verified");
+    path_policy::self_test().expect("path visibility policy self-test failed");
+    report("VIBRIX: kernel path visibility policy verified");
     process::self_test().expect("process lifecycle self-test failed");
     report("VIBRIX: kernel process lifecycle verified");
     report("VIBRIX: kernel process promises verified");
