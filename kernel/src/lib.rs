@@ -12,6 +12,7 @@ pub mod klog;
 pub mod network_guard;
 pub mod network_services;
 pub mod nic;
+pub mod ntp;
 pub mod packet_filter;
 pub mod per_cpu;
 pub mod process;
@@ -75,6 +76,8 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel DNS A resolver verified");
     resolver::self_test().expect("resolver config/cache self-test failed");
     report("VIBRIX: kernel resolver configuration and cache verified");
+    ntp::self_test().expect("NTPv4 client discipline self-test failed");
+    report("VIBRIX: kernel NTPv4 client discipline verified");
     nic::tcp_self_test().expect("TCP transport self-test failed");
     report("VIBRIX: kernel TCP active-open foundation verified");
     process::self_test().expect("process lifecycle self-test failed");
