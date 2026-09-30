@@ -84,6 +84,7 @@ fn process_errno(error: process::Error) -> abi::Errno {
         | process::Error::AlreadyExited
         | process::Error::InvalidPromises => abi::Errno::InvalidArgument,
         process::Error::PromiseExpansion => abi::Errno::PermissionDenied,
+        process::Error::ResourceLimit => abi::Errno::NoMemory,
     }
 }
 
