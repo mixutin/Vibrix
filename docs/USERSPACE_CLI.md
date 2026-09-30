@@ -118,6 +118,23 @@ Every name below has a built-in `man NAME` page and `NAME --help` path. Options 
 
 Aliases: `type` uses the `which` implementation; `neofetch` and `fastfetch` use `vfetch`. No code from those external projects is imported. See [the vfetch and terminal notes](USERSPACE_SHELL.md).
 
+## Manual sections and developer documentation
+
+The native shell installs its reference documentation directly in the userspace
+binary, so manual access does not depend on networking or a mounted documentation
+filesystem. `man NAME` and `man 1 NAME` cover base-system shell commands.
+Developer-facing sections are also available:
+
+- section 2: native system-call ABI (`man 2 syscall`)
+- section 3: Rust syscall wrapper API (`man 3 syscall-rust`)
+- section 5: file/data formats (`man 5 vpkg`, `man 5 vibrixfs`)
+- section 7: ABI and boot/package policy (`man 7 abi`, `man 7 bootinfo`,
+  `man 7 package-policy`)
+
+`man -k WORD` searches both base-system and developer sections and prints the
+section number with each result. These pages describe Vibrix-native interfaces;
+they are not Linux man pages and do not imply POSIX completeness.
+
 ## Shell language
 
 Single and double quotes group words. Empty quoted arguments are retained, adjacent fragments join into one argument, and a backslash quotes the next byte outside single quotes. A `#` at a word boundary starts a comment; `a#b` is one literal word. These are deliberately bounded rules, not the complete POSIX shell expansion grammar.
