@@ -83,7 +83,8 @@ impl Editor {
             return Ok(());
         }
 
-        self.bytes.copy_within(self.cursor..self.len, self.cursor + input.len());
+        self.bytes
+            .copy_within(self.cursor..self.len, self.cursor + input.len());
         self.bytes[self.cursor..self.cursor + input.len()].copy_from_slice(input);
         self.cursor += input.len();
         self.len = end;
@@ -108,7 +109,8 @@ impl Editor {
         if self.cursor == self.len {
             return false;
         }
-        self.bytes.copy_within(self.cursor + 1..self.len, self.cursor);
+        self.bytes
+            .copy_within(self.cursor + 1..self.len, self.cursor);
         self.len -= 1;
         self.bytes[self.len] = 0;
         self.dirty = true;
