@@ -6,6 +6,10 @@
 //! the slot before returning. DMA pages remain retained for kernel lifetime.
 
 use super::*;
+use crate::bootinfo::BootUsbIdentity;
+use core::cell::UnsafeCell;
+#[path = "../../../../../shared/gpt_identity.rs"]
+mod gpt_identity;
 use vibrix_kernel::{
     scsi,
     usb_mass_bulk::{self as bot, CommandStatus, Direction},
@@ -16,6 +20,33 @@ const CONFIGURE_ENDPOINT: u32 = 12;
 const DISABLE_SLOT: u32 = 10;
 const NORMAL: u32 = 1;
 const MAX_RING_TRBS: usize = 64;
+const BOOT_GPT_ENTRY_BYTES: usize = 16 * 1024;
+
+#[derive(Clone, Copy)]
+pub(super) enum Mode {
+    ReversibleWrite,
+    BootIdentity(BootUsbIdentity),
+}
+
+struct GptScratch {
+    primary_header: [u8; 4096],
+    backup_header: [u8; 4096],
+    primary_entries: [u8; BOOT_GPT_ENTRY_BYTES],
+    backup_entries: [u8; BOOT_GPT_ENTRY_BYTES],
+}
+
+struct GptScratchCell(UnsafeCell<GptScratch>);
+
+// SAFETY: this early storage probe executes only on the sole BSP with
+// interrupts disabled. The scratch object is borrowed exactly once per boot.
+unsafe impl Sync for GptScratchCell {}
+
+static GPT_SCRATCH: GptScratchCell = GptScratchCell(UnsafeCell::new(GptScratch {
+    primary_header: [0; 4096],
+    backup_header: [0; 4096],
+    primary_entries: [0; BOOT_GPT_ENTRY_BYTES],
+    backup_entries: [0; BOOT_GPT_ENTRY_BYTES],
+}));
 
 pub(super) struct Control<'a> {
     pub input_context: u64,
@@ -31,6 +62,7 @@ pub(super) struct Evidence {
     pub interface: usb_storage::BulkInterface,
     pub capacity: scsi::Capacity10,
     pub verified_lba: u32,
+    pub boot_identity_matched: bool,
 }
 
 struct BulkTransport<'a> {
@@ -226,6 +258,168 @@ unsafe fn copy_dma(source: usize, destination: usize, length: usize) {
     }
 }
 
+unsafe fn read_disk_bytes(
+    transport: &mut BulkTransport<'_>,
+    start_lba: u64,
+    output: &mut [u8],
+    block_bytes: usize,
+    last_lba: u32,
+) -> Result<(), InitError> {
+    if output.is_empty()
+        || !matches!(block_bytes, 512 | 4096)
+        || !output.len().is_multiple_of(block_bytes)
+    {
+        return Err(InitError::GptIdentity);
+    }
+    let max_blocks = (PAGE as usize / block_bytes).max(1);
+    let mut lba = start_lba;
+    let mut written = 0usize;
+    while written < output.len() {
+        let remaining_blocks = (output.len() - written) / block_bytes;
+        let blocks = remaining_blocks.min(max_blocks);
+        let end_lba = lba
+            .checked_add(blocks as u64 - 1)
+            .ok_or(InitError::GptIdentity)?;
+        if end_lba > u64::from(last_lba) {
+            return Err(InitError::GptIdentity);
+        }
+        let lba32 = u32::try_from(lba).map_err(|_| InitError::GptIdentity)?;
+        let blocks16 = u16::try_from(blocks).map_err(|_| InitError::GptIdentity)?;
+        let length = blocks
+            .checked_mul(block_bytes)
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or(InitError::GptIdentity)?;
+        let command = scsi::read_10(lba32, blocks16).map_err(InitError::Scsi)?;
+        let received = unsafe { transport.command_in(command, length) }?;
+        if received != length {
+            return Err(InitError::StorageCommandFailed);
+        }
+        for offset in 0..length as usize {
+            output[written + offset] = unsafe { read8(transport.data_base, offset) };
+        }
+        written += length as usize;
+        lba = end_lba + 1;
+    }
+    Ok(())
+}
+
+unsafe fn read_entry_array(
+    transport: &mut BulkTransport<'_>,
+    start_lba: u64,
+    bytes: usize,
+    output: &mut [u8],
+    block_bytes: usize,
+    last_lba: u32,
+) -> Result<(), InitError> {
+    if bytes == 0 || bytes > output.len() || bytes > BOOT_GPT_ENTRY_BYTES {
+        return Err(InitError::GptIdentity);
+    }
+    let sectors = bytes.div_ceil(block_bytes);
+    let transfer_bytes = sectors
+        .checked_mul(block_bytes)
+        .ok_or(InitError::GptIdentity)?;
+    if transfer_bytes > output.len() {
+        return Err(InitError::GptIdentity);
+    }
+    unsafe {
+        read_disk_bytes(
+            transport,
+            start_lba,
+            &mut output[..transfer_bytes],
+            block_bytes,
+            last_lba,
+        )
+    }
+}
+
+unsafe fn read_boot_identity(
+    transport: &mut BulkTransport<'_>,
+    capacity: scsi::Capacity10,
+) -> Result<gpt_identity::Identity, InitError> {
+    let block_bytes =
+        usize::try_from(capacity.block_bytes).map_err(|_| InitError::GptIdentity)?;
+    if !matches!(block_bytes, 512 | 4096) {
+        return Err(InitError::GptIdentity);
+    }
+
+    // SAFETY: the entire xHCI/storage path is single-BSP, IF=0 and invokes
+    // this helper at most once. No reference to this scratch object escapes.
+    let scratch = unsafe { &mut *GPT_SCRATCH.0.get() };
+    unsafe {
+        read_disk_bytes(
+            transport,
+            1,
+            &mut scratch.primary_header[..block_bytes],
+            block_bytes,
+            capacity.last_lba,
+        )?;
+        read_disk_bytes(
+            transport,
+            u64::from(capacity.last_lba),
+            &mut scratch.backup_header[..block_bytes],
+            block_bytes,
+            capacity.last_lba,
+        )?;
+    }
+
+    let (_, primary) = gpt_identity::validate_header(
+        &scratch.primary_header[..block_bytes],
+        block_bytes,
+        1,
+        u64::from(capacity.last_lba),
+    )
+    .map_err(|_| InitError::GptIdentity)?;
+    let (_, backup) = gpt_identity::validate_header(
+        &scratch.backup_header[..block_bytes],
+        block_bytes,
+        u64::from(capacity.last_lba),
+        1,
+    )
+    .map_err(|_| InitError::GptIdentity)?;
+
+    if primary.entry_array_bytes > BOOT_GPT_ENTRY_BYTES
+        || backup.entry_array_bytes > BOOT_GPT_ENTRY_BYTES
+    {
+        return Err(InitError::GptIdentity);
+    }
+    unsafe {
+        read_entry_array(
+            transport,
+            primary.entry_lba,
+            primary.entry_array_bytes,
+            &mut scratch.primary_entries,
+            block_bytes,
+            capacity.last_lba,
+        )?;
+        read_entry_array(
+            transport,
+            backup.entry_lba,
+            backup.entry_array_bytes,
+            &mut scratch.backup_entries,
+            block_bytes,
+            capacity.last_lba,
+        )?;
+    }
+
+    gpt_identity::validate_identity(
+        block_bytes,
+        u64::from(capacity.last_lba),
+        &scratch.primary_header[..block_bytes],
+        &scratch.primary_entries[..primary.entry_array_bytes],
+        &scratch.backup_header[..block_bytes],
+        &scratch.backup_entries[..backup.entry_array_bytes],
+    )
+    .map_err(|_| InitError::GptIdentity)
+}
+
+fn identity_matches(expected: BootUsbIdentity, actual: gpt_identity::Identity) -> bool {
+    expected.disk_guid == actual.disk_guid
+        && expected.esp_guid == actual.esp_guid
+        && expected.system_guid == actual.system_guid
+        && expected.esp_first_lba == actual.esp_first_lba
+        && expected.esp_last_lba == actual.esp_last_lba
+}
+
 unsafe fn configure_endpoint(
     input_base: usize,
     dci: u8,
@@ -250,6 +444,7 @@ pub(super) unsafe fn run(
     vm: &mut Window,
     rings: &mut RingCursor,
     control: Control<'_>,
+    mode: Mode,
 ) -> Result<Evidence, InitError> {
     let device = control.device;
 
@@ -402,51 +597,71 @@ pub(super) unsafe fn run(
     }
     let block_bytes =
         usize::try_from(capacity.block_bytes).map_err(|_| InitError::StorageCommandFailed)?;
-    let verified_lba = capacity.last_lba;
+    let (verified_lba, boot_identity_matched) = match mode {
+        Mode::ReversibleWrite => {
+            let verified_lba = capacity.last_lba;
+            let read = scsi::read_10(verified_lba, 1).map_err(InitError::Scsi)?;
+            let read_bytes = unsafe { transport.command_in(read, capacity.block_bytes) }?;
+            if read_bytes != capacity.block_bytes {
+                return Err(InitError::StorageCommandFailed);
+            }
+            unsafe { copy_dma(data_base, original_base, block_bytes) };
 
-    let read = scsi::read_10(verified_lba, 1).map_err(InitError::Scsi)?;
-    let read_bytes = unsafe { transport.command_in(read, capacity.block_bytes) }?;
-    if read_bytes != capacity.block_bytes {
-        return Err(InitError::StorageCommandFailed);
-    }
-    unsafe { copy_dma(data_base, original_base, block_bytes) };
+            for offset in 0..block_bytes {
+                let byte = 0xa5u8 ^ (offset as u8).wrapping_mul(37);
+                unsafe { core::ptr::write_volatile((data_base + offset) as *mut u8, byte) };
+            }
+            let write = scsi::write_10(verified_lba, 1).map_err(InitError::Scsi)?;
+            unsafe { transport.command_out(write, capacity.block_bytes) }?;
+            unsafe { transport.command_none(scsi::synchronize_cache_10()) }?;
 
-    for offset in 0..block_bytes {
-        let byte = 0xa5u8 ^ (offset as u8).wrapping_mul(37);
-        unsafe { core::ptr::write_volatile((data_base + offset) as *mut u8, byte) };
-    }
-    let write = scsi::write_10(verified_lba, 1).map_err(InitError::Scsi)?;
-    unsafe { transport.command_out(write, capacity.block_bytes) }?;
-    unsafe { transport.command_none(scsi::synchronize_cache_10()) }?;
+            let verify = scsi::read_10(verified_lba, 1).map_err(InitError::Scsi)?;
+            let verify_bytes = unsafe { transport.command_in(verify, capacity.block_bytes) }?;
+            if verify_bytes != capacity.block_bytes {
+                return Err(InitError::StorageCommandFailed);
+            }
+            for offset in 0..block_bytes {
+                let expected = 0xa5u8 ^ (offset as u8).wrapping_mul(37);
+                if unsafe { read8(data_base, offset) } != expected {
+                    return Err(InitError::StorageCommandFailed);
+                }
+            }
 
-    let verify = scsi::read_10(verified_lba, 1).map_err(InitError::Scsi)?;
-    let verify_bytes = unsafe { transport.command_in(verify, capacity.block_bytes) }?;
-    if verify_bytes != capacity.block_bytes {
-        return Err(InitError::StorageCommandFailed);
-    }
-    for offset in 0..block_bytes {
-        let expected = 0xa5u8 ^ (offset as u8).wrapping_mul(37);
-        if unsafe { read8(data_base, offset) } != expected {
-            return Err(InitError::StorageCommandFailed);
+            unsafe { copy_dma(original_base, data_base, block_bytes) };
+            let restore = scsi::write_10(verified_lba, 1).map_err(InitError::Scsi)?;
+            unsafe { transport.command_out(restore, capacity.block_bytes) }?;
+            unsafe { transport.command_none(scsi::synchronize_cache_10()) }?;
+            let restored = scsi::read_10(verified_lba, 1).map_err(InitError::Scsi)?;
+            let restored_bytes =
+                unsafe { transport.command_in(restored, capacity.block_bytes) }?;
+            if restored_bytes != capacity.block_bytes {
+                return Err(InitError::StorageCommandFailed);
+            }
+            for offset in 0..block_bytes {
+                if unsafe { read8(data_base, offset) } != unsafe { read8(original_base, offset) } {
+                    return Err(InitError::StorageCommandFailed);
+                }
+            }
+
+            crate::debugcon::write(
+                "VIBRIX: kernel USB mass storage BOT read write flush verified\r\n",
+            );
+            (verified_lba, false)
         }
-    }
-
-    unsafe { copy_dma(original_base, data_base, block_bytes) };
-    let restore = scsi::write_10(verified_lba, 1).map_err(InitError::Scsi)?;
-    unsafe { transport.command_out(restore, capacity.block_bytes) }?;
-    unsafe { transport.command_none(scsi::synchronize_cache_10()) }?;
-    let restored = scsi::read_10(verified_lba, 1).map_err(InitError::Scsi)?;
-    let restored_bytes = unsafe { transport.command_in(restored, capacity.block_bytes) }?;
-    if restored_bytes != capacity.block_bytes {
-        return Err(InitError::StorageCommandFailed);
-    }
-    for offset in 0..block_bytes {
-        if unsafe { read8(data_base, offset) } != unsafe { read8(original_base, offset) } {
-            return Err(InitError::StorageCommandFailed);
+        Mode::BootIdentity(expected) => {
+            let actual = unsafe { read_boot_identity(&mut transport, capacity) }?;
+            if !identity_matches(expected, actual) {
+                crate::debugcon::write(
+                    "VIBRIX: kernel boot USB identity mismatch rejected\r\n",
+                );
+                return Err(InitError::BootIdentityMismatch);
+            }
+            crate::debugcon::write(
+                "VIBRIX: kernel boot USB reacquired by GPT identity\r\n",
+            );
+            (0, true)
         }
-    }
-
-    crate::debugcon::write("VIBRIX: kernel USB mass storage BOT read write flush verified\r\n");
+    };
 
     let disabled = unsafe {
         transport.rings.submit_command([
@@ -472,5 +687,6 @@ pub(super) unsafe fn run(
         interface,
         capacity,
         verified_lba,
+        boot_identity_matched,
     })
 }
