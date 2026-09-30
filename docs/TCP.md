@@ -52,3 +52,26 @@ production timer scheduler. Those remain required before broad TCP completion.
 Additional primary source checked 2026-09-29:
 
 - RFC 5681 — TCP Congestion Control: https://www.rfc-editor.org/rfc/rfc5681.html
+
+## Live bounded loss recovery
+
+The client now has an optional one-segment retransmission buffer for the current
+early transport model. `send_reliable` retains one payload and rejects another
+retained send until cumulative acknowledgment advances it. ACK-only input is
+validated through the normal TCP parser and port/sequence checks.
+
+Three duplicate ACKs for SND.UNA enter the existing RFC 5681 fast-recovery
+policy and reproduce the retained segment without advancing SND.NXT. A partial
+cumulative ACK trims the retained prefix transactionally; a full ACK releases
+the buffer and deflates the congestion window to ssthresh. Timeout-driven
+retransmission reuses the retained unacknowledged suffix and applies the existing
+timeout congestion backoff.
+
+The production post-firmware TCP self-test exercises the integrated duplicate
+ACK / fast-retransmit / recovery-ACK path. This closes the previous gap where
+duplicate-ACK recovery existed only as an isolated congestion-control method.
+
+The broad TCP roadmap item remains open: this is intentionally one retained
+segment, not an arbitrary retransmit queue, and delayed ACK, window scaling,
+SACK/timestamps, persist/keepalive timers, simultaneous open/close, large-window
+reassembly and TIME-WAIT expiry remain unimplemented.
