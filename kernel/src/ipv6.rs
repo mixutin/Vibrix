@@ -79,11 +79,11 @@ impl Header {
 }
 
 fn sum_words(mut sum: u32, bytes: &[u8]) -> u32 {
-    let mut chunks = bytes.chunks_exact(2);
-    for chunk in &mut chunks {
-        sum = sum.wrapping_add(u32::from(u16::from_be_bytes([chunk[0], chunk[1]])));
+    let (chunks, remainder) = bytes.as_chunks::<2>();
+    for chunk in chunks {
+        sum = sum.wrapping_add(u32::from(u16::from_be_bytes(*chunk)));
     }
-    if let Some(&last) = chunks.remainder().first() {
+    if let Some(&last) = remainder.first() {
         sum = sum.wrapping_add(u32::from(last) << 8);
     }
     sum
