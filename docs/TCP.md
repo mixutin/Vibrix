@@ -24,8 +24,13 @@ object is a transport policy primitive: callers still own segment retention,
 clock calibration and actual retransmission I/O. The passive-open path proves a
 strict one-connection base-header handshake, not a backlog or accept queue.
 Full loss-recovery integration, delayed ACK policy, general/large-window receive
-reassembly, window scaling, MSS/SACK/timestamp options, simultaneous open/close,
-persist/keepalive timers and TIME-WAIT expiration remain missing. The current
+reassembly, live window scaling/SACK/timestamp negotiation, simultaneous
+open/close, persist/keepalive timers and TIME-WAIT expiration remain missing.
+The option walker now validates the common negotiation framing for MSS, Window
+Scale, SACK-Permitted and Timestamps, rejects malformed or duplicate known
+options, clamps Window Scale shifts above 14 as required by RFC 7323, and keeps
+unknown well-formed TLVs forward-compatible. Parsing alone does not enable any
+of those negotiated behaviors. The current
 reassembly queue deliberately rejects overlap, stale sequence space, oversized
 segments and capacity exhaustion rather than silently dropping or overwriting
 queued bytes. Those pieces must exist before the broad ROADMAP `TCP` checkbox
@@ -75,3 +80,21 @@ The broad TCP roadmap item remains open: this is intentionally one retained
 segment, not an arbitrary retransmit queue, and delayed ACK, window scaling,
 SACK/timestamps, persist/keepalive timers, simultaneous open/close, large-window
 reassembly and TIME-WAIT expiry remain unimplemented.
+
+## Bounded common option parsing
+
+The transport parses MSS (kind 2), Window Scale (kind 3), SACK-Permitted
+(kind 4) and Timestamp (kind 8) option framing through one bounded option
+walker. Duplicate known options, invalid fixed lengths, zero MSS and malformed
+TLV boundaries fail closed before segment state is exposed. Unknown well-formed
+options remain skippable for forward compatibility.
+
+Window Scale values above 14 are retained as 14 rather than rejected, matching
+RFC 7323's receive behavior. This change intentionally does not negotiate or
+apply scaled windows, generate/consume SACK blocks, or update RTT state from
+timestamps. Those remain transport-state work before the broad TCP roadmap item
+can close.
+
+Primary references checked 2026-09-30:
+- RFC 7323, TCP Window Scale and Timestamps.
+- RFC 2018, TCP SACK-Permitted and SACK options.
