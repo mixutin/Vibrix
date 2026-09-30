@@ -1,0 +1,10 @@
+name = "vibrix-package"
+version = "0.0.1"
+kind = "library"
+source = "workspace"
+path = "userspace/package"
+target = "x86_64-unknown-none"
+features = []
+build = "cargo"
+install = "/lib/libvibrix_package.rlib"
+license = "0BSD"
