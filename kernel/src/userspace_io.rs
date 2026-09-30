@@ -13,9 +13,7 @@ use vibrix_kernel::vfs::{
     Entry, Error, Result,
     console::{BootstrapFiles, bootstrap},
     devfs::DevFs,
-    files::{
-        Access, AdvisoryLock, Open, RIGHT_READ, RIGHT_SEEK, RIGHT_WRITE, RIGHTS_ALL,
-    },
+    files::{Access, AdvisoryLock, Open, RIGHT_READ, RIGHT_SEEK, RIGHT_WRITE, RIGHTS_ALL},
     memfs::MemFs,
 };
 
