@@ -9,6 +9,7 @@ pub mod cpu_topology;
 pub mod credentials;
 pub mod device;
 pub mod klog;
+pub mod network_guard;
 pub mod network_services;
 pub mod nic;
 pub mod packet_filter;
@@ -27,7 +28,6 @@ pub mod usb_mass_bulk;
 pub mod usb_storage;
 pub mod user_image;
 pub mod user_stack;
-pub mod network_guard;
 pub mod vfs;
 
 /// QEMU-only caller supplies the real kernel's independent output paths.
