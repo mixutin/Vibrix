@@ -45,6 +45,10 @@ pub enum Action {
         operation: u64,
         rights: u64,
     },
+    FdLock {
+        fd: u64,
+        operation: u64,
+    },
     Create {
         path: u64,
         length: u64,
@@ -100,9 +104,11 @@ fn credential_errno(error: credentials::Error) -> abi::Errno {
 
 fn required_promise(call: abi::Syscall) -> Option<u64> {
     match call {
-        abi::Syscall::Read | abi::Syscall::Write | abi::Syscall::Close | abi::Syscall::FdRights => {
-            Some(abi::PROMISE_IO)
-        }
+        abi::Syscall::Read
+        | abi::Syscall::Write
+        | abi::Syscall::Close
+        | abi::Syscall::FdRights
+        | abi::Syscall::FdLock => Some(abi::PROMISE_IO)
         abi::Syscall::Open
         | abi::Syscall::Create
         | abi::Syscall::Mkdir
@@ -354,6 +360,15 @@ pub fn dispatch<const N: usize>(
                 rights: args[2],
             })
         }
+        abi::Syscall::FdLock => {
+            if args[1] > abi::FD_LOCK_EXCLUSIVE {
+                return Err(abi::Errno::InvalidArgument);
+            }
+            Ok(Action::FdLock {
+                fd: args[0],
+                operation: args[1],
+            })
+        }
         abi::Syscall::Create => Ok(Action::Create {
             path: args[0],
             length: args[1],
@@ -534,6 +549,46 @@ mod tests {
                 [3, 1, 1 << 63, 0, 0, 0]
             ),
             Err(abi::Errno::InvalidArgument)
+        );
+    }
+
+    #[test]
+    fn advisory_lock_action_is_io_promised_and_validates_operation() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::FdLock.number(),
+                [3, abi::FD_LOCK_EXCLUSIVE, 0, 0, 0, 0]
+            ),
+            Ok(Action::FdLock {
+                fd: 3,
+                operation: abi::FD_LOCK_EXCLUSIVE
+            })
+        );
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::FdLock.number(),
+                [3, 99, 0, 0, 0, 0]
+            ),
+            Err(abi::Errno::InvalidArgument)
+        );
+
+        table
+            .restrict_promises(init, abi::PROMISE_FILESYSTEM)
+            .unwrap();
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::FdLock.number(),
+                [3, abi::FD_LOCK_SHARED, 0, 0, 0, 0]
+            ),
+            Err(abi::Errno::PermissionDenied)
         );
     }
 
