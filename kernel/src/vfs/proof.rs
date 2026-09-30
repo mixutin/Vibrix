@@ -9,6 +9,10 @@ use super::{
 pub fn self_test(mut report: impl FnMut(&str)) -> Result<()> {
     let mut ram = MemFs::<12, 64>::new()?;
     let mut dev = DevFs::new();
+    let mut evidence = MemFs::<4, 64>::new()?;
+    let evidence_root = evidence.root();
+    let evidence_file = evidence.create(evidence_root, "image", Kind::File)?;
+    evidence.write(evidence_file, 0, b"forensic")?;
     let root = ram.root();
     let stale = ram.create(root, "recycled", Kind::File)?;
     ram.remove(root, "recycled")?;
@@ -16,11 +20,24 @@ pub fn self_test(mut report: impl FnMut(&str)) -> Result<()> {
     assert_ne!(stale, fresh);
     assert_eq!(ram.metadata(stale), Err(Error::StaleNode));
     ram.remove(root, "fresh")?;
-    let mut vfs = Vfs::<2>::new(&mut ram)?;
+    let mut vfs = Vfs::<3>::new(&mut ram)?;
     vfs.create("/dev", Kind::Directory)?;
     vfs.create("/tmp", Kind::Directory)?;
     vfs.create("/run", Kind::Directory)?;
+    vfs.create("/evidence", Kind::Directory)?;
     vfs.mount("/dev", &mut dev)?;
+    vfs.mount_read_only("/evidence", &mut evidence)?;
+
+    let evidence_node = vfs.resolve("/evidence/image")?;
+    let mut evidence_bytes = [0u8; 8];
+    assert_eq!(vfs.read(evidence_node, 0, &mut evidence_bytes)?, 8);
+    assert_eq!(&evidence_bytes, b"forensic");
+    assert_eq!(vfs.write(evidence_node, 0, b"x"), Err(Error::ReadOnly));
+    assert_eq!(vfs.truncate(evidence_node), Err(Error::ReadOnly));
+    assert_eq!(vfs.set_file_flags(evidence_node, FLAG_IMMUTABLE), Err(Error::ReadOnly));
+    assert_eq!(vfs.create("/evidence/new", Kind::File), Err(Error::ReadOnly));
+    assert_eq!(vfs.remove("/evidence/image"), Err(Error::ReadOnly));
+    report("VIBRIX: kernel read-only forensic mount verified");
 
     let runtime = vfs.create("/run/boot-state", Kind::File)?;
     assert_eq!(vfs.write(runtime, 0, b"volatile")?, 8);
@@ -55,7 +72,7 @@ pub fn self_test(mut report: impl FnMut(&str)) -> Result<()> {
     report("VIBRIX: kernel immutable and append-only file flags verified");
     report("VIBRIX: kernel VFS and memory filesystem verified");
 
-    let mut files = Files::<2, 8, 1, 8>::new(vfs);
+    let mut files = Files::<3, 8, 1, 8>::new(vfs);
     let fd = files.open("/tmp/note", Open::READ_WRITE)?;
     files.seek(fd, 3)?;
     let spare = files.open("/dev/null", Open::READ_WRITE)?;
