@@ -66,7 +66,7 @@ impl Flow {
         }
     }
 
-    const fn matches(self, packet: Packet) -> bool {
+    fn matches(self, packet: Packet) -> bool {
         self.protocol == packet.protocol
             && ((self.source == packet.source
                 && self.destination == packet.destination
