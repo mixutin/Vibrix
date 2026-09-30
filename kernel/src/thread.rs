@@ -140,6 +140,53 @@ pub struct RunStats {
     pub preemptions: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProfileSnapshot {
+    pub switches: u64,
+    pub completions: u64,
+    pub preemptions: u64,
+    pub ready: u8,
+    pub running: u8,
+    pub exited: u8,
+}
+
+fn snapshot_from(scheduler: &Scheduler) -> ProfileSnapshot {
+    let mut ready = 0u8;
+    let mut running = 0u8;
+    let mut exited = 0u8;
+    for thread in scheduler.threads {
+        match thread.state {
+            State::Ready => ready = ready.saturating_add(1),
+            State::Running => running = running.saturating_add(1),
+            State::Exited => exited = exited.saturating_add(1),
+            State::Empty => {}
+        }
+    }
+    ProfileSnapshot {
+        switches: scheduler.switches,
+        completions: scheduler.completions,
+        preemptions: scheduler.preemptions,
+        ready,
+        running,
+        exited,
+    }
+}
+
+/// Return a bounded scheduler profiling snapshot on the sole BSP.
+///
+/// The snapshot is observational only and never resets counters or changes
+/// scheduling decisions.
+pub fn profile_snapshot() -> Result<ProfileSnapshot, Error> {
+    if !interrupts_disabled() {
+        return Err(Error::InterruptsEnabled);
+    }
+    let scheduler = SCHEDULER.0.get();
+    if unsafe { (*scheduler).current } != BOOT_CONTEXT {
+        return Err(Error::WrongContext);
+    }
+    Ok(snapshot_from(unsafe { &*scheduler }))
+}
+
 fn interrupts_disabled() -> bool {
     let flags: u64;
     // SAFETY: pushfq/pop reads the current BSP flags and restores RSP.
@@ -473,6 +520,14 @@ pub fn smoke_test() -> Result<RunStats, Error> {
     {
         return Err(Error::Invariant);
     }
+    let profile = profile_snapshot()?;
+    if profile.switches < stats.switches
+        || profile.completions < stats.completed as u64
+        || profile.preemptions < stats.preemptions
+        || profile.running != 0
+    {
+        return Err(Error::Invariant);
+    }
     Ok(stats)
 }
 
@@ -566,6 +621,29 @@ pub unsafe fn preemptive_smoke_test() -> Result<RunStats, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scheduler_profile_snapshot_counts_each_state_and_cumulative_work() {
+        let mut scheduler = Scheduler::new();
+        scheduler.switches = 11;
+        scheduler.completions = 3;
+        scheduler.preemptions = 4;
+        scheduler.threads[0].state = State::Ready;
+        scheduler.threads[1].state = State::Running;
+        scheduler.threads[2].state = State::Exited;
+
+        assert_eq!(
+            snapshot_from(&scheduler),
+            ProfileSnapshot {
+                switches: 11,
+                completions: 3,
+                preemptions: 4,
+                ready: 1,
+                running: 1,
+                exited: 1,
+            }
+        );
+    }
 
     #[test]
     fn synthetic_entry_frame_has_sysv_alignment() {
