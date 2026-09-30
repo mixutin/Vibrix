@@ -858,7 +858,11 @@ fn render_vibrix_doctor(io: &mut dyn System, fd: u64) -> Result<()> {
     write_all(io, fd, b"  /welcome read: PASS\n")?;
     write_all(io, fd, b"  /dev/zero: PASS\n")?;
     write_all(io, fd, b"  /dev/null: PASS\n")?;
-    write_all(io, fd, b"  filesystem health: PASS (bootstrap namespace/read/device contracts)\n")?;
+    write_all(
+        io,
+        fd,
+        b"  filesystem health: PASS (bootstrap namespace/read/device contracts)\n",
+    )?;
     write_all(
         io,
         fd,
