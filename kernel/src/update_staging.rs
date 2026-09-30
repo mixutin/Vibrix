@@ -216,6 +216,67 @@ mod tests {
     }
 
     #[test]
+    fn crash_cut_matrix_never_exposes_an_incomplete_generation() {
+        const KNOWN_GOOD: u64 = 40;
+        const CANDIDATE: u64 = 41;
+
+        let mut stager = Stager::new(KNOWN_GOOD).unwrap();
+        let manifest = stager.begin(CANDIDATE).unwrap();
+        let payload = stager.payload_written(manifest.transaction).unwrap();
+        let verified = stager.verified(payload.transaction).unwrap();
+        let durable = stager.durable(verified.transaction).unwrap();
+
+        // Model a power cut after each persistence point, including before the
+        // first staging record becomes durable. Every non-Durable phase must
+        // disappear during recovery.
+        for persisted in [None, Some(manifest), Some(payload), Some(verified)] {
+            let recovered = Stager::recover(KNOWN_GOOD, manifest.transaction, persisted).unwrap();
+            assert_eq!(recovered.pending(), None);
+        }
+
+        // A cut after the Durable record preserves exactly the candidate and
+        // still requires the separate trial-boot policy to consume it.
+        let mut recovered =
+            Stager::recover(KNOWN_GOOD, durable.transaction, Some(durable)).unwrap();
+        assert_eq!(recovered.pending(), Some(durable));
+        assert_eq!(recovered.take_durable(durable.transaction), Ok(CANDIDATE));
+        assert_eq!(recovered.pending(), None);
+
+        // Torn/stale metadata cannot accidentally resurrect an older or
+        // mismatched transaction as a candidate.
+        for record in [
+            Record {
+                transaction: durable.transaction.saturating_sub(1),
+                ..durable
+            },
+            Record {
+                generation: KNOWN_GOOD,
+                ..durable
+            },
+            Record {
+                generation: KNOWN_GOOD - 1,
+                ..durable
+            },
+        ] {
+            let recovered = Stager::recover(KNOWN_GOOD, durable.transaction, Some(record)).unwrap();
+            assert_eq!(recovered.pending(), None);
+        }
+    }
+
+    #[test]
+    fn interruption_recovery_advances_transaction_ids_without_reuse() {
+        let recovered = Stager::recover(10, 77, None).unwrap();
+        let mut recovered = recovered;
+        let next = recovered.begin(11).unwrap();
+        assert_eq!(next.transaction, 78);
+
+        assert_eq!(
+            Stager::recover(10, u64::MAX, None),
+            Err(Error::SequenceExhausted)
+        );
+    }
+
+    #[test]
     fn only_durable_candidate_survives_interruption() {
         let mut stager = Stager::new(20).unwrap();
         let manifest = stager.begin(21).unwrap();
