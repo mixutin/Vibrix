@@ -1,0 +1,25 @@
+name: Process creation semantics contract
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  process-creation-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Validate compatibility contract
+        run: |
+          test -s docs/PROCESS_CREATION.md
+          grep -Fq 'spawn/exec model' docs/PROCESS_CREATION.md
+          grep -Fq 'Traditional `fork()` is **not** currently promised' docs/PROCESS_CREATION.md
+          grep -Fq 'Successful exec does' docs/PROCESS_CREATION.md
+          grep -Fq 'failed load cannot expose a partially initialized child' docs/PROCESS_CREATION.md
+          grep -Fq 'does not claim implemented POSIX fork' docs/PROCESS_CREATION.md
