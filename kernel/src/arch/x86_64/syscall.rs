@@ -297,6 +297,32 @@ mod native {
     }
 
     #[cfg(all(feature = "process-syscall-probe", feature = "userspace-io-probe"))]
+    pub fn account_stdio_descriptors() -> Result<(), InitError> {
+        if !PROCESS_READY.load(Ordering::SeqCst) {
+            return Err(InitError::VerificationFailed);
+        }
+        // SAFETY: called on the sole BSP after the userspace file table has
+        // published fd 0/1/2 and before entering Ring 3.
+        let table = unsafe { &mut *PROCESS_TABLE.0.get() };
+        for _ in 0..3 {
+            table
+                .reserve_file(Pid::INIT)
+                .map_err(|_| InitError::VerificationFailed)?;
+        }
+        Ok(())
+    }
+
+    #[cfg(all(feature = "process-syscall-probe", feature = "userspace-io-probe"))]
+    fn encode_resource_error(error: vibrix_kernel::process::Error) -> u64 {
+        match error {
+            vibrix_kernel::process::Error::ResourceLimit => {
+                abi::encode_error(abi::Errno::NoMemory)
+            }
+            _ => abi::encode_error(abi::Errno::Io),
+        }
+    }
+
+    #[cfg(all(feature = "process-syscall-probe", feature = "userspace-io-probe"))]
     fn encode_vfs_error(error: vibrix_kernel::vfs::Error) -> u64 {
         let errno = match error {
             vibrix_kernel::vfs::Error::BadDescriptor => abi::Errno::BadFileDescriptor,
@@ -435,9 +461,20 @@ mod native {
                         Ok(path) => path,
                         Err(error) => return abi::encode_error(error),
                     };
+                    // Reserve the per-process descriptor budget before
+                    // touching the VFS. A failed VFS open rolls the reservation
+                    // back, so truncation/resource failures remain atomic.
+                    if let Err(error) = table.reserve_file(Pid::INIT) {
+                        return encode_resource_error(error);
+                    }
                     match crate::userspace_io::open(path, flags) {
                         Ok(fd) => fd as u64,
-                        Err(error) => encode_vfs_error(error),
+                        Err(error) => {
+                            if table.release_file(Pid::INIT).is_err() {
+                                return abi::encode_error(abi::Errno::Io);
+                            }
+                            encode_vfs_error(error)
+                        }
                     }
                 }
                 #[cfg(not(feature = "userspace-io-probe"))]
@@ -453,7 +490,10 @@ mod native {
                         return abi::encode_error(abi::Errno::BadFileDescriptor);
                     };
                     match crate::userspace_io::close(fd) {
-                        Ok(()) => 0,
+                        Ok(()) => match table.release_file(Pid::INIT) {
+                            Ok(()) => 0,
+                            Err(error) => encode_resource_error(error),
+                        },
                         Err(error) => encode_vfs_error(error),
                     }
                 }
