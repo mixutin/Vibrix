@@ -24,3 +24,11 @@ jobs:
           cargo fmt --all -- --check
           cargo test --locked -p vibrix-kernel --lib vfs::files::advisory_lock_tests
           cargo clippy --locked -p vibrix-kernel --lib --target x86_64-unknown-none -- -D warnings
+
+      - name: Prove advisory locks through the native Ring-3 syscall path
+        run: |
+          VIBRIX_KERNEL_FEATURES=qemu-debugcon,advisory-lock-probe bash tools/build-qemu.sh
+          VIBRIX_SKIP_BUILD=1 bash tools/test-qemu.sh
+          grep -Fq "VIBRIX: advisory lock userspace I/O initialized" build/qemu/debugcon.log
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "Vibrix advisory lock probe passed"
+          tr -d '\r' < build/qemu/serial.log | grep -Fq "kernel process syscall: exit pid=1 status=0"
