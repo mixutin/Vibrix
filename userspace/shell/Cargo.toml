@@ -16,4 +16,5 @@ test = false
 bench = false
 
 [dependencies]
+vibrix-editor = { path = "../editor", version = "=0.0.1" }
 vibrix-syscall = { path = "../syscall", version = "=0.0.1" }
