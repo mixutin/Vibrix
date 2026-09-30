@@ -1139,7 +1139,7 @@ execution and VFS DAC enforcement remain separate work.
 - [ ] SMP scheduler
 - [ ] synchronization
 - [ ] TLB shootdowns
-- [ ] profiling
+- [x] profiling
 - [ ] Target 001 8C/16T validation
 
 **Verified M12 publish-once per-CPU structures (PR #200):**
@@ -1157,6 +1157,19 @@ This checks the bounded **per-CPU identity/state foundation** only. Application
 processor startup, per-CPU interrupt/syscall stacks, SMP scheduler/run queues,
 cross-CPU synchronization, TLB shootdowns, CPU hotplug and Target 001 8C/16T
 hardware validation remain separate unchecked work.
+
+**Verified M12 bounded scheduler profiling (PR #296):**
+all 37 exact-head workflows passed implementation head
+`63c97c961d007af798cf872c706d36e2f581a0ee`, including dedicated
+[scheduler-profiling run 36674427206](https://github.com/mixutin/Vibrix/actions/runs/36674427206).
+The production scheduler now exposes an observational fixed-size snapshot of
+cumulative switches, completions and preemptions plus ready/running/exited slot
+counts. The existing cooperative QEMU smoke path validates the snapshot without
+resetting counters or changing scheduling decisions.
+
+This checks the bounded **profiling** item for the current single-BSP scheduler.
+It does not claim whole-system profiling, sampling profilers, SMP aggregation,
+userspace tooling, hardware performance counters or Target 001 validation.
 
 ## M13 — Audio and graphics
 
@@ -1270,7 +1283,7 @@ this milestone begins.
 
 - [ ] Signed system update manifests and artifacts
 - [x] Stable / beta / nightly update channels
-- [ ] Transactional update staging
+- [x] Transactional update staging
 - [ ] Automatic rollback after failed boot/update
 - [ ] Explicit `vpm update` / system-update workflow
 - [x] Update history and rollback selection
@@ -1307,6 +1320,20 @@ healthy rollback targets, and fails closed when no valid target exists.
 This checks **Update history and rollback selection** as a bounded control-plane
 state machine. It does not claim persistent on-disk history, automatic reboot
 rollback, signed artifacts, or a complete recovery environment.
+
+**Verified M16 transactional update staging policy (PR #298):**
+all 39 exact-head workflows passed implementation head
+`8b6b2a31113531869655b9125cf65fb3fb751388`, including dedicated
+[transactional-staging run 36674789687](https://github.com/mixutin/Vibrix/actions/runs/36674789687).
+The fixed-capacity state machine assigns monotonic transaction IDs, requires
+ordered manifest/payload/verification/durable transitions, preserves state on
+failed transitions, discards every incomplete persisted phase after simulated
+interruption, and hands only the latest exact durable candidate to the existing
+trial-boot policy without promoting it to known-good.
+
+This checks **Transactional update staging** as the control-plane durability
+policy. It does not claim physical USB writes, filesystem flush semantics,
+signature verification, power-loss-safe media behavior, or a complete updater.
 
 ## M17 — Package ecosystem and profiles
 
@@ -1558,7 +1585,7 @@ inspect system state and perform routine maintenance without another OS.
 - [x] routing table and route-selection policy
 - [ ] loopback and Unix-domain sockets
 - [ ] poll/select/event-notification API for network daemons
-- [ ] stateful packet filter with default-deny policy option
+- [x] stateful packet filter with default-deny policy option
 - [ ] NAT and port redirection
 - [x] anti-spoofing and fragment/resource limits
 - [ ] interface configuration utility
@@ -1593,6 +1620,19 @@ These check **anti-spoofing and fragment/resource limits** and **routing table
 and route-selection policy** for the current bounded IPv4 control/data-policy
 layer. They do not claim IPv6, forwarding/NAT, a complete stateful firewall,
 physical NIC routing, or administrator-facing route utilities.
+
+**Verified M22 bounded stateful IPv4 packet filter (PR #297):**
+all 39 exact-head workflows passed implementation head
+`63d3040a5875800494b5baf81576b628b35d0c58`, including dedicated
+[stateful-filter run 36674550154](https://github.com/mixutin/Vibrix/actions/runs/36674550154).
+The validated control plane now feeds a fixed-capacity first-match IPv4
+dataplane with explicit default pass/block policy and bounded bidirectional
+TCP/UDP flow state. Successful policy replacement flushes remembered state,
+while failed validation preserves both the active ruleset and state.
+
+This checks the bounded **stateful packet filter with default-deny policy
+option** item. It does not claim NIC-hook integration, forwarding/NAT, IPv6,
+timeouts, logging, administrator UX, or physical firewall throughput.
 
 **Exit:** Vibrix can act as a defensible workstation or small server with
 auditable network configuration and no surprise listening services.
