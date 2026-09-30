@@ -44,6 +44,10 @@ pub enum Action {
         operation: u64,
         rights: u64,
     },
+    FdLock {
+        fd: u64,
+        operation: u64,
+    },
     Create {
         path: u64,
         length: u64,
@@ -98,9 +102,11 @@ fn credential_errno(error: credentials::Error) -> abi::Errno {
 
 fn required_promise(call: abi::Syscall) -> Option<u64> {
     match call {
-        abi::Syscall::Read | abi::Syscall::Write | abi::Syscall::Close | abi::Syscall::FdRights => {
-            Some(abi::PROMISE_IO)
-        }
+        abi::Syscall::Read
+        | abi::Syscall::Write
+        | abi::Syscall::Close
+        | abi::Syscall::FdRights
+        | abi::Syscall::FdLock => Some(abi::PROMISE_IO),
         abi::Syscall::Open
         | abi::Syscall::Create
         | abi::Syscall::Mkdir
@@ -249,6 +255,15 @@ pub fn dispatch<const N: usize>(
                 fd: args[0],
                 operation: args[1],
                 rights: args[2],
+            })
+        }
+        abi::Syscall::FdLock => {
+            if args[1] > abi::FD_LOCK_EXCLUSIVE {
+                return Err(abi::Errno::InvalidArgument);
+            }
+            Ok(Action::FdLock {
+                fd: args[0],
+                operation: args[1],
             })
         }
         abi::Syscall::Create => Ok(Action::Create {
