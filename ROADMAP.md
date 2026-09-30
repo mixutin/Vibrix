@@ -1555,12 +1555,12 @@ inspect system state and perform routine maintenance without another OS.
 ## M22 — Network security and administration
 
 - [ ] IPv6 core, neighbor discovery and ICMPv6
-- [ ] routing table and route-selection policy
+- [x] routing table and route-selection policy
 - [ ] loopback and Unix-domain sockets
 - [ ] poll/select/event-notification API for network daemons
 - [ ] stateful packet filter with default-deny policy option
 - [ ] NAT and port redirection
-- [ ] anti-spoofing and fragment/resource limits
+- [x] anti-spoofing and fragment/resource limits
 - [ ] interface configuration utility
 - [ ] route and neighbor inspection utilities
 - [x] resolver configuration and local caching resolver option
@@ -1580,6 +1580,19 @@ failed validation leaves the previously active generation unchanged.
 This checks **packet-filter ruleset validation before activation** only. It does
 not claim that packet filtering, NAT, forwarding, or a firewall dataplane is
 implemented yet.
+
+**Verified M22 bounded IPv4 routing and ingress protection (PRs #289 and #290):**
+the complete exact-head workflow matrix passed on implementation heads
+`1cfb65e3a0779bce6695afc9410d7aaf16e682c4` and
+`f64d4295898f5401fdf3ee126703e612c5b30688`. The ingress guard applies
+bounded source-address anti-spoofing and fragment/resource admission policy,
+while the routing table provides fixed-capacity longest-prefix route selection
+with validated entries and deterministic lookup.
+
+These check **anti-spoofing and fragment/resource limits** and **routing table
+and route-selection policy** for the current bounded IPv4 control/data-policy
+layer. They do not claim IPv6, forwarding/NAT, a complete stateful firewall,
+physical NIC routing, or administrator-facing route utilities.
 
 **Exit:** Vibrix can act as a defensible workstation or small server with
 auditable network configuration and no surprise listening services.
@@ -1602,7 +1615,7 @@ persistent resolver state, or a complete network service manager.
 - [ ] monotonic process-operation promise API inspired by capability reduction
 - [ ] path visibility/access allow-list API
 - [ ] descriptor-rights restriction
-- [ ] no-new-privileges process flag
+- [x] no-new-privileges process flag
 - [ ] privilege-separated daemon patterns in the base system
 - [ ] chroot/service-jail style filesystem roots
 - [ ] immutable and append-only file flags
@@ -1629,6 +1642,18 @@ OpenBSD documents monotonic syscall restriction with `pledge(2)` and
 path visibility restriction with `unveil(2)`. Vibrix may adopt comparable
 security goals, but the API and implementation must be independently designed
 for Vibrix rather than copied.
+
+**Verified M23 monotonic no-new-privileges flag (PR #291):**
+the complete exact-head workflow matrix, including dedicated
+`No-new-privileges evidence`, passed on implementation head
+`492a7b3c991a0fb67cb4083b87f8f110a88c2be0`. Process identity now carries a
+monotonic no-new-privileges state that can transition only from false to true,
+is inherited by children, and rejects attempts to regain privilege through the
+bounded credential transition model.
+
+This checks **no-new-privileges process flag** only. It does not claim pledge-
+style syscall promises, path allow-lists, descriptor-right reduction, service
+jails, namespaces, or complete privilege-separated daemon integration.
 
 **Exit:** ordinary applications and daemons can permanently discard ambient
 authority, and the base system uses those mechanisms by default where practical.
