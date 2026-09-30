@@ -70,9 +70,7 @@ impl Rule {
             return path.starts_with(b"/");
         }
         path == prefix
-            || (path.len() > prefix.len()
-                && path.starts_with(prefix)
-                && path[prefix.len()] == b'/')
+            || (path.len() > prefix.len() && path.starts_with(prefix) && path[prefix.len()] == b'/')
     }
 }
 
@@ -101,11 +99,7 @@ impl Policy {
     }
 
     pub fn permits(&self, path: &[u8], rights: u8) -> bool {
-        if path.is_empty()
-            || path[0] != b'/'
-            || rights == 0
-            || rights & !ACCESS_ALL != 0
-        {
+        if path.is_empty() || path[0] != b'/' || rights == 0 || rights & !ACCESS_ALL != 0 {
             return false;
         }
         if !self.restricted {
