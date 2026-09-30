@@ -147,8 +147,7 @@ pub fn echo_reply(request: &[u8], output: &mut [u8]) -> Result<usize, Error> {
         &reply_header.destination,
         &output[IPV6_HEADER_BYTES..total],
     );
-    output[IPV6_HEADER_BYTES + 2..IPV6_HEADER_BYTES + 4]
-        .copy_from_slice(&checksum.to_be_bytes());
+    output[IPV6_HEADER_BYTES + 2..IPV6_HEADER_BYTES + 4].copy_from_slice(&checksum.to_be_bytes());
     Ok(total)
 }
 
