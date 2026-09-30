@@ -3,8 +3,8 @@
 #[cfg(test)]
 extern crate std;
 
-pub mod audit;
 pub mod admin_broker;
+pub mod audit;
 pub mod block;
 pub mod config_policy;
 pub mod cpu_topology;
@@ -19,17 +19,17 @@ pub mod nic;
 pub mod ntp;
 pub mod packet_filter;
 pub mod path_policy;
-pub mod periodic_jobs;
 pub mod per_cpu;
+pub mod periodic_jobs;
 pub mod process;
 pub mod process_syscalls;
 pub mod resolver;
 pub mod routing;
 #[path = "../../shared/scsi.rs"]
 pub mod scsi;
+pub mod secure_random;
 pub mod service_manager;
 pub mod service_order;
-pub mod secure_random;
 pub mod sync;
 #[path = "../../shared/syscall_abi.rs"]
 pub mod syscall_abi;
