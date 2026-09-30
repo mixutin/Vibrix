@@ -5,11 +5,7 @@
 //! address-space owner and syscall dispatcher so those can be connected without
 //! weakening lifetime rules. No heap allocation or unsafe Rust is used.
 
-use crate::credentials::Credentials;
-
-#[allow(dead_code)]
-#[path = "../../shared/syscall_abi.rs"]
-mod abi;
+use crate::{credentials::Credentials, syscall_abi as abi};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Pid(u32);
