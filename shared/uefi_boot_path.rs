@@ -243,7 +243,7 @@ mod tests {
     fn malformed_and_ambiguous_paths_fail_closed() {
         let mut truncated = path(true, GPT_SIGNATURE_TYPE);
         truncated.pop();
-        assert_eq!(parse(&truncated), Err(Error::InvalidNodeLength));
+        assert_eq!(parse(&truncated), Err(Error::Truncated));
 
         let mut duplicate = path(true, GPT_SIGNATURE_TYPE);
         let end = duplicate.split_off(duplicate.len() - 4);
