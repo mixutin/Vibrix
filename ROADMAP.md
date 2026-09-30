@@ -1432,7 +1432,7 @@ resolution, package-manager installation UX, or signed remote repositories.
 - [x] `vibrix status` system overview
 - [x] `vibrix doctor` automated diagnostics
 - [x] Driver binding/missing-driver diagnostics
-- [ ] Filesystem/network/update health checks
+- [x] Filesystem/network/update health checks
 - [x] Privacy-reviewed `vibrix doctor --bundle` support bundle
 - [x] Verbose boot mode while normal boot remains clean
 - [x] Hardware compatibility/quirk reporting
@@ -1526,6 +1526,20 @@ and shell history, and performs no upload automatically.
 This checks the bounded **privacy-reviewed support bundle** item only. Automatic
 report submission remains absent by design; richer persistent/network/update
 health requires those subsystems to exist.
+
+**Verified M18 bounded filesystem/network/update health checks (PR #324):**
+All 49 exact-head workflows completed successfully on implementation head
+`68ae7f6e9104000b29c58c039355c1a0d72c2598`, including native userspace
+CLI evidence. `vibrix doctor` now reports bootstrap filesystem health from real
+Ring-3 syscall-backed root, welcome-file and devfs checks, while network and
+update health remain explicitly LIMITED until those live/persistent states are
+exposed to userspace. The privacy-bounded support bundle carries the same
+distinction instead of inventing a PASS for unavailable state.
+
+This checks **Filesystem/network/update health checks** at the current bootstrap
+boundary. It does not claim a live userspace network-management API, persistent
+update-state inspection, repair actions, or physical Target 001 storage/network
+health validation.
 
 **Exit:** common boot, driver, storage, update and network failures can be
 diagnosed from Vibrix itself with useful logs and an exportable support bundle.
