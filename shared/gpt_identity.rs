@@ -77,14 +77,9 @@ fn u64_at(bytes: &[u8], offset: usize) -> u64 {
 }
 
 pub fn crc32(bytes: &[u8]) -> u32 {
-    let mut crc = !0u32;
-    for &byte in bytes {
-        crc ^= u32::from(byte);
-        for _ in 0..8 {
-            crc = (crc >> 1) ^ if crc & 1 != 0 { 0xedb8_8320 } else { 0 };
-        }
-    }
-    !crc
+    let mut crc = Crc32::new();
+    crc.update(bytes);
+    crc.finish()
 }
 
 pub fn validate_header(
@@ -160,6 +155,151 @@ pub fn validate_header(
             disk_guid,
         },
     ))
+}
+
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Crc32 {
+    state: u32,
+}
+
+impl Crc32 {
+    pub const fn new() -> Self {
+        Self { state: !0u32 }
+    }
+
+    pub fn update(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.state ^= u32::from(byte);
+            for _ in 0..8 {
+                self.state =
+                    (self.state >> 1) ^ if self.state & 1 != 0 { 0xedb8_8320 } else { 0 };
+            }
+        }
+    }
+
+    pub const fn finish(self) -> u32 {
+        !self.state
+    }
+}
+
+impl Default for Crc32 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Incremental, allocation-free GPT entry-array identity scanner.
+///
+/// Chunks must contain complete entries and together must cover exactly the
+/// entry-array byte count declared by the validated header. This allows a
+/// block driver to verify a GPT without buffering the whole entry array.
+pub struct EntryScanner {
+    layout: HeaderLayout,
+    crc: Crc32,
+    consumed: usize,
+    seen: [[u8; 16]; MAX_ENTRIES],
+    seen_len: usize,
+    ranges: [(u64, u64); MAX_ENTRIES],
+    range_len: usize,
+    esp: Option<([u8; 16], u64, u64)>,
+    system: Option<[u8; 16]>,
+}
+
+impl EntryScanner {
+    pub const fn new(layout: HeaderLayout) -> Self {
+        Self {
+            layout,
+            crc: Crc32::new(),
+            consumed: 0,
+            seen: [[0; 16]; MAX_ENTRIES],
+            seen_len: 0,
+            ranges: [(0, 0); MAX_ENTRIES],
+            range_len: 0,
+            esp: None,
+            system: None,
+        }
+    }
+
+    pub fn consume(&mut self, chunk: &[u8]) -> Result<(), Error> {
+        if chunk.is_empty()
+            || !chunk.len().is_multiple_of(self.layout.entry_size)
+            || self
+                .consumed
+                .checked_add(chunk.len())
+                .is_none_or(|end| end > self.layout.entry_array_bytes)
+        {
+            return Err(Error::EntryLength);
+        }
+        self.crc.update(chunk);
+        for entry in chunk.chunks_exact(self.layout.entry_size) {
+            let type_guid: [u8; 16] = entry[..16].try_into().expect("fixed GPT GUID");
+            if type_guid == [0; 16] {
+                continue;
+            }
+            let guid: [u8; 16] = entry[16..32].try_into().expect("fixed GPT GUID");
+            if guid == [0; 16] {
+                return Err(Error::EmptyPartitionGuid);
+            }
+            if self.seen[..self.seen_len].contains(&guid) {
+                return Err(Error::DuplicatePartitionGuid);
+            }
+            self.seen[self.seen_len] = guid;
+            self.seen_len += 1;
+
+            let first = u64_at(entry, 32);
+            let last = u64_at(entry, 40);
+            if first < self.layout.first_usable
+                || first > last
+                || last > self.layout.last_usable
+            {
+                return Err(Error::PartitionRange);
+            }
+            for &(other_first, other_last) in &self.ranges[..self.range_len] {
+                if first <= other_last && other_first <= last {
+                    return Err(Error::OverlappingPartitions);
+                }
+            }
+            self.ranges[self.range_len] = (first, last);
+            self.range_len += 1;
+
+            if type_guid == ESP_TYPE_GUID {
+                if self.esp.replace((guid, first, last)).is_some() {
+                    return Err(Error::MultipleEsp);
+                }
+            } else if type_guid == VIBRIX_SYSTEM_TYPE_GUID
+                && self.system.replace(guid).is_some()
+            {
+                return Err(Error::MultipleSystem);
+            }
+        }
+        self.consumed += chunk.len();
+        Ok(())
+    }
+
+    pub fn finish(self) -> Result<Identity, Error> {
+        if self.consumed != self.layout.entry_array_bytes {
+            return Err(Error::EntryLength);
+        }
+        if self.crc.finish() != self.layout.entry_crc {
+            return Err(Error::EntryCrc);
+        }
+        let (esp_guid, esp_first_lba, esp_last_lba) = self.esp.ok_or(Error::MissingEsp)?;
+        Ok(Identity {
+            disk_guid: self.layout.disk_guid,
+            esp_guid,
+            esp_first_lba,
+            esp_last_lba,
+            system_guid: self.system,
+        })
+    }
+}
+
+pub fn identities_match(primary: Identity, backup: Identity) -> Result<Identity, Error> {
+    if primary != backup {
+        return Err(Error::MetadataMismatch);
+    }
+    Ok(primary)
 }
 
 pub fn validate_identity(
@@ -375,6 +515,44 @@ mod tests {
             validate_identity(512, 127, &p, &two_esp, &b, &two_esp),
             Err(Error::MultipleEsp)
         );
+    }
+
+    #[test]
+    fn streaming_scanner_matches_whole_array_validation() {
+        for sector in [512, 4096] {
+            let (primary, entries, backup) = fixture(sector);
+            let (_, primary_layout) = validate_header(&primary, sector, 1, 127).unwrap();
+            let (_, backup_layout) = validate_header(&backup, sector, 127, 1).unwrap();
+
+            let mut primary_scan = EntryScanner::new(primary_layout);
+            let mut backup_scan = EntryScanner::new(backup_layout);
+            for chunk in entries.chunks(primary_layout.entry_size * 2) {
+                primary_scan.consume(chunk).unwrap();
+                backup_scan.consume(chunk).unwrap();
+            }
+            let streamed =
+                identities_match(primary_scan.finish().unwrap(), backup_scan.finish().unwrap())
+                    .unwrap();
+            let whole =
+                validate_identity(sector, 127, &primary, &entries, &backup, &entries).unwrap();
+            assert_eq!(streamed, whole);
+        }
+    }
+
+    #[test]
+    fn streaming_scanner_rejects_truncation_and_crc_corruption() {
+        let (primary, entries, _) = fixture(512);
+        let (_, layout) = validate_header(&primary, 512, 1, 127).unwrap();
+
+        let mut truncated = EntryScanner::new(layout);
+        truncated.consume(&entries[..128]).unwrap();
+        assert_eq!(truncated.finish(), Err(Error::EntryLength));
+
+        let mut corrupt = entries.clone();
+        corrupt[64] ^= 1;
+        let mut scan = EntryScanner::new(layout);
+        scan.consume(&corrupt).unwrap();
+        assert_eq!(scan.finish(), Err(Error::EntryCrc));
     }
 
     #[test]
