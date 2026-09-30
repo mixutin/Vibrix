@@ -75,3 +75,19 @@ The broad TCP roadmap item remains open: this is intentionally one retained
 segment, not an arbitrary retransmit queue, and delayed ACK, window scaling,
 SACK/timestamps, persist/keepalive timers, simultaneous open/close, large-window
 reassembly and TIME-WAIT expiry remain unimplemented.
+
+
+## Bounded delayed ACK policy
+
+The transport now includes an explicit delayed-ACK state machine. The first
+accepted in-order segment arms a fixed 200-tick deadline; the second accepted
+segment forces an immediate ACK, matching the RFC 9293 recommendation to
+acknowledge at least every second full-sized segment. Timer expiry also forces
+an ACK, saturating tick arithmetic prevents deadline wrap, and callers can force
+an immediate ACK for gaps/out-of-order traffic.
+
+This is a bounded transport policy primitive and production self-test, not yet a
+scheduler-driven delayed-ACK implementation wired to every live receive path.
+The broad TCP checkbox remains open until window scaling/options, larger receive
+windows/reassembly, remaining timer policies, simultaneous open/close and
+TIME-WAIT expiry are complete.
