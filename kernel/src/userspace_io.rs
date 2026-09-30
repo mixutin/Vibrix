@@ -138,7 +138,7 @@ pub fn close(fd: usize) -> Result<()> {
 }
 
 pub fn descriptor_rights(fd: usize) -> Result<u64> {
-    with_files(|files| files.rights(fd)).map(|rights| u64::from(rights))
+    with_files(|files| files.rights(fd)).map(u64::from)
 }
 
 pub fn restrict_descriptor_rights(fd: usize, rights: u64) -> Result<()> {
