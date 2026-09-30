@@ -187,7 +187,9 @@ pub fn self_test() -> Result<(), Error> {
     manager.enable(ssh)?;
     let first = manager.start(ssh)?;
     let second = manager.reload(ssh)?;
-    if first == second || manager.status(ssh)?.runtime != RuntimeState::Running { generation: second } {
+    if first == second
+        || manager.status(ssh)?.runtime != (RuntimeState::Running { generation: second })
+    {
         return Err(Error::AlreadyRunning);
     }
     manager.stop(ssh)?;
