@@ -12,6 +12,7 @@ pub const WIRE_BYTES: usize = 512;
 pub const NAME_BYTES: usize = 32;
 pub const MAX_DEPENDENCIES: usize = 8;
 pub const DATABASE_CAPACITY: usize = 32;
+pub const MAX_PROFILE_PACKAGES: usize = 8;
 const MAGIC: [u8; 8] = *b"VPKGv001";
 const DEPENDENCY_BYTES: usize = 48;
 const DEPENDENCY_BASE: usize = 100;
@@ -347,8 +348,10 @@ pub enum Error {
     DatabaseFull,
     NotInstalled,
     UnknownCapabilities,
+    TooManyProfilePackages,
 }
 
+#[derive(Clone, Copy)]
 pub struct Database {
     packages: [Option<Manifest>; DATABASE_CAPACITY],
     used: usize,
@@ -425,6 +428,39 @@ impl Database {
         self.validate_dependencies(&manifest)?;
         self.packages[self.used] = Some(manifest);
         self.used += 1;
+        Ok(())
+    }
+
+    /// Install a bounded profile atomically.
+    ///
+    /// The caller supplies manifests in dependency order. Every mutation is
+    /// applied to a private copy first; the live database changes only after
+    /// the full profile succeeds.
+    pub fn install_profile(&mut self, manifests: &[Manifest]) -> Result<(), Error> {
+        if manifests.len() > MAX_PROFILE_PACKAGES {
+            return Err(Error::TooManyProfilePackages);
+        }
+        let mut trial = *self;
+        for manifest in manifests.iter().copied() {
+            trial.install(manifest)?;
+        }
+        *self = trial;
+        Ok(())
+    }
+
+    /// Remove a bounded profile atomically.
+    ///
+    /// Names must be supplied in dependent-first order. Any missing package or
+    /// reverse-dependency conflict aborts without changing the live database.
+    pub fn remove_profile(&mut self, names: &[Name]) -> Result<(), Error> {
+        if names.len() > MAX_PROFILE_PACKAGES {
+            return Err(Error::TooManyProfilePackages);
+        }
+        let mut trial = *self;
+        for name in names.iter().copied() {
+            trial.remove(name)?;
+        }
+        *self = trial;
         Ok(())
     }
 
@@ -640,6 +676,64 @@ mod tests {
         db.install(core).unwrap();
         assert_eq!(db.install(app), Err(Error::DependencyVersion));
         assert_eq!(db.len(), 1);
+    }
+
+    #[test]
+    fn profile_installation_and_removal_are_transactional() {
+        let core = manifest(b"core", Version::new(1, 0, 0), &[]);
+        let dep = Dependency {
+            name: core.name,
+            minimum: Version::new(1, 0, 0),
+        };
+        let app = manifest(b"app", Version::new(1, 0, 0), &[dep]);
+        let missing = manifest(
+            b"broken",
+            Version::new(1, 0, 0),
+            &[Dependency {
+                name: name(b"missing"),
+                minimum: Version::new(1, 0, 0),
+            }],
+        );
+
+        let mut db = Database::new();
+        assert_eq!(
+            db.install_profile(&[core, missing]),
+            Err(Error::MissingDependency)
+        );
+        assert!(db.is_empty());
+
+        db.install_profile(&[core, app]).unwrap();
+        assert_eq!(db.len(), 2);
+
+        assert_eq!(
+            db.remove_profile(&[core.name, app.name]),
+            Err(Error::RequiredByInstalled)
+        );
+        assert_eq!(db.len(), 2);
+        assert!(db.get(core.name).is_some());
+        assert!(db.get(app.name).is_some());
+
+        db.remove_profile(&[app.name, core.name]).unwrap();
+        assert!(db.is_empty());
+    }
+
+    #[test]
+    fn profile_transaction_capacity_fails_before_mutation() {
+        let core = manifest(b"core", Version::new(1, 0, 0), &[]);
+        let mut db = Database::new();
+        let oversized = [core; MAX_PROFILE_PACKAGES + 1];
+        assert_eq!(
+            db.install_profile(&oversized),
+            Err(Error::TooManyProfilePackages)
+        );
+        assert!(db.is_empty());
+
+        let names = [core.name; MAX_PROFILE_PACKAGES + 1];
+        assert_eq!(
+            db.remove_profile(&names),
+            Err(Error::TooManyProfilePackages)
+        );
+        assert!(db.is_empty());
     }
 
     #[test]
