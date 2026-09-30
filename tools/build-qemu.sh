@@ -23,7 +23,11 @@ echo "[vibrix] building UEFI loader"
 cargo build --locked -p vibrix-boot --features "${VIBRIX_BOOT_FEATURES:-qemu-debugcon}" --target x86_64-unknown-uefi
 
 echo "[vibrix] building Rust init userspace ELF"
-cargo rustc --locked -p vibrix-init --bin vibrix-init --target x86_64-unknown-none -- \
+INIT_FEATURES=()
+if [[ ",${VIBRIX_KERNEL_FEATURES:-}," == *,advisory-lock-probe,* ]]; then
+  INIT_FEATURES=(--features advisory-lock-probe)
+fi
+cargo rustc --locked -p vibrix-init --bin vibrix-init "${INIT_FEATURES[@]}" --target x86_64-unknown-none -- \
   -C relocation-model=static \
   -C link-arg=-no-pie \
   -C link-arg=-Tuserspace/linker.ld
