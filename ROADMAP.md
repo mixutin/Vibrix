@@ -1532,7 +1532,7 @@ This extends the security roadmap; it does not replace the security gates that
 must already exist before third-party software is trusted.
 
 - [ ] Application sandbox primitives
-- [ ] Package/application capability declarations
+- [x] Package/application capability declarations
 - [ ] Filesystem namespace/mount isolation
 - [ ] Network namespace/isolation
 - [ ] Device-access mediation
@@ -1542,6 +1542,20 @@ must already exist before third-party software is trusted.
 - [ ] Read-only forensic mounting mode
 - [ ] Package permission review before installation
 - [ ] Hardened developer/debug mode separation
+
+**Verified M19 package/application capability declarations (PR #306):**
+all 45 exact-head workflows passed implementation head
+`301040cbdc77ffe348cd2f9265d7ecb44bc2dfce`, including dedicated
+[capability-declaration evidence run 36679673363](https://github.com/mixutin/Vibrix/actions/runs/36679673363).
+The canonical `VCAPv001` sidecar binds a package name to a typed, fail-closed
+authority bitset for filesystem read/write, network, device and process-control
+access. Unknown authority bits and reserved fields are rejected, zero authority
+is explicit, and the native package probe executes the same declaration codec
+inside Vibrix Ring 3.
+
+This checks **Package/application capability declarations** as a declaration
+format/API. Package permission review and actual sandbox enforcement remain
+separate M19 work.
 
 **Exit:** optional engineering/security tooling can be used without automatically
 receiving unrestricted access to the persistent Vibrix system.
