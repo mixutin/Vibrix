@@ -21,6 +21,8 @@ pub mod routing;
 #[path = "../../shared/scsi.rs"]
 pub mod scsi;
 pub mod secure_random;
+#[path = "../../shared/syscall_abi.rs"]
+pub mod syscall_abi;
 pub mod update_history;
 pub mod update_policy;
 pub mod usb_hid;
@@ -76,6 +78,7 @@ pub fn subsystem_self_test(mut report: impl FnMut(&str)) {
     report("VIBRIX: kernel TCP active-open foundation verified");
     process::self_test().expect("process lifecycle self-test failed");
     report("VIBRIX: kernel process lifecycle verified");
+    report("VIBRIX: kernel process promises verified");
     config_policy::self_test().expect("portable configuration policy self-test failed");
     report("VIBRIX: kernel portable configuration policy verified");
     update_history::self_test().expect("update history self-test failed");

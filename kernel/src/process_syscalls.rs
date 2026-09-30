@@ -9,11 +9,8 @@
 use crate::{
     credentials::{self, Gid, Uid},
     process::{self, Pid, Table, WaitObservation, WaitTarget},
+    syscall_abi as abi,
 };
-
-#[allow(dead_code)]
-#[path = "../../shared/syscall_abi.rs"]
-mod abi;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Action {
@@ -76,9 +73,10 @@ fn process_errno(error: process::Error) -> abi::Errno {
     match error {
         process::Error::Capacity | process::Error::PidExhausted => abi::Errno::NoMemory,
         process::Error::NotFound | process::Error::NoChild => abi::Errno::NotFound,
-        process::Error::ParentNotRunning | process::Error::AlreadyExited => {
-            abi::Errno::InvalidArgument
-        }
+        process::Error::ParentNotRunning
+        | process::Error::AlreadyExited
+        | process::Error::InvalidPromises => abi::Errno::InvalidArgument,
+        process::Error::PromiseExpansion => abi::Errno::PermissionDenied,
     }
 }
 
@@ -88,6 +86,26 @@ fn credential_errno(error: credentials::Error) -> abi::Errno {
         credentials::Error::TooManyGroups | credentials::Error::InvalidMode => {
             abi::Errno::InvalidArgument
         }
+    }
+}
+
+fn required_promise(call: abi::Syscall) -> Option<u64> {
+    match call {
+        abi::Syscall::Read | abi::Syscall::Write | abi::Syscall::Close => Some(abi::PROMISE_IO),
+        abi::Syscall::Open
+        | abi::Syscall::Create
+        | abi::Syscall::Mkdir
+        | abi::Syscall::Remove
+        | abi::Syscall::ReadDir => Some(abi::PROMISE_FILESYSTEM),
+        abi::Syscall::Wait
+        | abi::Syscall::Exec
+        | abi::Syscall::ProcessInfo
+        | abi::Syscall::Kill => Some(abi::PROMISE_PROCESS),
+        abi::Syscall::GetResUid
+        | abi::Syscall::SetResUid
+        | abi::Syscall::GetResGid
+        | abi::Syscall::SetResGid => Some(abi::PROMISE_CREDENTIALS),
+        _ => None,
     }
 }
 
@@ -114,6 +132,13 @@ pub fn dispatch<const N: usize>(
     args: [u64; abi::MAX_ARGS],
 ) -> Result<Action, abi::Errno> {
     let call = abi::Syscall::from_number(number).ok_or(abi::Errno::NotSupported)?;
+    let process = table.get(current).ok_or(abi::Errno::NotFound)?;
+    if let Some(required) = required_promise(call)
+        && process.promises & required == 0
+    {
+        return Err(abi::Errno::PermissionDenied);
+    }
+
     match call {
         abi::Syscall::GetPid => Ok(Action::Return(u64::from(current.get()))),
         abi::Syscall::GetResUid => {
@@ -174,6 +199,18 @@ pub fn dispatch<const N: usize>(
             1 => {
                 table
                     .set_no_new_privileges(current)
+                    .map_err(process_errno)?;
+                Ok(Action::Return(0))
+            }
+            _ => Err(abi::Errno::InvalidArgument),
+        },
+        abi::Syscall::Promises => match args[0] {
+            0 => Ok(Action::Return(
+                table.get(current).ok_or(abi::Errno::NotFound)?.promises,
+            )),
+            1 => {
+                table
+                    .restrict_promises(current, args[1])
                     .map_err(process_errno)?;
                 Ok(Action::Return(0))
             }
@@ -501,6 +538,66 @@ mod tests {
         );
         let child = table.spawn_child(init).unwrap();
         assert!(table.get(child).unwrap().no_new_privileges);
+    }
+
+    #[test]
+    fn promise_syscall_is_monotonic_inherited_and_enforced() {
+        let mut table = Table::<4>::new();
+        let init = table.spawn_init().unwrap();
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::Promises.number(),
+                [0, 0, 0, 0, 0, 0]
+            ),
+            Ok(Action::Return(abi::PROMISE_ALL))
+        );
+
+        let reduced = abi::PROMISE_IO | abi::PROMISE_FILESYSTEM;
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::Promises.number(),
+                [1, reduced, 0, 0, 0, 0]
+            ),
+            Ok(Action::Return(0))
+        );
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::ProcessInfo.number(),
+                [0, 0x8000, 0, 0, 0, 0]
+            ),
+            Err(abi::Errno::PermissionDenied)
+        );
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::Open.number(),
+                [0x7000, 4, abi::OPEN_READ, 0, 0, 0]
+            ),
+            Ok(Action::Open {
+                path: 0x7000,
+                length: 4,
+                flags: abi::OPEN_READ
+            })
+        );
+        assert_eq!(
+            dispatch(
+                &mut table,
+                init,
+                abi::Syscall::Promises.number(),
+                [1, abi::PROMISE_ALL, 0, 0, 0, 0]
+            ),
+            Err(abi::Errno::PermissionDenied)
+        );
+
+        let child = table.spawn_child(init).unwrap();
+        assert_eq!(table.get(child).unwrap().promises, reduced);
     }
 
     #[test]

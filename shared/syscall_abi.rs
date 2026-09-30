@@ -48,6 +48,7 @@ pub enum Syscall {
     GetResGid = 21,
     SetResGid = 22,
     NoNewPrivileges = 23,
+    Promises = 24,
 }
 
 impl Syscall {
@@ -77,6 +78,7 @@ impl Syscall {
             21 => Some(Self::GetResGid),
             22 => Some(Self::SetResGid),
             23 => Some(Self::NoNewPrivileges),
+            24 => Some(Self::Promises),
             _ => None,
         }
     }
@@ -85,6 +87,13 @@ impl Syscall {
         self as u64
     }
 }
+
+pub const PROMISE_IO: u64 = 1 << 0;
+pub const PROMISE_FILESYSTEM: u64 = 1 << 1;
+pub const PROMISE_PROCESS: u64 = 1 << 2;
+pub const PROMISE_CREDENTIALS: u64 = 1 << 3;
+pub const PROMISE_ALL: u64 =
+    PROMISE_IO | PROMISE_FILESYSTEM | PROMISE_PROCESS | PROMISE_CREDENTIALS;
 
 pub const OPEN_READ: u64 = 0;
 pub const OPEN_WRITE: u64 = 1;
@@ -252,6 +261,7 @@ mod tests {
             Syscall::GetResGid,
             Syscall::SetResGid,
             Syscall::NoNewPrivileges,
+            Syscall::Promises,
         ];
         for (expected, call) in calls.into_iter().enumerate() {
             assert_eq!(call.number(), expected as u64);
