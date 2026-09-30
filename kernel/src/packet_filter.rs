@@ -285,7 +285,11 @@ impl StatefulFilter {
 
     fn established(&self, packet: Packet) -> bool {
         matches!(packet.protocol, Protocol::Tcp | Protocol::Udp)
-            && self.states.iter().flatten().any(|flow| flow.matches(packet))
+            && self
+                .states
+                .iter()
+                .flatten()
+                .any(|flow| flow.matches(packet))
     }
 
     fn remember(&mut self, packet: Packet) {
