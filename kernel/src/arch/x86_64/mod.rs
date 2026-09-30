@@ -27,6 +27,7 @@ mod pci_msix_probe;
 pub mod ps2;
 #[cfg(not(feature = "panic-probe"))]
 pub mod reset;
+pub mod rtc;
 #[cfg(any(feature = "ring3-probe", feature = "address-space-probe"))]
 pub mod ring3;
 pub mod serial;

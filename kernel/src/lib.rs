@@ -6,6 +6,7 @@ extern crate std;
 pub mod admin_broker;
 pub mod audit;
 pub mod block;
+pub mod boot_clock;
 pub mod config_policy;
 pub mod cpu_topology;
 pub mod credentials;
